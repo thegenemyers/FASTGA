@@ -4,7 +4,7 @@ CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
 CC = gcc
 
-ALL = Gindex Gshow FastGA FastGAO Hitter
+ALL = Gindex Gshow FastGA Hitter
 
 all: $(ALL)
 
@@ -19,9 +19,6 @@ Gindex : Gindex.c MSDsort.c libfastk.c libfastk.h DB.c DB.h
 
 FastGA: FastGA.c libfastk.c libfastk.h DB.c DB.h RSDsort.c align.c align.h
 	$(CC) $(CFLAGS) -o FastGA FastGA.c RSDsort.c libfastk.c align.c DB.c gene_core.c -lpthread -lm
-
-FastGAO: FastGA.orig.c libfastk.c libfastk.h DB.c DB.h RSDsort.c align.c align.h
-	$(CC) $(CFLAGS) -o FastGAO FastGA.orig.c RSDsort.c libfastk.c align.c DB.c gene_core.c -lpthread -lm
 
 Gshow: Gshow.c libfastk.c libfastk.h gene_core.c gene_core.h
 	$(CC) $(CFLAGS) -o Gshow Gshow.c libfastk.c gene_core.c -lpthread -lm

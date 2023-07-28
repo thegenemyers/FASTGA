@@ -29,12 +29,16 @@
 #undef    DEBUG_HIT
 #define   CALL_ALIGNER
 #undef    DEBUG_ALIGN
+#undef    DEBUG_ENTWINE
 
 #define   MAX_INT64    0x7fffffffffffffffll
 
 #define    TSPACE       100
 static int TBYTES;      //  # of bytes per trace element
 static int ABYTE;       //  TBYTES is 1
+
+static int PTR_SIZE = sizeof(void *);
+static int OVL_SIZE = sizeof(Overlap) - sizeof(void *);
 
 #define    BUCK_WIDTH    64
 #define    BUCK_SHIFT     6
@@ -57,6 +61,7 @@ static int   NTHREADS;
 static char *PAIR_NAME;
 static char *ALGN_NAME;
 static char *ALGN_UNIQ;
+static char *ALGN_PAIR;
 static char *SORT_PATH;
 
 static int IBYTE;   // # of bytes for an entry in P1
@@ -475,19 +480,15 @@ static void *merge_thread(void *args)
   char   *tbuffer;
 #endif
 
-int64 nchar, nentries;
-
   { int j;
 
-    for (j = 0; j < NTHREADS; j++)
+    for (j = 0; j < NPARTS; j++)
       { nunit[j].bend = nunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
         nunit[j].btop = nunit[j].bufr;
         cunit[j].bend = cunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
         cunit[j].btop = cunit[j].bufr;
       }
   }
-
-nchar = 0;
 
   cpre  = -1;
   ctop  = cache;
@@ -517,7 +518,6 @@ nchar = 0;
   qcnt = -1;
   tend = ((_Kmer_Stream *) T1)->neps[spart+P1->nsqrt];
   tbeg = T1->cidx;
-nentries = tend - tbeg;
   while (T1->cidx < tend)
     { suf1 = T1->csuf;
 #ifdef DEBUG_MERGE
@@ -772,7 +772,6 @@ nentries = tend - tbeg;
 
                     ss = (jptr[JSIGN] & 0x80);
                     jptr[JSIGN] &= 0x7f;
-
                     printf("      %ld: %c",((int64 *) jptr)-post,ss?'-':'+');
                     ip = 0;
                     memcpy((uint8 *) (&ip),jptr+JPOST,JCONT);
@@ -781,7 +780,6 @@ nentries = tend - tbeg;
                     memcpy((uint8 *) (&ip),jptr,JPOST);
                     printf(" %9lld\n",ip);
                     fflush(stdout);
-
                     if (ss)
                       jptr[JSIGN] |= 0x80;
                   }
@@ -825,7 +823,7 @@ nentries = tend - tbeg;
 
   { int j;
 
-    for (j = 0; j < NTHREADS; j++)
+    for (j = 0; j < NPARTS; j++)
       { if (nunit[j].btop > nunit[j].bufr)
           write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr);
         close(nunit[j].file);
@@ -1114,65 +1112,126 @@ static void print_seq(char *seq, int b, int e)
 
 #endif
 
-/*
-static int analyze_alignment2(Alignment *align, int *a, int *b, int delta)
-{ Path   *path  = align->path;
-  uint16 *trace = (uint16 *) path->trace;
-  int     tlen  = path->tlen;
-  int     ab, ae;
-  int     bb, be;
-  int     i, d;
-  int     dref, hook;
+static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *where, int show)
+{ int   ac, b2, y2, yp, ae;
+  int   i, j, k;
+  int   num, den, min;
 
-  dref = *a-*b;
-  hook = 0;
-  printf("        Trace %d : %d\n",*a,dref);
+#ifdef DEBUG_ENTWINE
+  if (show)
+    printf("\n");
+#endif
 
-  ab = path->abpos;
-  bb = path->bbpos;
-  if (ab-bb > dref+delta)
-    { printf(" +         * %d %d %d\n",(ab-bb)-dref,ab,bb);
-      ab = (ab/TSPACE)*TSPACE;
-      for (i = 0; i < tlen; i += 2)
-        { d  = trace[i];
-          ae = ab + TSPACE;
-          if (ae > path->aepos)
-            ae = path->aepos;
-          be = bb + trace[i+1]; 
-          if (ae-be <= dref+delta)
-            printf("           %d %d %d %d\n",d,(ae-be)-dref,ae,be);
+  *where = -1;
+
+  y2 = jpath->bbpos;
+  b2 = kpath->bbpos;
+  j  = jpath->abpos/TSPACE;
+  k  = kpath->abpos/TSPACE;
+
+  ac = k*TSPACE;
+
+  j = 1 + 2*(k-j);
+  k = 1;
+  for (i = 1; i < j; i += 2)
+    y2 += jtrace[i];
+
+  if (j == 1)
+    yp = y2 + (jtrace[j] * (kpath->abpos - jpath->abpos)) / (ac+TSPACE - jpath->abpos);
+  else
+    yp = y2 + (jtrace[j] * (kpath->abpos - ac)) / TSPACE;
+
+#ifdef DEBUG_ENTWINE
+  if (show)
+    printf("   @ %5d : %5d %5d = %4d\n",kpath->abpos,yp,b2,b2-yp);
+#endif
+
+  num = b2-yp;
+  den = 1;
+  min = num;
+
+  ae = jpath->aepos;
+  if (ae > kpath->aepos)
+    ae = kpath->aepos;
+
+  for (ac += TSPACE; ac < ae; ac += TSPACE)
+    { y2 += jtrace[j];
+      b2 += ktrace[k];
+      j += 2;
+      k += 2;
+
+#ifdef DEBUG_ENTWINE
+      if (show)
+        printf("   @ %5d : %5d %5d = %4d\n",ac,y2,b2,b2-y2);
+#endif
+
+      i = b2-y2;
+      num += i;
+      den += 1;
+      if (min < 0 && min < i)
+        { if (i >= 0)
+            min = 0; 
           else
-            printf("           %d %d %d %d\n",d,(ae-be)-dref,ae,be);
-          ab = ae;
-          bb = be;
+            min = i;
         }
-      hook = 1;
+      else if (min > 0 && min > i)
+        { if (i <= 0)
+            min = 0;
+          else
+            min = i;
+        }
+      if (i == 0)
+        *where = ac;
     }
 
-  ae = path->aepos;
-  be = path->bepos;
-  if (ae-be > dref+delta)
-    { printf("          * %d %d %d\n",(ae-be)-dref,ae,be);
-      ae = ((ae-1)/TSPACE+1)*TSPACE;
-      for (i = tlen-2; i >= 0; i -= 2)
-        { d = trace[i];
-          ab = ae - TSPACE;
-          if (ab < path->abpos)
-            ab = path->abpos;
-          bb = be - trace[i+1];
-          if (ab-bb <= dref+delta)
-            printf(" -        %d %d %d %d\n",d,(ab-bb)-dref,ab,bb);
-          else
-            printf("          %d %d %d %d\n",d,(ab-bb)-dref,ab,bb);
-          ae = ab;
-          be = bb;
-        }
-      hook = 1;
+  ac -= TSPACE;
+  if (ae == jpath->aepos)
+    { y2 = jpath->bepos;
+      if (kpath->aepos >= ac)
+        b2 += (ktrace[k] * (ae - ac)) / TSPACE;
+      else
+        b2 += (ktrace[k] * (ae - ac)) / (kpath->aepos - ac);
+    }
+  else
+    { b2 = kpath->bepos;
+      if (jpath->aepos >= ac)
+        y2 += (jtrace[j] * (ae - ac)) / TSPACE;
+      else
+        y2 += (jtrace[j] * (ae - ac)) / (jpath->aepos - ac);
     }
 
-  return (hook);
+#ifdef DEBUG_ENTWINE
+  if (show)
+    printf("   @ %5d : %5d %5d = %4d\n",ae,y2,b2,b2-y2);
+#endif
+
+  i = b2-y2;
+  num += i;
+  den += 1;
+  if (min < 0 && min < i)
+    { if (i >= 0)
+        min = 0; 
+      else
+        min = i;
+    }
+  else if (min > 0 && min > i)
+    { if (i <= 0)
+        min = 0;
+      else
+        min = i;
+    }
+
+  if (show)
+    { printf("MINIM = %d AVERAGE = %d",min,num/den);
+      if (*where >= 0)
+        printf(" WHERE = %d",*where);
+      printf("\n");
+    }
+#ifdef DEBUG_ENTWINE
+#endif
+
+  return (min);
 }
-*/
 
 typedef struct
   { int  jpost;
@@ -1185,8 +1244,10 @@ typedef struct
     int         lmax;           //  dynamic list for adjacent bucket merges
     Jspan      *list;
     FILE       *ofile;
+    FILE       *tfile;
     int64       nhits;
     int64       nlass;
+    int64       nlive;
     int64       nlcov;
                             //  See align.h for doc on the following:
     Work_Data  *work;           //  work storage for alignment module
@@ -1220,6 +1281,16 @@ static int JSORT(const void *l, const void *r)
   return (x->jpost-y->jpost);
 }
 
+static int ALN_SORT(void *iblock, const void *l, const void *r)
+{ int64 x = *((int64 *) l);
+  int64 y = *((int64 *) r);
+  Overlap *ol, *or;
+
+  ol = (Overlap *) (iblock+x);
+  or = (Overlap *) (iblock+y);
+  return (ol->path.abpos - or->path.abpos);
+}
+
 //  [beg,end) in the sorted array of width swide elements contain all the adaptive seeds between
 //    the contigs in the parameter pair.  Look for seed chains in each pair of diagaonl buckets
 //    of sufficient score, and when found search for an alignment, outputing it if found.
@@ -1237,6 +1308,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
   Path       *path  = align->path;
 #ifndef DEBUG_ALIGN
   FILE       *ofile = pair->ofile;
+  FILE       *tfile = pair->tfile;
 #endif
 #endif
 #if defined(DEBUG_SEARCH) || defined(DEBUG_HIT)
@@ -1245,7 +1317,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
   uint8 *b, *m, *e;
 
-  int64  nhit, nlas, ncov;
+  int64  nhit, nlas, nmem, nliv, ncov;
   int64  alen, blen;
   int64  aoffset, doffset;
 
@@ -1268,6 +1340,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
   alen   = pair->DB1->reads[ctg1].rlen;
   nhit   = 0;
   nlas   = 0;
+  nmem   = 0;
+  nliv   = 0;
   ncov   = 0;
 
   aoffset = alen-KMER;
@@ -1286,7 +1360,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
     }
 
 #if defined(DEBUG_SEARCH) || defined(DEBUG_HIT)
-  repgo = (ctg1 == 2) && (ctg2 == 28);
+  repgo = (ctg1 == -1) && (ctg2 == -1);
   if (repgo)
     printf("\n  Contig %d vs Contig %d\n",ctg1,ctg2);
 #endif
@@ -1526,7 +1600,6 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                                          path->abpos,path->aepos,path->bbpos,path->bepos);
                                   SHOW_LAS(Print_Alignment)
                                   nlas += 1;
-                                  ncov += path->aepos - path->abpos;
                                 }
                               else
                                 printf("Not found, len = %d\n",
@@ -1535,12 +1608,12 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                               if (path->aepos - path->abpos >= ALIGN_MIN)
                                 { if (ABYTE)
                                     Compress_TraceTo8(ovl,0);
-                                  if (Write_Overlap(ofile,ovl,TBYTES))
+                                  if (Write_Overlap(tfile,ovl,TBYTES))
                                     { fprintf(stderr,"%s: Cannot write output\n",Prog_Name);
                                       exit (1);
                                     }
                                   nlas += 1;
-                                  ncov += align->path->aepos - align->path->abpos;
+                                  nmem += path->tlen * TBYTES + OVL_SIZE;
                                 }
 #endif
                               if (comp)
@@ -1582,10 +1655,10 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                   else
                     n = t - swide;
                   if (comp)
-                    printf("   %c %10ld: %10lld x %10lld %2d %4lld (%d)\n",
+                    printf("   %c %10ld: c %10lld x %10lld %2d %4lld (%d)\n",
                            wch==0x1?'.':'+',(n-beg)/swide,npost,dg-npost,n[-2],cov,n[-1]);
                   else
-                    printf("   %c %10ld: %10lld x %10lld %2d %4lld (%d)\n",
+                    printf("   %c %10ld: n %10lld x %10lld %2d %4lld (%d)\n",
                            wch==0x1?'.':'+',(n-beg)/swide,npost,npost-(dg-blen),n[-2],cov,n[-1]);
                 }
 #endif
@@ -1615,10 +1688,202 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
         }
     }
 
+  //  Detect and remove redundant alignments
+
+  if (nlas > 0)
+    { void    *oblock = Malloc(nmem,"Allocating overlap block");
+      int64   *perm   = Malloc(nlas*sizeof(int64),"Allocating permutation array");
+      int      j, k, where, dist;
+      Path     tpath;
+      void    *tcopy;
+
+      rewind(tfile);
+      if (fread(oblock,nmem,1,tfile) != 1) 
+        { fprintf(stderr,"\n%s: Cannot read overlap block file\n",Prog_Name);
+          exit (1);
+        }
+
+
+      { int64 off;
+
+        off = -PTR_SIZE;
+        for (j = 0; j < nlas; j++)
+          { perm[j] = off;
+            off += OVL_SIZE + ((Overlap *) (oblock+off))->path.tlen*TBYTES;
+          }
+      }
+
+      qsort_r(perm,nlas,sizeof(int64),oblock,ALN_SORT);
+
+#define ELIMINATED  0x4
+
+      for (j = nlas-1; j >= 0; j--)
+        { Overlap *o  = (Overlap *) (oblock+perm[j]);
+          Path    *op = &(o->path);
+
+          for (k = j+1; k < nlas; k++)
+            { Overlap *w  = (Overlap *) (oblock+perm[k]);
+              Path    *wp = &(w->path);
+
+              if (op->aepos <= wp->abpos)
+                break;
+              if (w->flags & ELIMINATED)
+                continue;
+
+              if (op->abpos == wp->abpos && op->bbpos == wp->bbpos)
+                if (op->aepos == wp->aepos && op->bepos == wp->bepos)
+                  { if (op->diffs < wp->aepos)
+                      { w->flags |= ELIMINATED;
+                        continue;
+                      }
+                    else
+                      { o->flags |= ELIMINATED;
+                        break;
+                      }
+                  }
+                else
+                  { if (op->aepos > wp->aepos)
+                      { w->flags |= ELIMINATED;
+                        // printf("  START - %d %d\n",op->aepos-wp->aepos,op->diffs-wp->diffs);
+                        continue;
+                      }
+                    else
+                      { o->flags |= ELIMINATED;
+                        // printf("  START . %d %d\n",wp->aepos-op->aepos,wp->diffs-op->diffs);
+                        break;
+                      }
+                  }
+              else
+                if (op->aepos == wp->aepos && op->bepos == wp->bepos)
+                  { if (op->abpos < wp->abpos)
+                      { w->flags |= ELIMINATED;
+                        // printf("  END - %d %d\n",wp->abpos-op->abpos,op->diffs-wp->diffs);
+                        continue;
+                      }
+                    else
+                      { o->flags |= ELIMINATED;
+                        // printf("  END . %d %d\n",op->abpos-wp->abpos,wp->diffs-op->diffs);
+                        break;
+                      }
+                  }
+            }
+        }
+
+      for (j = nlas-1; j >= 0; j--)
+        { Overlap *o  = (Overlap *) (oblock+perm[j]);
+          Path    *op = &(o->path);
+
+          if (o->flags & ELIMINATED)
+            continue;
+
+          for (k = j+1; k < nlas; k++)
+            { Overlap *w  = (Overlap *) (oblock+perm[k]);
+              Path    *wp = &(w->path);
+
+              if (op->aepos <= wp->abpos)
+                break;
+              if (w->flags & ELIMINATED)
+                continue;
+              if (op->bepos <= wp->bbpos || op->bbpos >= wp->bepos)
+                continue;
+
+              dist = entwine(&(o->path),(uint8 *) (o+1),&(w->path),(uint8 *) (w+1),&where,0);
+              if (where != -1)
+                { //  Fuse here
+// printf("FUSE %d %d\n",op->aepos-op->abpos,wp->aepos-wp->abpos);
+                  // printf(" %3d: %d-%d vs %d-%d\n            %d-%d vs %d-%d\n",
+                         // where,o->path.abpos,o->path.aepos,w->path.abpos,w->path.aepos,
+                         // o->path.bbpos,o->path.bepos,w->path.bbpos,w->path.bepos);
+                  continue;
+                }
+              if (dist < 0 && wp->bepos <= op->bepos+10)
+                { w->flags |= ELIMINATED;
+                  continue;
+                }
+              if (dist > 0 && wp->abpos <= op->abpos+10 && wp->bepos+10 >= op->bepos)
+                { o->flags |= ELIMINATED;
+                  break;
+                }
+continue;
+
+// printf("OTHER\n");
+              // printf(" %3d x %3d: %d-%d vs %d-%d\n            %d-%d vs %d-%d\n",
+                     // j,k,o->path.abpos,o->path.aepos,w->path.abpos,w->path.aepos,
+                     // o->path.bbpos,o->path.bepos,w->path.bbpos,w->path.bepos);
+              dist = entwine(&(o->path),(uint8 *) (o+1),&(w->path),(uint8 *) (w+1),&where,1);
+
+              if (op->abpos <= wp->abpos && op->aepos >= wp->aepos)
+                { w->flags |= ELIMINATED;
+                  printf("  CONTAIN - %d %d\n",
+                         (wp->abpos-op->abpos)+(op->aepos-wp->aepos),op->diffs-wp->diffs);
+                  // continue;
+                }
+              if (wp->abpos <= op->abpos && wp->aepos >= op->aepos)
+                { o->flags |= ELIMINATED;
+                  printf("  CONTAIN . %d %d\n",
+                         (op->abpos-wp->abpos)+(wp->aepos-op->aepos),wp->diffs-op->diffs);
+                  // break;
+                }
+
+              printf("\nAlign 1\n");
+              tpath = o->path;
+              align->path = &tpath;
+              tpath.trace = tcopy = Malloc(sizeof(uint16)*tpath.tlen,"Trace");
+              memcpy(tcopy,o+1,tpath.tlen);
+              { uint16 *t16 = (uint16 *) tcopy;
+                uint8  *t8  = (uint8  *) tcopy;
+                int     nn;
+
+                for (nn = tpath.tlen-1; nn >= 0; nn--)
+                  t16[nn] = t8[nn];
+              }
+              Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);
+              Print_Reference(stdout,align,work,4,100,10,0,8);
+              fflush(stdout);
+              free(tcopy);
+
+              printf("\nAlign 2\n");
+              tpath = w->path;
+              align->path = &tpath;
+              tpath.trace = tcopy = Malloc(sizeof(uint16)*tpath.tlen,"Trace");
+              memcpy(tcopy,w+1,tpath.tlen);
+              { uint16 *t16 = (uint16 *) tcopy;
+                uint8  *t8  = (uint8  *) tcopy;
+                int     nn;
+
+                for (nn = tpath.tlen-1; nn >= 0; nn--)
+                  t16[nn] = t8[nn];
+              }
+              Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);
+              Print_Reference(stdout,align,work,4,100,10,0,8);
+              fflush(stdout);
+              free(tcopy);
+
+              align->path = &(ovl->path);
+	    }
+        }
+
+      for (j = 0; j < nlas; j++)
+        { Overlap *o = (Overlap *) (oblock+perm[j]);
+
+          if (o->flags & ELIMINATED)
+            continue;
+          fwrite( ((char *) o)+PTR_SIZE, OVL_SIZE, 1, ofile);
+          fwrite( (char *) (o+1), TBYTES, o->path.tlen, ofile);
+          nliv += 1;
+          ncov += o->path.aepos - o->path.abpos;
+        }
+
+      rewind (tfile);
+      free(perm);
+      free(oblock);
+    }
+
   pair->lmax   = lmax;
   pair->list   = list;
   pair->nhits += nhit;
   pair->nlass += nlas;
+  pair->nlive += nliv;
   pair->nlcov += ncov;
 }
 
@@ -1632,8 +1897,10 @@ typedef struct
     DAZZ_DB   DB1;
     DAZZ_DB   DB2;
     FILE     *ofile;
+    FILE     *tfile;
     int64     nhits;
     int64     nlass;
+    int64     nlive;
     int64     nlcov;
   } TP;
 
@@ -1650,6 +1917,7 @@ static void *search_seeds(void *args)
   DAZZ_DB *DB2    = &(parm->DB2);
   int      foffs  = swide-JCONT;
   FILE    *ofile  = parm->ofile;
+  FILE    *tfile  = parm->tfile;
 
   int    icrnt;
   int64  jcrnt;
@@ -1683,15 +1951,17 @@ static void *search_seeds(void *args)
   pair->work = New_Work_Data();
   pair->spec = New_Align_Spec(ALIGN_RATE,100,DB1->freq,0);
   pair->ofile = ofile;
+  pair->tfile = tfile;
   pair->nhits = 0;
   pair->nlass = 0;
+  pair->nlive = 0;
   pair->nlcov = 0;
 
   x = sarray + range->off;
   for (icrnt = beg; icrnt < end; icrnt++)
-    { memcpy(_jcrnt,x+foffs,JCONT);
+    { e = x + panel[icrnt];
 
-      e = x + panel[icrnt];
+      memcpy(_jcrnt,x+foffs,JCONT);
       b = x;
       for (x += swide; x < e; x += swide)
         if (memcmp(_jcrnt,x+foffs,JCONT))
@@ -1710,6 +1980,7 @@ static void *search_seeds(void *args)
 
   parm->nhits += pair->nhits;
   parm->nlass += pair->nlass;
+  parm->nlive += pair->nlive;
   parm->nlcov += pair->nlcov;
   return (NULL);
 }
@@ -1787,6 +2058,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       tarm[p].sarr   = sarray;
       tarm[p].panel  = panel;
       tarm[p].range  = range+p;
+
       tarm[p].DB1    = *DB1;
       tarm[p].DB2    = *DB2;
       if (p > 0)
@@ -1801,9 +2073,12 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
               exit (1);
             }
         }
+
       tarm[p].nhits = 0;
       tarm[p].nlass = 0;
+      tarm[p].nlive = 0;
       tarm[p].nlcov = 0;
+
       tarm[p].ofile = fopen(Catenate(SORT_PATH,"/",ALGN_UNIQ,Numbered_Suffix(".",p,".las")),"w");
       if (tarm[p].ofile == NULL)
         { fprintf(stderr,"%s: Cannot open %s/%s.%d.las for writing\n",
@@ -1813,6 +2088,13 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       fwrite(&nels,sizeof(int64),1,tarm[p].ofile);
       nused = 100;
       fwrite(&nused,sizeof(int),1,tarm[p].ofile);
+
+      tarm[p].tfile = fopen(Catenate(SORT_PATH,"/",ALGN_PAIR,Numbered_Suffix(".",p,".las")),"w+");
+      if (tarm[p].tfile == NULL)
+        { fprintf(stderr,"%s: Cannot open %s/%s.%d.las for reading & writing\n",
+                         Prog_Name,SORT_PATH,ALGN_PAIR,p);
+          exit (1);
+        }
     }
 
   for (u = 0; u < 2; u++)
@@ -1875,7 +2157,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
 #ifdef DEBUG_SORT
         for (p = 0; p < NCONTS; p++)
           if (panel[p] > 0)
-            printf(" %2d: %10lld %10lld\n",Perm1[p],panel[p],panel[p]/swide);
+            printf(" %2d(%2d): %10lld %10lld\n",p,Perm1[p],panel[p],panel[p]/swide);
 #endif
 
         if (VERBOSE)
@@ -1914,8 +2196,9 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
   free(sarray);
 
   for (p = 0; p < NTHREADS; p++)
-    { rewind(tarm[p].ofile);
-      fwrite(&(tarm[p].nlass),sizeof(int64),1,tarm[p].ofile);
+    { fclose(tarm[p].tfile);
+      rewind(tarm[p].ofile);
+      fwrite(&(tarm[p].nlive),sizeof(int64),1,tarm[p].ofile);
       fclose(tarm[p].ofile);
     }
 
@@ -1925,22 +2208,25 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
     }
 
   if (VERBOSE)
-    { int64 nhit, nlas, ncov;
+    { int64 nhit, nlas, nliv, ncov;
 
       fprintf(stdout,"\r    Done                        \n");
 
-      nhit = nlas = ncov = 0;
+      nhit = nlas = nliv = ncov = 0;
       for (p = 0; p < NTHREADS; p++)
         { nhit += tarm[p].nhits;
           nlas += tarm[p].nlass;
+          nliv += tarm[p].nlive;
           ncov += tarm[p].nlcov;
         }
-      if (nlas == 0)
-        fprintf(stdout,"\n  Total hits over %d = %lld, 0 preliminary la's of ave len 0\n",
-                       CHAIN_MIN,nhit);
+      if (nliv == 0)
+        fprintf(stdout,
+           "\n  Total hits over %d = %lld, %lld la's, 0 non-redundant la's of ave len 0\n",
+                       CHAIN_MIN,nhit,nlas);
       else
-        fprintf(stdout,"\n  Total hits over %d = %lld, %lld preliminary la's of ave len %lld\n",
-                       CHAIN_MIN,nhit,nlas,ncov/nlas);
+        fprintf(stdout,
+           "\n  Total hits over %d = %lld, %lld la's, %lld non-redundant la's of ave len %lld\n",
+                       CHAIN_MIN,nhit,nlas,nliv,ncov/nliv);
     }
 }
 
@@ -2062,9 +2348,25 @@ int main(int argc, char *argv[])
 
   T1 = Open_Kmer_Stream(argv[1]);
   T2 = Open_Kmer_Stream(argv[2]);
+  if (T1 == NULL)
+    { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[1]);
+      exit (1);
+    }
+  if (T2 == NULL)
+    { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[2]);
+      exit (1);
+    }
   
   P1 = Open_Post_List(argv[1]);
   P2 = Open_Post_List(argv[2]);
+  if (P1 == NULL)
+    { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[1]);
+      exit (1);
+    }
+  if (P2 == NULL)
+    { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[2]);
+      exit (1);
+    }
 
   Perm1  = P1->perm;
   Perm2  = P2->perm;
@@ -2079,7 +2381,6 @@ int main(int argc, char *argv[])
 
   KMER      = T1->kmer;
   NTHREADS  = P1->nsqrt;
-  PAIR_NAME = Strdup(Numbered_Suffix("_pair.",getpid(),""),"Allocating temp name");
   if (P2->nsqrt != NTHREADS)
     { fprintf(stderr,"%s: Genome indices %s & %s built with different # of threads\n",
                       Prog_Name,argv[1],argv[2]);
@@ -2097,8 +2398,11 @@ int main(int argc, char *argv[])
       }
     else
       ALGN_NAME = Strdup(OUTP,"Allocating alignment name");
-    ALGN_UNIQ = Strdup(Catenate(ALGN_NAME,".",Numbered_Suffix("",getpid(),""),""),
-                       "Allocating unique alignment name");
+    ALGN_UNIQ = Strdup(Numbered_Suffix("_uniq.",getpid(),""),"Allocating temp name");
+    PAIR_NAME = Strdup(Numbered_Suffix("_pair.",getpid(),""),"Allocating temp name");
+    ALGN_PAIR = Strdup(Numbered_Suffix("_algn.",getpid(),""),"Allocating temp name");
+    if (ALGN_NAME == NULL || ALGN_UNIQ == NULL || PAIR_NAME == NULL || ALGN_PAIR == NULL)
+      exit (1);
   }
 
   if (P1->freq < FREQ)
@@ -2143,6 +2447,11 @@ int main(int argc, char *argv[])
   else
     { ABYTE  = 0;
       TBYTES = sizeof(uint16);
+    }
+
+  if (VERBOSE)
+    { fprintf(stdout,"\n  Using %d threads\n\n",NTHREADS);
+      fflush(stdout);
     }
 
   { int64 npost, cum, t;   //  Compute DB split into NTHREADS parts
@@ -2292,7 +2601,8 @@ int main(int argc, char *argv[])
         exit (1);
       }
 
-    sprintf(command,"rm -f %s/%s.*.las %s/%s.*.S.las",SORT_PATH,ALGN_UNIQ,SORT_PATH,ALGN_UNIQ); 
+    sprintf(command,"rm -f %s/%s.*.las %s/%s.*.las %s/%s.*.S.las",
+                    SORT_PATH,ALGN_PAIR,SORT_PATH,ALGN_UNIQ,SORT_PATH,ALGN_UNIQ); 
     if (system(command) != 0)
       { fprintf(stderr,"%s: Could not remove intermediate alignment files. ?\n",Prog_Name);
         exit (1);

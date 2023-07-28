@@ -163,6 +163,8 @@ void Free_Work_Data(Work_Data *ework)
                          //     2*TRIM_LEN edits are prefix-positive at rate ave_corr*f(bias)
                          //     (max value is 20)
 
+#define DUB_TRIM    45   //  = 3*TRIM_LEN
+
 #define PATH_LEN    60   //  Follow the last PATH_LEN columns/edges (max value is 63)
 
   //  Derivative fixed parameters
@@ -1729,6 +1731,7 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
   int   aoff, boff;
   int   minp, maxp;
   int   selfie;
+  int   fshort, rshort;
 
   { int alen, blen;
     int maxtp, wsize;
@@ -1799,9 +1802,11 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
   if (forward_wave(work,spec,align,bpath,&low,hgh,anti,minp,maxp,aoff,boff))
     EXIT(NULL);
 
+  fshort = ((apath->aepos + apath->bepos) - anti < DUB_TRIM);
+
 #ifdef DEBUG_PASSES
   printf("F1 (%d,%d) ~ %d => (%d,%d) %d\n",
-         (2*anti+(low+hgh))/4,(anti-(low+hgh))/4,hgh-low,
+         (2*anti+(low+hgh))/4,(2*anti-(low+hgh))/4,hgh-low,
          apath->aepos,apath->bepos,apath->diffs);
 #endif
 
@@ -1812,6 +1817,36 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
   printf("R1 (%d,%d) => (%d,%d) %d\n",
          (anti+low)/2,(anti-low)/2,apath->abpos,apath->bbpos,apath->diffs);
 #endif
+
+  rshort = (anti - (apath->abpos + apath->bbpos) < DUB_TRIM);
+
+  if (fshort)
+    { if (rshort)
+        { apath->aepos = apath->abpos = (apath->abpos+apath->aepos)/2;
+          apath->bepos = apath->bbpos = (apath->bbpos+apath->bepos)/2;
+          bpath->aepos = bpath->abpos = (bpath->abpos+bpath->aepos)/2;
+          bpath->bepos = bpath->bbpos = (bpath->bbpos+bpath->bepos)/2;
+          apath->tlen  = 0;
+          bpath->tlen  = 0;
+        }
+      else
+        { low  = apath->abpos - apath->bbpos;
+          anti = apath->abpos + apath->bbpos;
+          apath->tlen = bpath->tlen = 0;
+          if (forward_wave(work,spec,align,bpath,&low,low,anti,minp,maxp,aoff,boff))
+            EXIT(NULL);
+        }
+    }
+  else
+    { if (rshort)
+        { low  = apath->aepos - apath->bepos;
+          anti = apath->aepos + apath->bepos;
+          apath->tlen = bpath->tlen = 0;
+          if (reverse_wave(work,spec,align,bpath,low,low,anti,minp,maxp,aoff,boff))
+            EXIT(NULL);
+        }
+    }
+        
 
   bpath->diffs = apath->diffs;
   if (ACOMP(align->flags))

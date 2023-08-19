@@ -9,9 +9,9 @@ thousand contigs with a sequence quality of Q40 or better.
 Based on a novel adaptive seed finding algorithm and the wave-based local aligner developed for
 [daligner](https://github.com/thegenemyers/DALIGNER), the tool can for example compare
 two 2Gbp genomes finding almost all regions over 100bp that are 70% or more similar
-in about 6 minutes wall clock time on my MacPro with 8 cores (about 35 CPU minutes).
-Moreover, it uses a trace point concept to record all the found alignments in a very space-efficient manner, e.g. just 70MB for over
-900,000 local alignments (la's) in our running example.
+in about 4 minutes wall clock time on my MacPro with 8 cores (about 24 CPU minutes).
+Moreover, it uses a trace point concept to record all the found alignments in a very space-efficient manner, e.g. just 50MB for over
+640,000 local alignments (la's) in our running example.
 
 FastGA uses several components of the Daligner assembler software suite,
 namely its concept of a genome "database" and its tools for encoding
@@ -40,7 +40,7 @@ say NCBI fasta files of the target genomes, is to first convert each of them int
 genomes with **FastGA**.
 While you may at first think it a little inconvenient to have to build
 a Dazzler database, its actually a good thing as (a) the database is
-25% the size of the fasta file, (b) you can delete the fasta file as it can be reconstructed exactly from the database with [DAM2fasta](https://github.com/thegenemyers/DAZZ_DB), and (c) you have a tool [DBstats](https://github.com/thegenemyers/DAZZ_DB) to give you summary statistics and another, [DBshow](https://github.com/thegenemyers/DAZZ_DB), to randomly access
+25% the size of the fasta file, (b) you can delete the fasta file as it can be reconstructed *exactly* from the database with [DAM2fasta](https://github.com/thegenemyers/DAZZ_DB), and (c) you have a tool [DBstats](https://github.com/thegenemyers/DAZZ_DB) to give you summary statistics and another, [DBshow](https://github.com/thegenemyers/DAZZ_DB), to randomly access
 and view the contigs of the genome.  Creating the data base for a genome in file say ```mygenome.fasta``` is as simple as issuing the two commands:
 
 ```
@@ -53,12 +53,12 @@ files ```.mydb.idx```, ```.mydb.hdr```, and ```.mydb.bps```.  The database can b
 with ```DBrm  mydb``` which removes the visible file and the 3 hidden files.
 
 The remainder of this document gives the command line syntax and complete technical description
-of the tools **Gindex** that creates an index, **Gshow** that prints a listing of an index, and **FastGA** which compares two genomes and outputs a local alignments (.las) file of all the matches it finds above user-supplied thresholds for length and similarity.
+for the tools **Gindex** that creates an index, **Gshow** that prints a listing of an index, and **FastGA** which compares two genomes and outputs a local alignments (.las) file of all the matches it finds above user-supplied thresholds for length and similarity.
 
 <a name="Gindex"></a>
 
 ```
-1. Gindex [-v] [-T<int(8)>] -f<int(10)> <source>.[dam]
+1. Gindex [-v] [-T<int(8)>] -f<int> <source>.[dam]
 ```
 
 Given a Dazzler database, or .dam, for a genome, **Gindex** produces an index of the genome
@@ -66,7 +66,8 @@ consisting of a pair of files \<source>.ktab and \<source>.post.  The .ktab file
 FastK table of all the 40-mers in the genome that occur -f or few times.  The .post file
 contains successive lists of the genome positions at which the 40-mers in the first table occur
 in order of the 40-mers in the table.  The option -f is designed to remove 40-mers from
-repetitive regions of the genome from consideration.  It must be specified.  With the -v
+repetitive regions of the genome from consideration.  It must be specified, we suggest a good
+default value is say 10.  With the -v
 option the program prints a progress report to the standard output.
 
 The program runs with -T threads, 8 by default and for which it typically sees a 6X or more
@@ -115,4 +116,5 @@ FastGA then searches for runs or chains of adaptamer seed hits that (a) all lie 
 hits, FastGA then runs a wave-based local alignment routine that searches for a local alignment
 of length at least -a(100) with a similarity of -e(70%) or better that contains at least one
 of the seeds in the chain.  All such found alignments are reported in the output .las file in
-lexicgraphical order of source1 contig #, and then source 2 contig #, and then the start coordinate of the alignment in source1.
+lexicgraphical order of source1 contig #, and then source 2 contig #, and then the start coordinate of the alignment in source1.  The options -s, -c -a, and -e can be used to modify the default
+thresholds for chaining and alignment.

@@ -4,7 +4,7 @@ CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
 CC = gcc
 
-ALL = Gindex Gshow FastGA Hitter
+ALL = Gindex Gshow FastGA Hitter LAStoPSL
 
 all: $(ALL)
 
@@ -25,6 +25,9 @@ Gshow: Gshow.c libfastk.c libfastk.h gene_core.c gene_core.h
 
 Hitter: Hitter.c align.h align.c DB.c DB.h
 	$(CC) $(CFLAGS) -o Hitter Hitter.c align.c DB.c gene_core.c -lpthread -lm
+
+LAStoPSL: LAStoPSL.c align.h align.c DB.c DB.h
+	$(CC) $(CFLAGS) -o LAStoPSL LAStoPSL.c align.c DB.c gene_core.c -lpthread -lm
 
 clean:
 	rm -f $(ALL)

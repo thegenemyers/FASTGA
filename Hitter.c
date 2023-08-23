@@ -187,7 +187,7 @@ static NODE *DELETE(NODE *v, NODE *old)
   return (w);
 }
 
-
+/*
   v = NULL;
   new = Node(0,0);
   for (hits) do
@@ -200,7 +200,7 @@ static NODE *DELETE(NODE *v, NODE *old)
         }
       else
         scr += (hit->aepos-hit->abpos);
-      
+*/
 
 int main(int argc, char *argv[])
 { DAZZ_DB   _db1, *db1 = &_db1;
@@ -367,7 +367,6 @@ int main(int argc, char *argv[])
             aread = ovl->aread;
           }
 
-printf(" %d: %d   %lld\n",ovl->bread,ovl->path.aepos-ovl->path.abpos,wgt[18]);
         wgt[ovl->bread] += ovl->path.aepos - ovl->path.abpos;
         cnt[ovl->bread] += 1;
       }

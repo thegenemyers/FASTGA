@@ -12,6 +12,8 @@ two 2Gbp genomes finding almost all regions over 100bp that are 70% or more simi
 in about 4 minutes wall clock time on my MacPro with 8 cores (about 24 CPU minutes).
 Moreover, it uses a trace point concept to record all the found alignments in a very space-efficient manner, e.g. just 50MB for over
 640,000 local alignments (la's) in our running example.
+The alignments can also be translated into .psl format and 1-code format with programs
+described below.
 
 FastGA uses several components of the Daligner assembler software suite,
 namely its concept of a genome "database" and its tools for encoding
@@ -23,16 +25,19 @@ No need to panic, simply download and say "make" and that's it.
 You should then place the produced binaries on your execution path so
 that you then have fasta2DAM, DBsplit, DAM2fasta, DBstats, and DBshow available for
 creating and viewing a genome database made from the standard fasta
-encoding, and the tool LAshow for viewing your alignments.  In
+encoding, and the tools LAshow, LAsort, and LAmerge for manipulating and
+viewing your alignments in .las format.  In
 addition, there are programs therein, [DB2ONE](https://github.com/thegenemyers/DAZZ_DB)
 and [LA2ONE](https://github.com/thegenemyers/DALIGNER) to convert the genome database and the
 local alignments into [ONEcode](https://github.com/thegenemyers/ONEcode) formated files which are trivial to read and analyze.
+The Hiller lab's tools take .psl-formated alignment files as input, so we provide in
+this repository LAStoPSL that converts our .las files into .psl.
 
 FastGA also uses the data encodings used by the [FastK](https://github.com/thegenemyers/FASTK)
 k-mer counter suite
 for a k-mer table, so in principle one could use tools from FastK to manipulate
 the .ktab portion of a genome index produced by **Gindex**.  But unlike the
-Daligner components this is not necessary.
+Daligner components this is strictly optional and not necessary.
 
 The overall workflow for using **FastGA**, assuming you are starting from
 say NCBI fasta files of the target genomes, is to first convert each of them into a Dazzler database with [fasta2DAM](https://github.com/thegenemyers/DAZZ_DB) and
@@ -52,8 +57,14 @@ The two command sequence above results in the creation of the visible file ```my
 files ```.mydb.idx```, ```.mydb.hdr```, and ```.mydb.bps```.  The database can be deleted
 with ```DBrm  mydb``` which removes the visible file and the 3 hidden files.
 
+In the directory EXAMPLE of this repository you will find a text script file showing a complete
+example building indices for two genomes, comparing them, and then output the alignments in
+three different forms including .psl format.  The directory also contains all or, if too large
+for github, a portion, of the three outputs.
+
 The remainder of this document gives the command line syntax and complete technical description
-for the tools **Gindex** that creates an index, **Gshow** that prints a listing of an index, and **FastGA** which compares two genomes and outputs a local alignments (.las) file of all the matches it finds above user-supplied thresholds for length and similarity.
+for the tools **Gindex** that creates an index, **Gshow** that prints a listing of an index, **FastGA** which compares two genomes and outputs a local alignments (.las) file of all the matches it finds above user-supplied thresholds for length and similarity, and **LAStoPSL** that converts
+a .las file into .psl format.
 
 <a name="Gindex"></a>
 
@@ -118,3 +129,15 @@ of length at least -a(100) with a similarity of -e(70%) or better that contains 
 of the seeds in the chain.  All such found alignments are reported in the output .las file in
 lexicgraphical order of source1 contig #, and then source 2 contig #, and then the start coordinate of the alignment in source1.  The options -s, -c -a, and -e can be used to modify the default
 thresholds for chaining and alignment.
+
+
+```
+4. LAStoPSL <source1>[.dam] <source2>[.dam] <alignments>[.las]
+```
+
+In order to convert a .las file into a .psl file, LAStoPSL also needs as arguments the two genomes,
+as Dazzler .dam's, that were compared by FastGA to produce the file.  Given these 3 arguments in the
+order shown above, the program outputs .psl encoded alignments, one alignment per line to the
+standard output.
+Warning, the .psl output is almost 15 times larger than the .las file.
+

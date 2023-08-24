@@ -2579,7 +2579,7 @@ int main(int argc, char *argv[])
   { char *command;
 
     if (VERBOSE)
-      fprintf(stdout,"\nSorting and merging local alignments\n");
+      fprintf(stdout,"\n  Sorting and merging local alignments\n");
 
     command = Malloc(2*strlen(ALGN_UNIQ)+strlen(SORT_PATH)+500,"Command string");
     if (command == NULL)

@@ -30,6 +30,8 @@ static char *Usage = " <src1:db|dam> [ <src2:db|dam> ] <align:las>";
  *
  ********************************************************************************************/
 
+/*
+
 typedef struct vtx
   { struct vtx *L, *R;
     int64       V;
@@ -187,7 +189,6 @@ static NODE *DELETE(NODE *v, NODE *old)
   return (w);
 }
 
-/*
   v = NULL;
   new = Node(0,0);
   for (hits) do
@@ -218,7 +219,7 @@ int main(int argc, char *argv[])
   { int    i, j, k;
     int    flags[128];
 
-    ARG_INIT("Hitter")
+    ARG_INIT("Synteny")
 
     j = 1;
     for (i = 1; i < argc; i++)

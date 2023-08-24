@@ -44,6 +44,7 @@ mAseSto.dam	mAseSto.ktab	mAseSto.post	mEonSpe.dam	mEonSpe.ktab	mEonSpe.post
   Total hits over 100 = 943184, 853904 la's, 639875 non-redundant la's of ave len 1796
 
   Sorting and merging local alignments
+1392.205u 73.488s 3:58.98 613.3%	0+0k 0+0io 33pf+0w
 >
 > time LAshow mEonSpe mAseSto mEonSpe.mAseSto.las > mESmAS.list
 1.678u 0.087s 0:01.77 98.8%	0+0k 0+0io 0pf+0w

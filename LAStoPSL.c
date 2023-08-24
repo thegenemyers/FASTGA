@@ -41,7 +41,7 @@ int main(int argc, char *argv[])
   { int    i, j, k;
     int    flags[128];
 
-    ARG_INIT("Hitter")
+    ARG_INIT("LAStoPSL")
 
     j = 1;
     for (i = 1; i < argc; i++)

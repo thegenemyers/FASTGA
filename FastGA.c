@@ -1117,6 +1117,8 @@ static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *
   int   i, j, k;
   int   num, den, min;
 
+  (void) show;
+
 #ifdef DEBUG_ENTWINE
   if (show)
     printf("\n");
@@ -1221,13 +1223,13 @@ static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *
         min = i;
     }
 
+#ifdef DEBUG_ENTWINE
   if (show)
     { printf("MINIM = %d AVERAGE = %d",min,num/den);
       if (*where >= 0)
         printf(" WHERE = %d",*where);
       printf("\n");
     }
-#ifdef DEBUG_ENTWINE
 #endif
 
   return (min);
@@ -1281,13 +1283,15 @@ static int JSORT(const void *l, const void *r)
   return (x->jpost-y->jpost);
 }
 
-static int ALN_SORT(void *iblock, const void *l, const void *r)
+static void *IBLOCK;
+
+static int ALN_SORT(const void *l, const void *r)
 { int64 x = *((int64 *) l);
   int64 y = *((int64 *) r);
   Overlap *ol, *or;
 
-  ol = (Overlap *) (iblock+x);
-  or = (Overlap *) (iblock+y);
+  ol = (Overlap *) (IBLOCK+x);
+  or = (Overlap *) (IBLOCK+y);
   return (ol->path.abpos - or->path.abpos);
 }
 
@@ -1329,12 +1333,15 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
   uint8 *_ipost = (uint8 *) (&ipost);
   uint8 *_apost = (uint8 *) (&apost);
 
+  ctg1 = Perm1[ctg1];
+  ctg2 = Perm2[ctg2];
+
+  if (pair->DB1->reads[ctg1].origin < 0 || pair->DB2->reads[ctg2].origin < 0)
+    return;
+
   ndiag = 0;
   ipost = 0;
   apost = 0;
-
-  ctg1 = Perm1[ctg1];
-  ctg2 = Perm2[ctg2];
 
   blen   = pair->DB2->reads[ctg2].rlen;
   alen   = pair->DB1->reads[ctg1].rlen;
@@ -1713,7 +1720,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
           }
       }
 
-      qsort_r(perm,nlas,sizeof(int64),oblock,ALN_SORT);
+      IBLOCK = oblock;
+      qsort(perm,nlas,sizeof(int64),ALN_SORT);
 
 #define ELIMINATED  0x4
 
@@ -1732,7 +1740,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
               if (op->abpos == wp->abpos && op->bbpos == wp->bbpos)
                 if (op->aepos == wp->aepos && op->bepos == wp->bepos)
-                  { if (op->diffs < wp->aepos)
+                  { if (op->diffs < wp->aepos)    //  = endpoints
                       { w->flags |= ELIMINATED;
                         continue;
                       }
@@ -1742,7 +1750,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                       }
                   }
                 else
-                  { if (op->aepos > wp->aepos)
+                  { if (op->aepos > wp->aepos)    //  a-interval of one contained in the other
                       { w->flags |= ELIMINATED;
                         // printf("  START - %d %d\n",op->aepos-wp->aepos,op->diffs-wp->diffs);
                         continue;
@@ -1754,8 +1762,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                       }
                   }
               else
-                if (op->aepos == wp->aepos && op->bepos == wp->bepos)
-                  { if (op->abpos < wp->abpos)
+                if (op->aepos == wp->aepos && op->bepos == wp->bepos) 
+                  { if (op->abpos < wp->abpos)   //  a-interval of one contained in the other
                       { w->flags |= ELIMINATED;
                         // printf("  END - %d %d\n",wp->abpos-op->abpos,op->diffs-wp->diffs);
                         continue;
@@ -1776,15 +1784,17 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
           if (o->flags & ELIMINATED)
             continue;
 
+          //  Both endpoints of o are distinct
+
           for (k = j+1; k < nlas; k++)
             { Overlap *w  = (Overlap *) (oblock+perm[k]);
               Path    *wp = &(w->path);
 
-              if (op->aepos <= wp->abpos)
+              if (op->aepos <= wp->abpos)   //  No further a-interval overlap
                 break;
-              if (w->flags & ELIMINATED)
+              if (w->flags & ELIMINATED)    //  Ignore w as already eliminated
                 continue;
-              if (op->bepos <= wp->bbpos || op->bbpos >= wp->bepos)
+              if (op->bepos <= wp->bbpos || op->bbpos >= wp->bepos)  //  If b-intervals disjoint
                 continue;
 
               dist = entwine(&(o->path),(uint8 *) (o+1),&(w->path),(uint8 *) (w+1),&where,0);
@@ -2230,6 +2240,23 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
     }
 }
 
+static void short_DB_fix(DAZZ_DB *DB)
+{ int i;
+
+  if (DB->treads >= NTHREADS)
+    return;
+
+  //  Add additional reads of length KMER that are the first bit of the 0th read/contig
+  //    Mark as "fake" with -1 in origin field.
+
+  DB->reads = Realloc(DB->reads,sizeof(DAZZ_READ)*NTHREADS,"Reallocating DB read vector");
+  for (i = DB->treads; i < NTHREADS; i++)
+    { DB->reads[i] = DB->reads[0];
+      DB->reads[i].origin = -1;
+      DB->reads[i].rlen   = KMER;
+    }
+  DB->treads = NTHREADS;
+}
 
 int main(int argc, char *argv[])
 { Kmer_Stream *T1, *T2;
@@ -2314,7 +2341,7 @@ int main(int argc, char *argv[])
       }
   }
 
-  //  Get full path strong for sorting subdirectory (in variable SORT_PATH)
+  //  Get full path string for sorting subdirectory (in variable SORT_PATH)
 
   { char  *cpath, *spath;
     DIR   *dirp;
@@ -2374,10 +2401,12 @@ int main(int argc, char *argv[])
   if (Open_DB(argv[1],DB1) < 0)
     exit (1);
   Trim_DB(DB1);
+  short_DB_fix(DB1);
 
   if (Open_DB(argv[2],DB2) < 0)
     exit (1);
   Trim_DB(DB2);
+  short_DB_fix(DB2);
 
   KMER      = T1->kmer;
   NTHREADS  = P1->nsqrt;

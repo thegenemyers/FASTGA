@@ -1019,12 +1019,31 @@ void k_sort(DAZZ_DB *DB)
  *
  **********************************************************************************************/
 
-static int LSORT(void *data, const void *l, const void *r)
+static void short_DB_fix(DAZZ_DB *DB)
+{ int i;
+
+  if (DB->treads >= NTHREADS)
+    return;
+
+  //  Add additional reads of length KMER that are the first bit of the 0th read/contig
+  //    Mark as "fake" with -1 in origin field.
+
+  DB->reads = Realloc(DB->reads,sizeof(DAZZ_READ)*NTHREADS,"Reallocating DB read vector");
+  for (i = DB->treads; i < NTHREADS; i++)
+    { DB->reads[i] = DB->reads[0];
+      DB->reads[i].origin = -1;
+      DB->reads[i].rlen   = KMER;
+    }
+  DB->treads = NTHREADS;
+}
+
+static DAZZ_READ *READS;
+
+static int LSORT(const void *l, const void *r)
 { int x = *((int *) l);
   int y = *((int *) r);
-  DAZZ_READ *read = ((DAZZ_READ *) data);
 
-  return (read[y].rlen - read[x].rlen);
+  return (READS[y].rlen - READS[x].rlen);
 }
 
 int main(int argc, char *argv[])
@@ -1093,6 +1112,7 @@ int main(int argc, char *argv[])
       exit (1);
     }
   Trim_DB(DB);
+  short_DB_fix(DB);
 
   { int i, l0, l1, l2, l3;   //  Compute byte complement table
 
@@ -1183,7 +1203,8 @@ int main(int argc, char *argv[])
     for (i = 0; i < DB->treads; i++)
       Perm[i] = i;
   
-    qsort_r(Perm,DB->treads,sizeof(int),DB->reads,LSORT);
+    READS = DB->reads;
+    qsort(Perm,DB->treads,sizeof(int),LSORT);
 
     for (i = 0; i < DB->treads; i++)
       InvP[Perm[i]] = i;

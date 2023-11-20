@@ -23,6 +23,10 @@
 
 static char *Usage = " <src1:db|dam> [ <src2:db|dam> ] <align:las>";
 
+#undef DEBUG_CHAIN
+
+#define ALIGN_OVERLAP 20
+
 
 /*******************************************************************************************
  *
@@ -30,52 +34,56 @@ static char *Usage = " <src1:db|dam> [ <src2:db|dam> ] <align:las>";
  *
  ********************************************************************************************/
 
-/*
+typedef struct chain
+  { struct chain *next;
+    struct chain *link;
+    struct chain *L, *R;
+    int           bepos;
+    int           score;
+    int           clen;
+    int           mark;
+    int           dead;
+    Overlap       ovl;
+  } CHAIN;
 
-typedef struct vtx
-  { struct vtx *L, *R;
-    int64       V;
-    int         score;
-    int         link;
-  } NODE;
+typedef struct order
+  { int event;
+    int which;
+  } ORDER;
 
-#ifdef DEBUG_CHAIN
-
-static void PRINT_LIST(NODE *v)
+static void PRINT_LIST(CHAIN *v)
 { if (v == NULL)
     return;
   PRINT_LIST(v->L);
-  printf(" %lld:%d:%d",v->V,v->score,v->link);
+  printf(" %d:%d",v->bepos,v->score);
   PRINT_LIST(v->R);
 }
 
-#endif
-
 #ifdef DEBUG_SPLAY
 
-static void PRINT_TREE(NODE *v, int deep, NODE *space)
+static void PRINT_TREE(CHAIN *v, int deep, CHAIN *space)
 { if (v == NULL)
     return;
   PRINT_TREE(v->R,deep+3,space);
-  printf("%*s %lld:%d:%d (%ld)\n",deep,"",v->V,v->score,v->link,v-space);
+  printf("%*s %lld:%d:%d (%ld)\n",deep,"",v->score,v->link,v-space);
   PRINT_TREE(v->L,deep+3,space);
 }
 
 #endif
 
-static NODE *SPLAY(NODE *v, int64 x)    //  Assumes x is in the tree
-{ NODE *u, *n;
+static CHAIN *SPLAY(CHAIN *v, int64 x)    //  Assumes x is in the tree
+{ CHAIN *u, *n;
 
-  if (v == NULL || x == v->V)
+  if (v == NULL || x == v->bepos)
     return (v);
-  if (x < v->V)
+  if (x < v->bepos)
     { u = v->L;
-      if (x == u->V)
+      if (x == u->bepos)
         { v->L = u->R;
           u->R = v;
           return (u);
         }
-      if (x < u->V)
+      if (x < u->bepos)
         { n = SPLAY(u->L,x);
           v->L = u->R;
           u->R = v;
@@ -92,12 +100,12 @@ static NODE *SPLAY(NODE *v, int64 x)    //  Assumes x is in the tree
     }
   else
     { u = v->R;
-      if (x == u->V)
+      if (x == u->bepos)
         { v->R = u->L;
           u->L = v;
           return (u);
         }
-      if (x > u->V)
+      if (x > u->bepos)
         { n = SPLAY(u->R,x);
           v->R = u->L;
           u->L = v;
@@ -115,12 +123,12 @@ static NODE *SPLAY(NODE *v, int64 x)    //  Assumes x is in the tree
   return (n);
 }
 
-static NODE *FIND(NODE *v, int64 x)   //  Find v s.t. v->V <= x && x < v->next->V
-{ NODE *u;
+static CHAIN *FIND(CHAIN *v, int x)   //  Find v s.t. v->bepos <= x && x < v->next->bepos
+{ CHAIN *u;
 
-  if (v == NULL || v->V == x)
+  if (v == NULL || v->bepos == x)
     return (v);
-  if (x < v->V)
+  if (x < v->bepos)
     return (FIND(v->L,x));
   else
     { u = FIND(v->R,x);
@@ -131,8 +139,8 @@ static NODE *FIND(NODE *v, int64 x)   //  Find v s.t. v->V <= x && x < v->next->
     }
 }
 
-static NODE *NEXT(NODE *v, NODE *t, NODE *w)
-{ if (v == NULL || t->V == v->V)
+static CHAIN *NEXT(CHAIN *v, int x, CHAIN *w)
+{ if (v == NULL || x == v->bepos)
     { if (v->R != NULL)
         { w = v->R;
           while (w->L != NULL)
@@ -140,30 +148,49 @@ static NODE *NEXT(NODE *v, NODE *t, NODE *w)
         }
       return (w);
     }
-  if (t->V < v->V)
-    return (NEXT(v->L,t,v));
+  if (x < v->bepos)
+    return (NEXT(v->L,x,v));
   else
-    return (NEXT(v->R,t,w));
+    return (NEXT(v->R,x,w));
 }
 
-static NODE *JOIN(NODE *v, NODE *w)
-{ NODE *p;
+/*
+
+static CHAIN *PREV(CHAIN *v, int x, CHAIN *w)
+{ if (v == NULL || x == v->bepos)
+    { if (v->L != NULL)
+        { w = v->L;
+          while (w->R != NULL)
+            w = w->R;
+        }
+      return (w);
+    }
+  if (x < v->bepos)
+    return (NEXT(v->L,x,v));
+  else
+    return (NEXT(v->R,x,w));
+}
+
+*/
+
+static CHAIN *JOIN(CHAIN *v, CHAIN *w)
+{ CHAIN *p;
 
   if (v == NULL)
     return (w);
   for (p = v; p->R != NULL; p = p->R)
     ;
-  v = SPLAY(v,p->V);
+  v = SPLAY(v,p->bepos);
   v->R = w;
   return (v);
 }
 
-static NODE *INSERT(NODE *v, NODE *new)
-{ NODE *u, *p;
+static CHAIN *INSERT(CHAIN *v, CHAIN *new)
+{ CHAIN *u, *p;
 
   if (v == NULL)
     return (new);
-  u = FIND(v,new->V);
+  u = FIND(v,new->bepos);
   if (u != NULL && u->R == NULL)
     u->R = new;
   else
@@ -175,39 +202,181 @@ static NODE *INSERT(NODE *v, NODE *new)
         p = p->L;
       p->L = new;
     }
-  return (SPLAY(v,new->V));
+  return (SPLAY(v,new->bepos));
 }
 
-static NODE *DELETE(NODE *v, NODE *old)
-{ NODE *u, *w;
+static CHAIN *DELETE(CHAIN *v, CHAIN *old)
+{ CHAIN *u, *w;
 
-  u = FIND(v,old->V);
-  if (u == NULL || u->V != old->V)
+  u = FIND(v,old->bepos);
+  if (u == NULL || u->bepos != old->bepos)
     return (NULL);
-  v = SPLAY(v,old->V);
+  v = SPLAY(v,old->bepos);
   w = JOIN(v->L,v->R);
   return (w);
 }
 
-  v = NULL;
-  new = Node(0,0);
-  for (hits) do
-    { w = FIND(v,hit->bbpos);
-      lnk = w->lnk;
-      scr = w->score;
-      if (lnk->aepos > hit->abpos)
-        { if (lnk->aepos < hit->aepos)
-            scr += (hit->aepos - lnk->aepos);
-        }
+int EORDER(const void *l, const void *r)
+{ ORDER *x = (ORDER *) l;
+  ORDER *y = (ORDER *) r;
+  int xm, ym;
+
+  xm = abs(x->event);
+  ym = abs(y->event);
+  if (xm < ym)
+    return (-1);
+  else if (xm > ym)
+    return (1);
+  else
+    { if (x->event < y->event) 
+        return (-1);
+      else if (x->event > y->event)
+        return (1);
       else
-        scr += (hit->aepos-hit->abpos);
-*/
+        return (0);
+    }
+}
+
+void analyze(int ascaf, CHAIN *chain, CHAIN **blist, int *bstack, int btop, ORDER *order)
+{ int    i, b, acnt, bscaf;
+  CHAIN *prof, *e, *v, *w;
+
+#ifndef DEBUG_CHAIN
+  (void) ascaf;
+  (void) PRINT_LIST;
+#endif
+
+  for (b = 0; b < btop; b++)
+    { bscaf = bstack[b];
+
+      acnt = 0;
+      for (w = blist[bscaf]; w != NULL; w = w->next)
+        { order[2*acnt].event   = -w->ovl.path.abpos;
+          order[2*acnt].which   = w-chain;
+          order[2*acnt+1].event = w->ovl.path.aepos - ALIGN_OVERLAP;
+          order[2*acnt+1].which = w-chain;
+          acnt += 1;
+        }
+
+      qsort(order,2*acnt,sizeof(ORDER),EORDER);
+
+#ifdef DEBUG_CHAIN
+      printf("\nScaf %d vs %d (%d)\n",ascaf,bscaf,acnt);
+#endif
+
+      prof = NULL;
+      for (i = 0; i < 2*acnt; i++)
+        { e = chain + order[i].which;
+          if (order[i].event < 0)
+            { v = FIND(prof,e->ovl.path.bbpos);
+              e->link = v;
+              if (v == NULL)
+                { e->score = (e->ovl.path.aepos - e->ovl.path.abpos);
+                  e->clen  = 1;
+#ifdef DEBUG_CHAIN
+                  v = chain;
+#endif
+                }
+              else
+                { e->score = v->score + (e->ovl.path.aepos - e->ovl.path.abpos);
+                  e->clen  = v->clen + 1;
+                }
+              e->bepos = e->ovl.path.bepos - ALIGN_OVERLAP;
+              e->L     = NULL;
+              e->R     = NULL;
+#ifdef DEBUG_CHAIN
+              printf("  A %8d: %6d   (sc %6d  [%8d,%8d] -> %ld)\n",
+                     -order[i].event,order[i].which,e->score,e->ovl.path.bbpos,e->bepos,v-chain);
+              fflush(stdout);
+#endif
+            }
+          else
+            { v = FIND(prof,e->bepos);
+              if (v == NULL)
+                prof = INSERT(prof,e);
+              else if (v->score <= e->score)
+                { w = NEXT(prof,v->bepos,NULL);
+                  if (v->bepos >= e->bepos)
+                    prof = DELETE(prof,v);
+                  while (w != NULL && w->score <= e->score)
+                    { v = w;
+                      w = NEXT(prof,w->bepos,NULL);
+                      prof = DELETE(prof,v);
+                    }
+                  prof = INSERT(prof,e);
+                }
+#ifdef DEBUG_CHAIN
+              printf("  D %8d: %6d\n",order[i].event,order[i].which);
+              fflush(stdout);
+              PRINT_LIST(prof);
+              printf("\n");
+              fflush(stdout);
+#endif
+            }
+        }
+    }
+}
+
+void collisions(int acnt, CHAIN *chain)
+{ int i, j;
+  int abeg, aend;
+  int cbeg, cend, cov;
+  int rmark, lmark;
+
+  for (i = 0; i < acnt; i++)
+    chain[i].mark = chain[i].ovl.path.abpos;
+
+  for (i = 0; i < acnt; i++)
+    { aend = chain[i].ovl.path.aepos;
+      abeg = chain[i].ovl.path.abpos;
+      for (j = i+1; j < acnt; j++)
+        { if (chain[j].ovl.path.abpos >= aend)
+            break;
+          if (chain[j].mark < aend)
+            chain[j].mark = aend;
+	}
+      if (i+1 < acnt && chain[i+1].ovl.path.abpos < aend)
+        rmark = chain[i+1].ovl.path.abpos;
+      else
+        rmark = aend;
+      lmark = chain[i].mark;
+      if (lmark > aend)
+        lmark = aend;
+      cov = lmark-abeg;
+#ifdef DEBUG_REPEAT
+      printf("  %d: %d..%d  <%d>  -> %d\n",i,abeg,aend,lmark,cov);
+#endif
+      for (j = i+1; j < acnt; j++)
+        { cbeg = chain[j].ovl.path.abpos;
+          cend = chain[j].ovl.path.aepos;
+          if (cbeg >= aend)
+            break;
+          if (cend <= lmark)
+            continue;
+          if (cend > aend)
+            cend = aend;
+          if (cbeg < lmark)
+            cov += cend - lmark;
+          else
+            cov += cend - cbeg;
+#ifdef DEBUG_REPEAT
+          printf("            %d: %d\n",j,cov);
+#endif
+          lmark = cend;
+        }
+      chain[i].mark = (100*cov)/(aend-abeg);
+#ifdef DEBUG_REPEAT
+      fflush(stdout);
+#endif
+    }
+}
 
 int main(int argc, char *argv[])
 { DAZZ_DB   _db1, *db1 = &_db1;
   DAZZ_DB   _db2, *db2 = &_db2;
   Overlap   _ovl, *ovl = &_ovl;
-  Alignment _aln, *aln = &_aln;
+  int       amax, tmax;
+  int       bscaf, *scaffold;
 
   FILE   *input;
   int     sameDB, ISTWO;
@@ -317,67 +486,343 @@ int main(int argc, char *argv[])
     free(root);
   }
 
-  //  Read the file and display selected records
+  //  Read the file to get maximums
   
-  { int        j, i;
-    uint16    *trace;
-    int        tmax;
-    int        aread;
-    int64     *wgt;
-    int       *cnt;
+  { int j;
+    int aread, acnt;
 
-    wgt = (int64 *) Malloc(sizeof(int64)*db2->treads,"Allocating weight vector");
-    cnt = (int *) Malloc(sizeof(int)*db2->treads,"Allocating weight vector");
-
-    tmax  = 1000;
-    trace = (uint16 *) Malloc(sizeof(uint16)*tmax,"Allocating trace vector");
-    if (trace == NULL)
-      exit (1);
-
-    aln->path = &(ovl->path);
-    ovl->path.trace = (void *) trace;
-
-    //  For each alignment do
-
+    amax  = 0;
+    tmax  = 0;
+    acnt  = 0;
     aread = -1;
     for (j = 0; j < novl; j++)
       { Read_Overlap(input,ovl);
+        fseek(input,tbytes*ovl->path.tlen,SEEK_CUR);
         if (ovl->path.tlen > tmax)
-          { tmax = ((int) 1.2*ovl->path.tlen) + 100;
-            trace = (uint16 *) Realloc(trace,sizeof(uint16)*tmax,"Allocating trace vector");
-            if (trace == NULL)
-              exit (1);
-            ovl->path.trace = (void *) trace;
+          tmax = ovl->path.tlen;
+      
+        if (aread != ovl->aread && db1->reads[ovl->aread].fpulse == 0)
+          { if (acnt > amax)
+              amax = acnt;
+            acnt = 0;
           }
-        Read_Trace(input,ovl,tbytes);
+        aread = ovl->aread;
+        acnt += 1;
+      }
+    if (acnt > amax)
+      amax = acnt;
 
-        if (small)
-          Decompress_TraceTo16(ovl);
+    printf("There are %d alignments for largest scaffold, longest trace is %d\n",amax,tmax);
+    fflush(stdout);
+  }
 
-        if (aread != ovl->aread)
-          { if (aread >= 0)
-              { printf("\nA-contig %d:\n",aread);
-                for (i = 0; i < db2->treads; i++)
-                  if (wgt[i] > 0)
-                    printf("  %3d: %8lld %5d\n",i,wgt[i],cnt[i]);
-              }
-            for (i = 0; i < db2->treads; i++)
-              { wgt[i] = 0;
-                cnt[i] = 0;
-              }
-            aread = ovl->aread;
-          }
+  //  Build scaffold map
 
-        wgt[ovl->bread] += ovl->path.aepos - ovl->path.abpos;
-        cnt[ovl->bread] += 1;
+  { int r;
+
+    scaffold = (int *) Malloc(sizeof(int)*db2->treads,"Allocating scaffold map");
+    if (scaffold == NULL)
+      exit (1);
+
+    bscaf = 0;
+    for (r = 0; r < db2->treads; r++)
+      { scaffold[r] = bscaf;
+        if (db2->reads[r].fpulse == 0)
+          bscaf += 1;
       }
 
-    printf("\nA-contig %d:\n",aread);
-    for (i = 0; i < db2->treads; i++)
-      if (wgt[i] > 0)
-        printf("  %3d: %8lld %5d\n",i,wgt[i],cnt[i]);
+    printf("There are %d scaffolds with %d contigs\n",bscaf,db2->treads);
+    fflush(stdout);
+  }
 
-    free(trace);
+  //  Read the file and chain
+  
+  { int    j, b;
+    int    aread, acnt, ascaf;
+    int    bread, btop;
+    int    apulse, bpulse;
+    CHAIN *chain, **blist;
+    int   *bstack;
+    CHAIN *n, *w;
+    ORDER *order;
+
+    rewind(input);
+    fread(&novl,sizeof(int64),1,input);
+    fread(&tspace,sizeof(int),1,input);
+
+    chain  = (CHAIN *) Malloc(sizeof(CHAIN)*amax,"Allocating alignment space");
+    blist  = (CHAIN **) Malloc(sizeof(CHAIN *)*bscaf,"Allocating alignment space");
+    bstack = (int *) Malloc(sizeof(int)*bscaf,"Allocating alignment space");
+    order  = (ORDER *) Malloc(2*sizeof(ORDER)*amax,"Allocation of order array");
+    if (chain == NULL || blist == NULL || bstack == NULL || order == NULL)
+      exit (1);
+
+    acnt  = 0;
+    ascaf = 0;
+    for (b = 0; b < bscaf; b++)
+      blist[b] = NULL;
+    btop  = 0;
+
+    aread = -1;
+    for (j = 0; j <= novl; j++)
+      { if (j == novl)
+          { ovl->aread = aread+1;
+            apulse = 0;
+          }
+        else
+          { Read_Overlap(input,ovl);
+            fseek(input,tbytes*ovl->path.tlen,SEEK_CUR);
+            apulse = db1->reads[ovl->aread].fpulse;
+          }
+      
+        if (aread != ovl->aread && apulse == 0 && j > 0)
+          { CHAIN *u, *v;
+
+            printf("\nScaffold %d\n",ascaf+1);
+
+            collisions(acnt,chain);
+
+            analyze(ascaf,chain,blist,bstack,btop,order);
+
+            for (b = 0; b < btop; b++)
+              { int   bs, len, span;
+                int   mnum, snum;
+                Path *p;
+/*
+                Path *q;
+                int   dela, delb;
+*/
+
+                bs = bstack[b];
+
+                for (w = blist[b]; w != NULL; w = w->next)
+                  w->L = NULL;
+
+                mnum = snum = 0;
+                for (w = blist[b]; w != NULL; w = w->next)
+                  { if (w->L == NULL)
+                      { w->score = (w->ovl.path.aepos - w->ovl.path.abpos);
+                        w->clen  = 1;
+                      }
+                    if (w->link != NULL)
+                      { v = w->link;
+                        p = &(v->ovl.path);
+                        if (v->L != NULL)
+                          { if (v->score < w->score + (p->aepos - p->abpos)) 
+                              { u = v->L;
+                                v->L->link = NULL;
+                                v->score = w->score + (p->aepos - p->abpos);
+                                v->clen  = w->clen + 1;
+                                v->L = w;
+                              }
+                            else
+                              { u = w;
+                                w->link = NULL;
+                              }
+                            len = 0;
+                            for (n = u; n != NULL; n = n->L)
+                              { n->dead = 1;
+                                len    += 1;
+                                span    = n->ovl.path.aepos;
+                              }
+                            span -= u->ovl.path.abpos;
+                            if (len > 3 && u->score > .1*span)
+                              { // printf("Keeping spur %d with score %6d, %4d links, span = %7d\n",
+                                        // snum+1,u->score,len,span);
+fflush(stdout);
+                                snum += 1;
+                                for (n = u; n != NULL; n = n->L)
+                                  { n->dead = 2;
+                                    n->bepos = snum;
+                                  }
+                              }
+                          }
+                        else
+                          { v->score = w->score + (p->aepos - p->abpos);
+                            v->clen  = w->clen + 1;
+                            v->L = w;
+                          }
+                      }
+                    else
+                      { len = 0;
+                        for (n = w; n != NULL; n = n->L)
+                          { len += 1;
+                            span = n->ovl.path.aepos;
+                          }
+                        span -= w->ovl.path.abpos;
+                        if (len <= 3 || w->score < .02*span)
+                          { // printf("Removing main with score %6d, %4d links, span = %7d\n",
+                                    // w->score,len,span);
+fflush(stdout);
+                            for (n = w; n != NULL; n = n->L)
+                              n->dead = 1;
+                          }
+                        else
+                          { mnum += 1;
+                            for (n = w; n != NULL; n = n->L)
+                              n->bepos = mnum;
+                          }
+                      }
+                  }
+
+/*
+                printf("\n  Chains with scaffold %d\n",bs+1);
+                for (w = blist[b]; w != NULL; w = w->next)
+                  { if (w->dead == 1)
+                      continue;
+                    p = &(w->ovl.path);
+                    printf("    %6ld:",w-chain);
+                    printf(" [%9d,%9d] vs [%9d,%9d]",w->ovl.path.abpos,w->ovl.path.aepos,
+                                                     w->ovl.path.bbpos,w->ovl.path.bepos);
+                    if (w->L == NULL)
+                      printf("  <%5d += %8d>",w->score,w->score);
+                    else
+                      printf("  <%5d += %8d>",w->score - w->L->score,w->score);
+                    printf("  [%4d]  R=%3d%%",w->clen,w->mark);
+                    if (w->dead == 0)
+                      printf("  main %3d",w->bepos);
+                    else
+                      printf("  spur %3d",w->bepos);
+                    if (w->link == NULL)
+                      printf("  ___\n");
+                    else
+                      { for (n = w->next; n != NULL; n = n->next)
+                          if (n->dead != 1)
+                            break;
+                        if (n == w->link)
+                          printf("  ***      ");
+                        else
+                          printf("  -> %6ld",w->link-chain);
+                        printf("  %6d / %6d\n",w->ovl.path.abpos-w->link->ovl.path.aepos,
+                                               w->ovl.path.bbpos-w->link->ovl.path.bepos);
+                      }
+                  }
+*/
+
+                for (w = blist[b]; w != NULL; w = w->next)
+                  { if (w->dead == 1)
+                      continue;
+                    if (w->dead == 0 && w->L == NULL)
+                      { for (u = w; u->link != NULL; u = u->link)
+                          ;
+                        printf("  Main vs %d: len = %6d  span = %9d  covr = %9d\n",
+                               bs+1,u->clen,w->ovl.path.aepos - u->ovl.path.abpos,u->score);
+/*
+                        printf("\n  Main with scaffold %d\n",bs+1);
+                        for (u = w; u != NULL; u = u->link)
+                          { p = &(u->ovl.path);
+                            printf("    %6ld:",u-chain);
+                            printf(" [%9d,%9d] vs [%9d,%9d]",p->abpos,p->aepos,
+                                                             p->bbpos,p->bepos);
+                            if (u->L == NULL)
+                              printf("  <%5d += %8d>",u->score,u->score);
+                            else
+                              printf("  <%5d += %8d>",u->score - u->L->score,u->score);
+                            printf("  [%4d]  R=%3d%%",u->clen,u->mark);
+                            if (u->link == NULL)
+                              printf("  ___\n");
+                            else
+                              { q = &(u->link->ovl.path);
+                                dela = p->abpos - q->aepos;
+                                delb = p->bbpos - q->bepos;
+                                if ((dela > 50000 || delb > 50000) && abs(dela-delb) > 10000) 
+                                  printf("  ___  BREAK  %6d / %6d\n\n",dela,delb);
+                                else
+                                  { for (n = u->next; n != NULL; n = n->next)
+                                      if (n->dead != 1)
+                                        break;
+                                    if (n == u->link)
+                                      printf("  ***      ");
+                                    else
+                                      printf("  -> %6ld",u->link-chain);
+                                    printf("  %6d / %6d\n",dela,delb);
+                                  }
+                              }
+                          }
+*/
+fflush(stdout);
+                      }
+                  }
+
+                for (w = blist[b]; w != NULL; w = w->next)
+                  { if (w->dead == 1)
+                      continue;
+                    if (w->dead == 2 && w->L == NULL)
+                      { for (u = w; u->link != NULL; u = u->link)
+                          ;
+                        printf("  Spur vs %d: len = %6d  span = %9d  covr = %9d\n",
+                               bs+1,u->clen,w->ovl.path.aepos - u->ovl.path.abpos,u->score);
+/*
+                        printf("\n  Spur for scaffold %d\n",bs+1);
+                        for (u = w; u != NULL; u = u->link)
+                          { p = &(u->ovl.path);
+                            printf("    %6ld:",u-chain);
+                            printf(" [%9d,%9d] vs [%9d,%9d]",p->abpos,p->aepos,
+                                                             p->bbpos,p->bepos);
+                            if (u->L == NULL)
+                              printf("  <%5d += %8d>",u->score,u->score);
+                            else
+                              printf("  <%5d += %8d>",u->score - u->L->score,u->score);
+                            printf("  [%4d]  R=%3d%%",u->clen,u->mark);
+                            if (u->link == NULL)
+                              printf("  ___\n");
+                            else
+                              { q = &(u->link->ovl.path);
+                                dela = p->abpos - q->aepos;
+                                delb = p->bbpos - q->bepos;
+                                if ((dela > 50000 || delb > 50000) && abs(dela-delb) > 10000) 
+                                  printf("  ___  BREAK  %6d / %6d\n\n",dela,delb);
+                                else
+                                  { for (n = u->next; n != NULL; n = n->next)
+                                      if (n->dead != 1)
+                                        break;
+                                    if (n == u->link)
+                                      printf("  ***      ");
+                                    else
+                                      printf("  -> %6ld",u->link-chain);
+                                    printf("  %6d / %6d\n",dela,delb);
+                                  }
+                              }
+                          }
+*/
+fflush(stdout);
+                      }
+                  }
+              }
+
+            if (j >= novl)
+              break;
+
+            acnt = 0;
+            ascaf += 1;
+            for (b = 0; b < btop; b++)
+              blist[bstack[b]] = NULL;
+            btop = 0;
+          }
+
+        aread = ovl->aread;
+        bread = ovl->bread;
+        ovl->path.abpos += apulse;
+        ovl->path.aepos += apulse;
+        bpulse = db2->reads[bread].fpulse;
+        ovl->path.bbpos += bpulse;
+        ovl->path.bepos += bpulse;
+
+        b = scaffold[bread];
+        n = chain + acnt++;
+        w = blist[b];
+        n->ovl  = *ovl;
+        n->next = w;
+        n->dead = 0;
+        blist[b] = n;
+        if (w == NULL)
+          bstack[btop++] = b;
+      }
+
+    free(order);
+    free(bstack);
+    free(blist);
+    free(chain);
   }
 
   Close_DB(db1);

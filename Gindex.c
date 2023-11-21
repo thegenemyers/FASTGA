@@ -1019,6 +1019,7 @@ void k_sort(DAZZ_DB *DB)
  *
  **********************************************************************************************/
 
+
 static void short_DB_fix(DAZZ_DB *DB)
 { int i;
 
@@ -1028,7 +1029,8 @@ static void short_DB_fix(DAZZ_DB *DB)
   //  Add additional reads of length KMER that are the first bit of the 0th read/contig
   //    Mark as "fake" with -1 in origin field.
 
-  DB->reads = Realloc(DB->reads,sizeof(DAZZ_READ)*NTHREADS,"Reallocating DB read vector");
+  DB->reads = Realloc(DB->reads-1,sizeof(DAZZ_READ)*(NTHREADS+2),"Reallocating DB read vector");
+  DB->reads += 1;
   for (i = DB->treads; i < NTHREADS; i++)
     { DB->reads[i] = DB->reads[0];
       DB->reads[i].origin = -1;

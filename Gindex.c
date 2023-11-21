@@ -531,6 +531,8 @@ static void *setup_thread(void *args)
   else
     btop = bend-4;
   b = buffer;
+  if (btop <= buffer)   //  Nothing to do
+    return (NULL);
 
   ncntg = DBsplit[tid];
   post  = DBpost[tid];
@@ -1019,7 +1021,6 @@ void k_sort(DAZZ_DB *DB)
  *
  **********************************************************************************************/
 
-
 static void short_DB_fix(DAZZ_DB *DB)
 { int i;
 
@@ -1036,7 +1037,11 @@ static void short_DB_fix(DAZZ_DB *DB)
       DB->reads[i].origin = -1;
       DB->reads[i].rlen   = KMER;
     }
+  DB->totlen += (NTHREADS-DB->treads)*KMER;
+  if (DB->maxlen < KMER)
+    DB->maxlen = KMER;
   DB->treads = NTHREADS;
+  DB->nreads = NTHREADS;
 }
 
 static DAZZ_READ *READS;
@@ -1169,7 +1174,7 @@ int main(int argc, char *argv[])
     for (r = 0; r < DB->treads; r++)
       { len = DB->reads[r].rlen;
         cum += len;
-        if (cum >= t)
+        while (cum >= t)
           { DBsplit[p] = r+1;
             DBpost [p] = cum;
             p += 1;

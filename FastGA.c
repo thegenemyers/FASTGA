@@ -2257,7 +2257,11 @@ static void short_DB_fix(DAZZ_DB *DB)
       DB->reads[i].origin = -1;
       DB->reads[i].rlen   = KMER;
     }
+  DB->totlen += (NTHREADS-DB->treads)*KMER;
+  if (DB->maxlen < KMER)
+    DB->maxlen = KMER;
   DB->treads = NTHREADS;
+  DB->nreads = NTHREADS;
 }
 
 int main(int argc, char *argv[])

@@ -2404,6 +2404,9 @@ int main(int argc, char *argv[])
   Perm1  = P1->perm;
   Perm2  = P2->perm;
 
+  KMER      = T1->kmer;
+  NTHREADS  = P1->nsqrt;
+
   if (Open_DB(argv[1],DB1) < 0)
     exit (1);
   Trim_DB(DB1);
@@ -2414,8 +2417,6 @@ int main(int argc, char *argv[])
   Trim_DB(DB2);
   short_DB_fix(DB2);
 
-  KMER      = T1->kmer;
-  NTHREADS  = P1->nsqrt;
   if (P2->nsqrt != NTHREADS)
     { fprintf(stderr,"%s: Genome indices %s & %s built with different # of threads\n",
                       Prog_Name,argv[1],argv[2]);

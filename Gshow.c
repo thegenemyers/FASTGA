@@ -9,6 +9,8 @@
 #include "libfastk.h"
 #include "DB.h"
 
+#undef START_AT_X
+
 static char *Usage = " <source>[.dam]";
 
 /***********************************************************************************************
@@ -226,6 +228,42 @@ static inline int Current_Sign(Post_List *P)
 { return ((P->cptr[P->pbyte-1] & 0x80) != 0); }
 
 
+#ifdef START_AT_X
+
+static inline void JumpTo_Post_Index(Post_List *P, int64 del)
+{ int   p;
+  int64 i;
+
+  P->cptr += del*P->pbyte;
+  P->cidx += del;
+  if (P->cptr < P->ctop)
+    return;
+
+  i = P->cidx;
+  p = P->part-1;
+  while (i >= P->neps[p])
+    p += 1;
+
+  if (p > 0)
+    i -= P->neps[p-1];
+  p += 1;
+
+  if (P->part != p)
+    { if (P->part <= P->nthr)
+        close(P->copn);
+      sprintf(P->name+P->nlen,"%d",p);
+      P->copn = open(P->name,O_RDONLY);
+      P->part = p;
+    }
+
+  lseek(P->copn,2*sizeof(int) + sizeof(int64) + i*P->pbyte,SEEK_SET);
+
+  More_Post_List(P);
+}
+
+#endif
+
+
 /***********************************************************************************************
  *
  *   LIST INDEX
@@ -253,8 +291,22 @@ static void Print_Index(Kmer_Stream *T, Post_List *P)
 
   post = cont = 0;
 
+#ifdef START_AT_X
+  int64 bidx;
+
+  bidx = 0;
+  First_Post_Entry(P);
+  for (First_Kmer_Entry(T); T->cidx < X; Next_Kmer_Entry(T))
+    { count = Current_Count(T);
+      bidx += split[0];
+    }
+  JumpTo_Post_Index(P,bidx);
+
+  for (; T->cidx < T->nels; Next_Kmer_Entry(T))
+#else
   First_Post_Entry(P);
   for (First_Kmer_Entry(T); T->cidx < T->nels; Next_Kmer_Entry(T))
+#endif
     { count = Current_Count(T);
       printf(" %6lld: %s %2d\n",T->cidx,Current_Kmer(T,buffer),split[1]);
       fflush(stdout);

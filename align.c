@@ -238,6 +238,8 @@ Align_Spec *New_Align_Spec(double ave_corr, int trace_space, float *freq, int re
   spec->freq[3]     = freq[3];
 
   match = freq[0] + freq[3];
+  if ((match <= 0.) == (match > 0.))   //  frequencies accidentally undefined?
+    match = .5;
   if (match > .5)
     match = 1.-match;
   bias = (int) ((match+.025)*20.-1.);

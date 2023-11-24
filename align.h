@@ -209,8 +209,8 @@ void Complement_Seq(char *a, int n);
        (b) it passes through one of the points (anti+k)/2,(anti-k)/2 for k in [low,hgh] within
              the underlying dynamic programming matrix (i.e. the points on diagonals low to hgh
              on anti-diagonal anti or anti-1 (depending on whether the diagonal is odd or even)),
-       (c) if lbord >= 0, then the alignment is always above diagonal low-lbord, and
-       (d) if hbord >= 0, then the alignment is always below diagonal hgh+hbord.
+       (c) if lbord >= 0, then the alignment is always above or on diagonal low-lbord, and
+       (d) if hbord >= 0, then the alignment is always below or on diagonal hgh+hbord.
 
      The path record of 'align' has its 'trace' filled from the point of view of an overlap
      between the aread and the bread.  In addition a Path record from the point of view of the

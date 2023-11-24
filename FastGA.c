@@ -50,13 +50,14 @@ static double ALIGN_RATE;
 
 static char *Usage[] = { "[-v] [-P<dir(/tmp)>] [-o<out:name>] -f<int>",
                          "[-c<int(100)> [-s<int(500)>] [-a<int(100)>] [-e<float(.7)]",
-                         "<source1>[.dam] <source2>[.dam]"
+                         "<source1>[.dam] [<source2>[.dam]]"
                        };
 
 static int   FREQ;     //  Adaptemer frequence cutoff parameter
 static int   VERBOSE;  //  Verbose output
 static int   KMER;
 static int   NTHREADS;
+static int   SELF;     //  Comparing A to A, or A to B?
 
 static char *PAIR_NAME;
 static char *ALGN_NAME;
@@ -529,7 +530,10 @@ static void *merge_thread(void *args)
           uint8 *cp;
 
           if (VERBOSE && tid == 0)
-            { pcnt = ((T1->cidx - tbeg) * 100) / (tend-tbeg); 
+            { if (tbeg == tend)
+                pcnt = 100;
+              else
+                pcnt = ((T1->cidx - tbeg) * 100) / (tend-tbeg); 
               if (pcnt > qcnt)
                 { printf("\r    Completed %3d%%",pcnt);
                   fflush(stdout);
@@ -586,7 +590,7 @@ static void *merge_thread(void *args)
           eorun = 0;
 
 #ifdef DEBUG_MERGE
-          printf("... to %lld rcur = rend = %lld, eorunn = 0, plen = 12\n",
+          printf("... to %lld rcur = rend = %lld, eorun = 0, plen = 12\n",
                  T2->cidx,Tdp+(rcur-cache)/KBYTE);
           fflush(stdout);
 #endif
@@ -838,7 +842,454 @@ static void *merge_thread(void *args)
   parm->tseed = tseed;
   return (NULL);
 }
-  
+
+#ifdef DEBUG_MERGE
+
+static char dna[4] = { 'a', 'c', 'g', 't' };
+
+static char *fmer[256], _fmer[1280];
+
+static void setup_fmer_table()
+{ char *t;
+  int   i, l3, l2, l1, l0;
+  static int done = 0;
+
+  if (done) return;
+  done = 1;
+
+  i = 0;
+  t = _fmer;
+  for (l3 = 0; l3 < 4; l3++)
+   for (l2 = 0; l2 < 4; l2++)
+    for (l1 = 0; l1 < 4; l1++)
+     for (l0 = 0; l0 < 4; l0++)
+       { fmer[i] = t;
+         *t++ = dna[l3];
+         *t++ = dna[l2];
+         *t++ = dna[l1];
+         *t++ = dna[l0];
+         *t++ = 0;
+         i += 1;
+       }
+}
+
+char *Current_Cachmer(Kmer_Stream *S, uint8 *csuf, char *seq)
+{ int    cpre  = S->cpre-1;
+  int    hbyte = S->hbyte;
+
+  setup_fmer_table();
+
+  { int    j;
+    uint8 *a;
+    char  *s;
+
+    s = seq;
+    switch (S->ibyte)
+    { case 3:
+        memcpy(s,fmer[cpre>>16],4);
+        s += 4;
+        memcpy(s,fmer[cpre>>8 & 0xff],4);
+        s += 4;
+        memcpy(s,fmer[cpre&0xff],4);
+        s += 4;
+        break;
+      case 2:
+        memcpy(s,fmer[cpre>>8],4);
+        s += 4;
+        memcpy(s,fmer[cpre&0xff],4);
+        s += 4;
+        break;
+      case 1:
+        memcpy(s,fmer[cpre],4);
+        s += 4;
+        break;
+    }
+
+    a = csuf;
+    for (j = 0; j < hbyte; j++, s += 4)
+      memcpy(s,fmer[a[j]],4);
+    seq[S->kmer] = '\0';
+  }
+
+  return (seq);
+}
+
+#endif
+
+
+static void *self_merge_thread(void *args)
+{ SP *parm = (SP *) args;
+  int tid          = parm->tid;
+  uint8 *cache     = parm->cache;
+  IOBuffer  *nunit = parm->nunit;
+  IOBuffer  *cunit = parm->cunit;
+  Kmer_Stream *T1  = parm->T1;
+  Post_List   *P2  = parm->P1;
+
+  int     spart;
+  int64   tbeg, tend;
+
+  int     cpre;
+  uint8  *ctop, *suf1;
+
+  int     eorun, plen;
+  uint8  *rcur, *rend;
+  uint8  *vlcp[KMER+1];
+
+  uint8  *vlow, *vhgh;
+  int     pdx, cdx, odx;
+  int64   post[POST_BUF_LEN + FREQ];
+
+  int     qcnt, pcnt;
+  int64   nhits, g1len, tseed;
+
+#ifdef DEBUG_MERGE
+  int64   Tdp;
+  char   *tbuffer;
+#endif
+
+  { int j;
+
+    for (j = 0; j < NPARTS; j++)
+      { nunit[j].bend = nunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
+        nunit[j].btop = nunit[j].bufr;
+        cunit[j].bend = cunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
+        cunit[j].btop = cunit[j].bufr;
+      }
+  }
+
+  memset(post,0,sizeof(int64)*(POST_BUF_LEN+FREQ));
+
+  ctop  = cache;
+  vhgh  = cache;
+#ifdef DEBUG_MERGE
+  tbuffer = Current_Kmer(T1,NULL);
+#endif
+
+  nhits = 0;
+  g1len = 0;
+  tseed = 0;
+
+  spart = P2->nsqrt * tid - 1;
+  First_Post_Entry(P2);
+  First_Kmer_Entry(T1);
+
+  if (tid != 0)
+    { GoTo_Post_Index(P2,P2->neps[spart]);
+      GoTo_Kmer_Index(T1,((_Kmer_Stream *) T1)->neps[spart]);
+    }
+
+  qcnt = -1;
+  tend = ((_Kmer_Stream *) T1)->neps[spart+P2->nsqrt];
+  tbeg = T1->cidx;
+  for (suf1 = ctop; 1; suf1 += KBYTE)
+    { if (suf1 >= ctop)
+        { uint8 *cp;
+          int    i;
+
+          if (VERBOSE && tid == 0)
+            { if (tbeg == tend)
+                pcnt = 100;
+              else
+                pcnt = ((T1->cidx - tbeg) * 100) / (tend-tbeg); 
+              if (pcnt > qcnt)
+                { printf("\r    Completed %3d%%",pcnt);
+                  fflush(stdout);
+                }
+              qcnt = pcnt;
+            }
+
+          if (T1->cidx >= tend)
+            break;
+
+#ifdef DEBUG_MERGE
+          Tdp = T1->cidx;
+          printf("Loading %lld %06x ...",Tdp,cpre); fflush(stdout);
+#endif
+
+          //  load cahce with all T1 entries with T1->cpre
+
+          cpre = T1->cpre;
+          for (cp = cache; T1->cpre == cpre; cp += KBYTE)
+            { memcpy(cp,T1->csuf,KBYTE);
+              Next_Kmer_Entry(T1);
+            }
+          ctop = cp;
+          ctop[LBYTE] = 11;
+
+          //  start adpatermer merge for prefix cpre
+
+          vlcp[plen] = rcur = rend = suf1 = cache;
+          vlow  = cache-KBYTE;
+          vhgh  = cache;
+          pdx   = POST_BUF_MASK;
+          cdx   = 0;
+          odx   = 0;
+
+          ADVANCE(rend);
+          plen = rend[LBYTE];
+          for (i = rcur[LBYTE]; i <= plen; i++)
+            vlcp[i] = rcur;
+	  eorun = (plen <= 11);
+
+#ifdef DEBUG_MERGE
+          printf("... to %lld\n",T1->cidx);
+          fflush(stdout);
+
+          printf("Doing %s (%lld)\n",Current_Cachmer(T1,suf1,tbuffer),(suf1-cache)/KBYTE+Tdp);
+          fflush(stdout);
+#endif
+        }
+
+      // suf1 = rend-1
+      // eorun = 0: rcur <= rend, suf1[1..plen] = rcur..rend, suf1[plen+1] < rend[plen+1]
+      // eorun = 1: rcur <  rend, suf1[1..plen] = rcur..rend-1, lcp(rend) < plen 
+
+      else
+        { int i;
+
+#ifdef DEBUG_MERGE
+          printf("Doing %s (%lld)\n",Current_Cachmer(T1,suf1,tbuffer),(suf1-cache)/KBYTE+Tdp);
+          fflush(stdout);
+#endif
+
+          odx = cdx;
+          if (eorun)
+            plen = suf1[LBYTE];
+          ADVANCE(rend);
+          if (rend[LBYTE] < plen)
+            eorun = 1;
+          else if (rend[LBYTE] == plen)
+            eorun = 0;
+          else
+            { rcur = rend-KBYTE;
+              for (i = plen+1; i <= rend[LBYTE]; i++)
+                vlcp[i] = rcur;
+              eorun = 0;
+              plen = rend[LBYTE];
+            }
+        }
+
+#ifdef DEBUG_MERGE
+      printf("-> %d[%lld,%lld] %d",plen,Tdp+(vlcp[plen]-cache)/KBYTE,Tdp+(rend-cache)/KBYTE,eorun);
+      printf("  [%lld,%lld] %d\n",Tdp+(vlow-cache)/KBYTE,Tdp+(vhgh-cache)/KBYTE,pdx);
+      fflush(stdout);
+#endif
+
+       //  Get pairs;
+
+      { int       freq, lcs, mlen, udx;
+        int       isign, jsign;
+        int64     ipost, jpost;
+        int       icont, idest;
+        uint8    *iptr, *jptr;
+        IOBuffer *ou;
+        uint8    *l, *vcp, *btop;
+        int       m, n, k, b;
+
+        if (suf1[CBYTE] > 1)
+          { if (suf1[CBYTE] >= FREQ)
+              goto empty;
+            lcs = freq = suf1[CBYTE];
+            mlen = KMER;
+// printf("A %d %d %d\n",lcs,freq,mlen);  fflush(stdout);
+          }
+
+        else
+        
+          { freq = 0;
+            vcp = vlcp[plen];
+            if (vcp <= vlow)
+              {
+#ifdef DEBUG_MERGE
+                printf("   vlow <= vcp\n");
+                fflush(stdout);
+#endif
+                goto empty;
+              }
+          
+            for (l = rend-KBYTE; l >= vcp; l -= KBYTE)
+              { freq += l[CBYTE];
+// printf("B %lld %lld += %d\n",(l-cache)/KBYTE+Tdp,(vcp-cache)/KBYTE+Tdp,freq); fflush(stdout);
+                if (freq >= FREQ)
+                  { vlow = l;
+#ifdef DEBUG_MERGE
+                    printf("   %d vlow = %lld\n",freq,Tdp+(l-cache)/KBYTE);
+                    fflush(stdout);
+#endif
+                    goto empty;
+                  }
+              }
+            lcs = freq;
+            l   = rend;
+            if ( ! eorun)
+              { udx = cdx;
+                l = rend;
+                freq += l[CBYTE];
+// printf("C %lld %d<%d += %d\n",(l-cache)/KBYTE+Tdp,cdx,pdx,freq); fflush(stdout);
+                if (freq >= FREQ)
+                  {
+#ifdef DEBUG_MERGE
+                    printf("   %d too high at %lld\n",freq,Tdp+(l-cache)/KBYTE);
+                    fflush(stdout);
+#endif
+                    goto empty;
+                  }
+                ADVANCE(l)
+                while (l[LBYTE] >= plen)
+                  { freq += l[CBYTE];
+// printf("D %lld %d<%d += %d\n",(l-cache)/KBYTE+Tdp,cdx,pdx,freq); fflush(stdout);
+                    if (freq >= FREQ)
+                      {
+#ifdef DEBUG_MERGE
+                        printf("   %d too high at %lld\n",freq,Tdp+(l-cache)/KBYTE);
+                        fflush(stdout);
+#endif
+                        cdx = udx;
+                        goto empty;
+                      }
+                    ADVANCE(l)
+                  }
+                cdx = udx;
+              }
+#ifdef DEBUG_MERGE
+            printf("    [%lld,%lld) w %d posts\n",Tdp+(vcp-cache)/KBYTE,Tdp+(l-cache)/KBYTE,freq);
+            fflush(stdout);
+#endif
+          mlen = plen;
+        }
+
+        if (cdx >= lcs)
+          b = cdx-lcs;
+        else
+          b = (cdx+POST_BUF_LEN) - lcs;
+        if (b + freq > POST_BUF_LEN)
+          { m = (b+freq) & POST_BUF_MASK;
+            for (m--; m >= 0; m--)
+              post[POST_BUF_LEN+m] = post[m];
+          }
+
+        nhits += suf1[CBYTE] * (freq-1);
+        g1len += suf1[CBYTE];
+        tseed += suf1[CBYTE] * (freq-1) * plen;
+// printf(" %d %d %d\n",odx,lcs,freq);
+// fflush(stdout);
+
+        iptr = (uint8 *) (post+odx);
+        for (n = suf1[CBYTE]; n > 0; n--, iptr += sizeof(int64))
+          { isign = (iptr[ISIGN] & 0x80);
+            if (isign)
+              iptr[ISIGN] &= 0x7f;
+            ipost = *((int64 *) iptr);
+            icont = (ipost >> ESHIFT);
+            idest = Select[icont];
+
+            jptr  = (uint8 *) (post+b);
+            for (k = 0; k < freq; k++, jptr += sizeof(int64))
+              {
+#ifdef DEBUG_MERGE
+                if (n == suf1[CBYTE])
+                  { int64 ip;
+                    int   ss;
+
+                    if (iptr == jptr)
+                      ss = isign;
+                    else
+                      { ss = (jptr[JSIGN] & 0x80);
+                        jptr[JSIGN] &= 0x7f;
+                      }
+                    printf("      %ld: %c",((int64 *) jptr)-post,ss?'-':'+');
+                    ip = 0;
+                    memcpy((uint8 *) (&ip),jptr+JPOST,JCONT);
+                    printf(" %4d",P2->perm[ip]);
+                    ip = 0;
+                    memcpy((uint8 *) (&ip),jptr,JPOST);
+                    printf(" %9lld\n",ip);
+                    fflush(stdout);
+                    if (ss && iptr != jptr)
+                      jptr[JSIGN] |= 0x80;
+                  }
+#endif
+                if (jptr == iptr)
+                  continue;
+
+                jsign = (jptr[JSIGN] & 0x80);
+                if (jsign)
+                  { jptr[JSIGN] &= 0x7f;
+                    jpost = *((int64 *) jptr);
+                    jptr[JSIGN] |= 0x80;
+                  }
+                else
+                  jpost = *((int64 *) jptr);
+
+                if (ipost < jpost)
+                  continue;
+
+                if (isign == jsign)
+                  { if (ipost < jpost)
+                      continue;
+                    ou = nunit + idest;
+                  }
+                else
+                  ou = cunit + idest;
+                btop = ou->btop;
+                *btop++ = mlen;
+                memcpy(btop,iptr,IBYTE);
+                btop += IBYTE;
+                memcpy(btop,jptr,JBYTE);
+                btop += JBYTE;
+
+                ou->buck[icont] += 1;
+
+                if (btop >= ou->bend)
+                  { write(ou->file,ou->bufr,btop-ou->bufr);
+                    ou->btop = ou->bufr;
+                  }
+                else
+                  ou->btop = btop;
+              }
+
+#ifdef DEBUG_MERGE
+            { int64 ip;
+
+              if (n == suf1[CBYTE])
+                printf("   vs\n");
+              printf("      %ld: %c",((int64 *) iptr)-post,isign?'-':'+');
+              ip = 0;
+              memcpy((uint8 *) (&ip),iptr+IPOST,ICONT);
+              printf(" %4d",P2->perm[ip]);
+              ip = 0;
+              memcpy((uint8 *) (&ip),iptr,IPOST);
+              printf(" %9lld\n",ip);
+              fflush(stdout);
+            }
+#endif
+
+            if (isign)
+              iptr[ISIGN] |= 0x80;
+          }
+ empty: continue;
+      }
+    }
+
+  { int j;
+
+    for (j = 0; j < NPARTS; j++)
+      { if (nunit[j].btop > nunit[j].bufr)
+          write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr);
+        close(nunit[j].file);
+        if (cunit[j].btop > cunit[j].bufr)
+          write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr);
+        close(cunit[j].file);
+      }
+  }
+
+  parm->nhits = nhits/2;
+  parm->g1len = g1len;
+  parm->tseed = tseed/2;
+  return (NULL);
+}
+
 
 static void adaptamer_merge(char *g1,        char *g2,
                             Kmer_Stream *T1, Kmer_Stream *T2,
@@ -935,6 +1386,91 @@ static void adaptamer_merge(char *g1,        char *g2,
 }
 
 
+static void self_adaptamer_merge(char *g1, Kmer_Stream *T1, Post_List *P1)
+{ SP         parm[NTHREADS];
+#ifndef DEBUG_MERGE
+  pthread_t  threads[NTHREADS];
+#endif
+  uint8     *cache;
+  int64      nhits, g1len, tseed;
+  int        i, j;
+
+  if (VERBOSE)
+    { fprintf(stdout,"  Starting adaptive seed merge\n");
+      fflush(stdout);
+    }
+
+  parm[0].T1 = T1;
+  parm[0].P1 = P1;
+  for (i = 1; i < NTHREADS; i++)
+    { parm[i].T1 = Clone_Kmer_Stream(T1);
+      parm[i].P1 = Open_Post_List(g1);
+    }
+
+  cache = Malloc(NTHREADS*(P1->maxp+1)*KBYTE,"Allocating cache");
+  if (cache == NULL)
+    exit (1);
+
+  for (i = 0; i < NTHREADS; i++)
+    { IOBuffer *nu, *cu;
+
+      parm[i].tid   = i;
+      parm[i].cache = cache + i * (P1->maxp+1) * KBYTE;
+      parm[i].nunit = nu = N_Units + i * NPARTS;
+      parm[i].cunit = cu = C_Units + i * NPARTS;
+      for (j = 0; j < NPARTS; j++)
+        { nu[j].file = open(nu[j].name,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+          if (nu[j].file < 0)
+            { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,nu[j].name);
+              exit (1);
+            }
+          cu[j].file = open(cu[j].name,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+          if (cu[j].file < 0)
+            { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,cu[j].name);
+              exit (1);
+            }
+        }
+      bzero(nu[0].buck,sizeof(int64)*NCONTS);
+      bzero(cu[0].buck,sizeof(int64)*NCONTS);
+    }
+
+#ifdef DEBUG_MERGE
+  for (i = 0; i < NTHREADS; i++)
+    self_merge_thread(parm+i);
+#else
+  for (i = 1; i < NTHREADS; i++)
+    pthread_create(threads+i,NULL,self_merge_thread,parm+i);
+  self_merge_thread(parm);
+
+  for (i = 1; i < NTHREADS; i++)
+    pthread_join(threads[i],NULL);
+#endif
+
+  if (VERBOSE)
+    { printf("\r    Completed 100%%\n");
+      fflush(stdout);
+    }
+   
+  free(cache);
+
+  for (i = NTHREADS-1; i >= 1; i--)
+    { Free_Kmer_Stream(parm[i].T1);
+      Free_Post_List(parm[i].P1);
+    }
+  Free_Kmer_Stream(T1);
+
+  nhits = g1len = tseed = 0;
+  for (i = 0; i < NTHREADS; i++)
+    { nhits += parm[i].nhits;
+      g1len += parm[i].g1len;
+      tseed += parm[i].tseed;
+    }
+
+  if (VERBOSE)
+    printf("\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n\n",
+           nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
+}
+
 
 /***********************************************************************************************
  *
@@ -995,6 +1531,8 @@ static void *reimport_thread(void *args)
 
   flag = (0x1ll << (8*JCONT-1));
   mask = flag-1;
+
+  if (bend > bufr)
 
   while (1)
     { lcp = *b++;
@@ -1329,6 +1867,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
   int64  ndiag, cdiag;
   uint8 *_ndiag = (uint8 *) (&ndiag);
 
+  int    self;
+
   int64  ipost, apost;
   uint8 *_ipost = (uint8 *) (&ipost);
   uint8 *_apost = (uint8 *) (&apost);
@@ -1350,6 +1890,11 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
   nmem   = 0;
   nliv   = 0;
   ncov   = 0;
+
+  if (SELF && ctg1 == ctg2 && !comp)
+    self = 1;
+  else
+    self = 0;
 
   aoffset = alen-KMER;
 
@@ -1600,7 +2145,12 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 #endif
 #ifdef CALL_ALIGNER
                           if (mo)
-                            { Local_Alignment(align,work,spec,dgmin,dgmax,anti,-1,-1);
+                            { if (self)
+                                { if (dgmin > 0 || dgmax < 0)
+                                    Local_Alignment(align,work,spec,dgmin,dgmax,anti,dgmin-1,-1);
+                                }
+                              else
+                                Local_Alignment(align,work,spec,dgmin,dgmax,anti,-1,-1);
 #ifdef DEBUG_ALIGN
                               if (path->aepos - path->abpos >= ALIGN_MIN)
                                 { printf("Local %d: %d-%d vs %d %d\n",k-lst,
@@ -1970,16 +2520,17 @@ static void *search_seeds(void *args)
   x = sarray + range->off;
   for (icrnt = beg; icrnt < end; icrnt++)
     { e = x + panel[icrnt];
-
-      memcpy(_jcrnt,x+foffs,JCONT);
-      b = x;
-      for (x += swide; x < e; x += swide)
-        if (memcmp(_jcrnt,x+foffs,JCONT))
-          { align_contigs(b,x,swide,icrnt,(int) jcrnt,pair);
-            memcpy(_jcrnt,x+foffs,JCONT);
-            b = x;
-          }
-      align_contigs(b,x,swide,icrnt,jcrnt,pair);
+      if (e > x)
+        { memcpy(_jcrnt,x+foffs,JCONT);
+          b = x;
+          for (x += swide; x < e; x += swide)
+            if (memcmp(_jcrnt,x+foffs,JCONT))
+              { align_contigs(b,x,swide,icrnt,(int) jcrnt,pair);
+                memcpy(_jcrnt,x+foffs,JCONT);
+                b = x;
+              }
+          align_contigs(b,x,swide,icrnt,jcrnt,pair);
+        }
     }
 
   Free_Align_Spec(pair->spec);
@@ -2327,7 +2878,7 @@ int main(int argc, char *argv[])
 
     VERBOSE = flags['v'];
 
-    if (argc != 3 || FREQ < 0)
+    if ((argc != 3 && argc != 2) || FREQ < 0)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
@@ -2379,8 +2930,13 @@ int main(int argc, char *argv[])
     closedir(dirp);
   }
 
+  SELF = (argc == 2);
+
   T1 = Open_Kmer_Stream(argv[1]);
-  T2 = Open_Kmer_Stream(argv[2]);
+  if (SELF)
+    T2 = T1;
+  else
+    T2 = Open_Kmer_Stream(argv[2]);
   if (T1 == NULL)
     { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[1]);
       exit (1);
@@ -2391,7 +2947,10 @@ int main(int argc, char *argv[])
     }
   
   P1 = Open_Post_List(argv[1]);
-  P2 = Open_Post_List(argv[2]);
+  if (SELF)
+    P2 = P1;
+  else
+    P2 = Open_Post_List(argv[2]);
   if (P1 == NULL)
     { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[1]);
       exit (1);
@@ -2412,10 +2971,14 @@ int main(int argc, char *argv[])
   Trim_DB(DB1);
   short_DB_fix(DB1);
 
-  if (Open_DB(argv[2],DB2) < 0)
-    exit (1);
-  Trim_DB(DB2);
-  short_DB_fix(DB2);
+  if (SELF)
+    DB2 = DB1;
+  else
+    { if (Open_DB(argv[2],DB2) < 0)
+        exit (1);
+      Trim_DB(DB2);
+      short_DB_fix(DB2);
+    }
 
   if (P2->nsqrt != NTHREADS)
     { fprintf(stderr,"%s: Genome indices %s & %s built with different # of threads\n",
@@ -2427,7 +2990,10 @@ int main(int argc, char *argv[])
 
     if (OUTP == NULL)
       { r1 = Root(argv[1],".dam");
-        r2 = Root(argv[2],".dam");
+        if (SELF)
+          r2 = Root(argv[1],".dam");
+        else
+          r2 = Root(argv[2],".dam");
         ALGN_NAME = Strdup(Catenate(r1,".",r2,""),"Allocating alignment name");
         free(r2);
         free(r1);
@@ -2572,7 +3138,10 @@ int main(int argc, char *argv[])
       }
 #endif
 
-    adaptamer_merge(argv[1],argv[2],T1,T2,P1,P2);
+    if (SELF)
+      self_adaptamer_merge(argv[1],T1,P1);
+    else
+      adaptamer_merge(argv[1],argv[2],T1,T2,P1,P2);
 
     //  Effectively transpose N_unit & C_unit matrices
 
@@ -2654,8 +3223,13 @@ int main(int argc, char *argv[])
   free(ALGN_NAME);
   free(PAIR_NAME);
 
+  if ( ! SELF)
+    Close_DB(DB2);
+  Close_DB(DB1);
+
+  if ( ! SELF)
+    Free_Post_List(P2);
   Free_Post_List(P1);
-  Free_Post_List(P2);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

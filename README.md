@@ -102,16 +102,19 @@ debug and illustrative purposes.
 ```
 3. FastGA [-v] [-P<dir(/tmp)] [-o<out:name>] -f<int>
           [-c<int(100)>] [-s<int(500)>] [-a<int(100)>] [-e<float(.7)>]
-          <source1>[.dam] <source2>[.dam]
+          <source1>[.dam] [<source2>[.dam]]
 ```
 
-Once indices have been built for all relevant genomes, any pair \<source1> and \<source2> can be compared with **FastGA**.  The indices for the genomes must have been built with the same
-number of threads and this is the number of threads that FastGA uses to perform the comparison.
+Once indices have been built for all relevant genomes, any pair \<source1> and \<source2> can be compared with **FastGA**.  **The indices for the genomes must have been built with the same
+number of threads and this is the number of threads that FastGA uses to perform the comparison.**
 The output of the program is a Daligner .las (local alignments) file whose alignments can then
 be viewed with LAshow.  If the -o option is given then the name of the .las file is
 ```<out>.las```, otherwise the name is ```<source1>.<source2>.las``` by default.  FastGA
 produces a number of large intermediate files in the directory ```/tmp``` unless an alternate
 directory is given with -P parameter.
+
+You can also call FastGA with a single source in which case it compares the genome/assembly against
+itself, avoiding the finding and reporting of identity matches.  We anticipate that this mode may be usefule for (a) identifying repetitive regions in the genome, and (b) resolving and identifying haplotype correspondences between the various contigs of an assembly. 
 
 The traditional definition of the *adaptive seed* at a given position p of source1, is the longest string beginning at that position that is also somewhere in source2.  If the number of
 occurences of this string in source2 is greater than -f, then the adaptamer is deemed repetitive and is not considered.  Otherwise an adpatamer seed hit occurs at p and the positions of source2

@@ -896,16 +896,23 @@ void k_sort(DAZZ_DB *DB)
             prev = next;
           }
 
-        if (VERBOSE)
-          { fprintf(stdout,"\r    Sorting part %d  ",part+1);
-            fflush(stdout);
+        if (prev == 0)
+          { for (p = 0; p < NTHREADS; p++)
+              rarm[p].range->off = rarm[p].range->beg = rarm[p].range->end = 0;
           }
+        else
+          {
+            if (VERBOSE)
+              { fprintf(stdout,"\r    Sorting part %d  ",part+1);
+                fflush(stdout);
+              }
 
-        msd_sort(sarray,next,swide,KBYTES,panel,NTHREADS,range);
+            msd_sort(sarray,next,swide,KBYTES,panel,NTHREADS,range);
 
 #ifdef DEBUG_SORT
-        print_table(sarray,swide,next);
+            print_table(sarray,swide,next);
 #endif
+          }
       }
 
       for (p = 0; p < NTHREADS; p++)

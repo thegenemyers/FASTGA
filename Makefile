@@ -32,11 +32,11 @@ LAStoPSL: LAStoPSL.c align.h align.c DB.c DB.h
 clean:
 	rm -f $(ALL)
 	rm -fr *.dSYM
-	rm -f FastMGA.tar.gz
+	rm -f FastGA.tar.gz
 
 install:
 	cp $(ALL) $(DEST_DIR)
 
 package:
 	make clean
-	tar -zcf FastG.tar.gz LICENSE README.md Makefile *.h *.c
+	tar -zcf FastGA.tar.gz LICENSE README.md Makefile *.h *.c

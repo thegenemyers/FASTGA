@@ -1019,7 +1019,7 @@ static void *self_merge_thread(void *args)
 
           //  start adpatermer merge for prefix cpre
 
-          vlcp[plen] = rcur = rend = suf1 = cache;
+          vlcp[11] = rcur = rend = suf1 = cache;
           vlow  = cache-KBYTE;
           vhgh  = cache;
           pdx   = POST_BUF_MASK;
@@ -1080,7 +1080,7 @@ static void *self_merge_thread(void *args)
 
       { int       freq, lcs, mlen, udx;
         int       isign, jsign;
-        int64     ipost, jpost;
+        int64     ipost;
         int       icont, idest;
         uint8    *iptr, *jptr;
         IOBuffer *ou;
@@ -1092,7 +1092,6 @@ static void *self_merge_thread(void *args)
               goto empty;
             lcs = freq = suf1[CBYTE];
             mlen = KMER;
-// printf("A %d %d %d\n",lcs,freq,mlen);  fflush(stdout);
           }
 
         else
@@ -1110,7 +1109,6 @@ static void *self_merge_thread(void *args)
           
             for (l = rend-KBYTE; l >= vcp; l -= KBYTE)
               { freq += l[CBYTE];
-// printf("B %lld %lld += %d\n",(l-cache)/KBYTE+Tdp,(vcp-cache)/KBYTE+Tdp,freq); fflush(stdout);
                 if (freq >= FREQ)
                   { vlow = l;
 #ifdef DEBUG_MERGE
@@ -1126,7 +1124,6 @@ static void *self_merge_thread(void *args)
               { udx = cdx;
                 l = rend;
                 freq += l[CBYTE];
-// printf("C %lld %d<%d += %d\n",(l-cache)/KBYTE+Tdp,cdx,pdx,freq); fflush(stdout);
                 if (freq >= FREQ)
                   {
 #ifdef DEBUG_MERGE
@@ -1138,7 +1135,6 @@ static void *self_merge_thread(void *args)
                 ADVANCE(l)
                 while (l[LBYTE] >= plen)
                   { freq += l[CBYTE];
-// printf("D %lld %d<%d += %d\n",(l-cache)/KBYTE+Tdp,cdx,pdx,freq); fflush(stdout);
                     if (freq >= FREQ)
                       {
 #ifdef DEBUG_MERGE
@@ -1172,8 +1168,6 @@ static void *self_merge_thread(void *args)
         nhits += suf1[CBYTE] * (freq-1);
         g1len += suf1[CBYTE];
         tseed += suf1[CBYTE] * (freq-1) * plen;
-// printf(" %d %d %d\n",odx,lcs,freq);
-// fflush(stdout);
 
         iptr = (uint8 *) (post+odx);
         for (n = suf1[CBYTE]; n > 0; n--, iptr += sizeof(int64))
@@ -1214,22 +1208,8 @@ static void *self_merge_thread(void *args)
                   continue;
 
                 jsign = (jptr[JSIGN] & 0x80);
-                if (jsign)
-                  { jptr[JSIGN] &= 0x7f;
-                    jpost = *((int64 *) jptr);
-                    jptr[JSIGN] |= 0x80;
-                  }
-                else
-                  jpost = *((int64 *) jptr);
-
-                if (ipost < jpost)
-                  continue;
-
                 if (isign == jsign)
-                  { if (ipost < jpost)
-                      continue;
-                    ou = nunit + idest;
-                  }
+                  ou = nunit + idest;
                 else
                   ou = cunit + idest;
                 btop = ou->btop;
@@ -2146,8 +2126,10 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 #ifdef CALL_ALIGNER
                           if (mo)
                             { if (self)
-                                { if (dgmin > 0 || dgmax < 0)
+                                { if (dgmin > 0)
                                     Local_Alignment(align,work,spec,dgmin,dgmax,anti,dgmin-1,-1);
+                                  else if (dgmax < 0)
+                                    Local_Alignment(align,work,spec,dgmin,dgmax,anti,-1,dgmax+1);
                                 }
                               else
                                 Local_Alignment(align,work,spec,dgmin,dgmax,anti,-1,-1);

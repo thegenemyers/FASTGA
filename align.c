@@ -1770,6 +1770,9 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
 #endif
 
   selfie = (align->aseq == align->bseq);
+
+  while (((anti-hgh) >> 1) < 0)
+    hgh -= 1;
    
   if (lbord < 0)
     { if (selfie && low >= 0)

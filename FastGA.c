@@ -2129,7 +2129,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                                 { if (dgmin > 0)
                                     Local_Alignment(align,work,spec,dgmin,dgmax,anti,dgmin-1,-1);
                                   else if (dgmax < 0)
-                                    Local_Alignment(align,work,spec,dgmin,dgmax,anti,-1,dgmax+1);
+                                    Local_Alignment(align,work,spec,dgmin,dgmax,anti,-1,-(dgmax+1));
                                 }
                               else
                                 Local_Alignment(align,work,spec,dgmin,dgmax,anti,-1,-1);

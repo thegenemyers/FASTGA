@@ -4,7 +4,7 @@ CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
 CC = gcc
 
-ALL = Gindex Gshow FastGA Synteny LAStoPSL
+ALL = Gindex Gshow FastGA Synteny LAStoPSL LAStoPAF
 
 all: $(ALL)
 
@@ -28,6 +28,9 @@ Synteny: Synteny.c align.h align.c DB.c DB.h
 
 LAStoPSL: LAStoPSL.c align.h align.c DB.c DB.h
 	$(CC) $(CFLAGS) -o LAStoPSL LAStoPSL.c align.c DB.c gene_core.c -lpthread -lm
+
+LAStoPAF: LAStoPAF.c align.h align.c DB.c DB.h
+	$(CC) $(CFLAGS) -o LAStoPAF LAStoPAF.c align.c DB.c gene_core.c -lpthread -lm
 
 clean:
 	rm -f $(ALL)

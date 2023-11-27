@@ -21,13 +21,16 @@
 
 static int BORDER = 0;
 
-static char *Usage = " <src1:db|dam> [ <src2:db|dam> ] <align:las>";
+static char *Usage = " [-ct] <src1:db|dam> [ <src2:db|dam> ] <align:las>";
 
 int main(int argc, char *argv[])
 { DAZZ_DB   _db1, *db1 = &_db1;
   DAZZ_DB   _db2, *db2 = &_db2;
   Overlap   _ovl, *ovl = &_ovl;
   Alignment _aln, *aln = &_aln;
+
+  int  CIGAR;
+  int  TRACE;
 
   FILE   *input;
   FILE   *ahdr, *bhdr;
@@ -47,15 +50,21 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("")
+            ARG_FLAGS("ct")
             break;
         }
       else
         argv[j++] = argv[i];
     argc = j;
 
+    CIGAR = flags['c'];
+    TRACE = flags['t'];
+
     if (argc != 3 && argc != 4)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -c: produce Cigar string tag\n");
+        fprintf(stderr,"      -t: produce LAS trace and diff list tags\n");
         exit (1);
       }
   }
@@ -152,8 +161,8 @@ int main(int argc, char *argv[])
     uint16    *trace;
     int        tmax;
     int        aread, bread;
-    int        bmin, bmax;
-    char      *aseq, *bseq, *bact;
+    int        alast;
+    char      *aseq, *bseq;
     Path      *path;
     Work_Data *work;
 
@@ -172,6 +181,7 @@ int main(int argc, char *argv[])
 
     //  For each alignment do
 
+    alast = -1;
     for (j = 0; j < novl; j++)
       { Read_Overlap(input,ovl);
         if (ovl->path.tlen > tmax)
@@ -183,43 +193,15 @@ int main(int argc, char *argv[])
         path->trace = (void *) trace;
         Read_Trace(input,ovl,tbytes);
 
-        if (small)
-          Decompress_TraceTo16(ovl);
-
-        if (aread != ovl->aread)
-          { aread = ovl->aread;
-            Load_Read(db1,aread,aseq,0);
-            aln->alen = db1->reads[aread].rlen;
-          }
+        aread = ovl->aread;
+        aln->alen = db1->reads[aread].rlen;
+        bread = ovl->bread;
         aln->blen  = db2->reads[ovl->bread].rlen;
         aln->flags = ovl->flags;
 
-        bread = ovl->bread;
-        if (COMP(aln->flags))
-          { bmin = (aln->blen-path->bepos) - BORDER;
-            if (bmin < 0) bmin = 0;
-            bmax = (aln->blen-path->bbpos) + BORDER;
-            if (bmax > aln->blen) bmax = aln->blen;
-          }
-        else
-          { bmin = path->bbpos - BORDER;
-            if (bmin < 0) bmin = 0;
-            bmax = path->bepos + BORDER;
-            if (bmax > aln->blen) bmax = aln->blen;
-          }
-
-        bact  = Load_Subread(db2,bread,bmin,bmax,bseq,0);
-        if (COMP(aln->flags))
-          { Complement_Seq(bact,bmax-bmin);
-            aln->bseq = bact - (aln->blen-bmax);
-          }
-        else
-          aln->bseq = bact - bmin; 
-
-        Compute_Trace_PTS(aln,work,tspace,GREEDIEST);
 
         { char header[MAX_NAME];
-          int  blocksum;
+          int  blocksum, iid;
 
           fseeko(ahdr,db1->reads[aread].coff,SEEK_SET);
           fgets(header,MAX_NAME,ahdr);
@@ -248,11 +230,118 @@ int main(int argc, char *argv[])
             }
 
           blocksum = (path->aepos-path->abpos) + (path->bepos-path->bbpos);
-
-          printf("\t%d",(blocksum - (2*path->diffs-path->tlen))/2);
+          iid      = (blocksum - path->diffs)/2;
+         
+          printf("\t%d",iid);
           printf("\t%d",blocksum/2);
-          printf("\t255\n");
+          printf("\t255");
+
+	  printf("\tdv:F%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
+	  printf("\tdf:I%d",path->diffs);
+
+          if (TRACE)
+            { int i;
+
+              if (small)
+                Decompress_TraceTo16(ovl);
+
+              printf("\ttz:Z%d",trace[1]);
+              for (i = 3; i < path->tlen; i+= 2)
+                printf(",%d",trace[i]);
+              printf("\ttd:Z%d",trace[0]);
+              for (i = 2; i < path->tlen; i+= 2)
+                printf(",%d",trace[i]);
+            }
+
+          if (CIGAR)
+            { int  bmin, bmax;
+              char *bact;
+
+              if (small && !TRACE)
+                Decompress_TraceTo16(ovl);
+
+              if (aread != alast)
+                Load_Read(db1,aread,aseq,0);
+
+              if (COMP(aln->flags))
+                { bmin = (aln->blen-path->bepos) - BORDER;
+                  if (bmin < 0) bmin = 0;
+                  bmax = (aln->blen-path->bbpos) + BORDER;
+                  if (bmax > aln->blen) bmax = aln->blen;
+                }
+              else
+                { bmin = path->bbpos - BORDER;
+                  if (bmin < 0) bmin = 0;
+                  bmax = path->bepos + BORDER;
+                  if (bmax > aln->blen) bmax = aln->blen;
+                }
+
+              bact  = Load_Subread(db2,bread,bmin,bmax,bseq,0);
+              if (COMP(aln->flags))
+                { Complement_Seq(bact,bmax-bmin);
+                  aln->bseq = bact - (aln->blen-bmax);
+                }
+              else
+                aln->bseq = bact - bmin; 
+
+              Compute_Trace_PTS(aln,work,tspace,GREEDIEST);
+
+              { int    k, h, p, x, blen;
+                int32 *t = (int32 *) path->trace;
+                int    T = path->tlen;
+                int    ilen, dlen;
+
+                ilen = dlen = 0;
+                printf("\tcg:Z");
+                k = path->abpos+1;
+                h = path->bbpos+1;
+                for (x = 0; x < T; x++)
+                  { if ((p = t[x]) < 0)
+                      { blen = -(p+k);
+                        k += blen;
+                        h += blen+1;
+                        if (blen == 0)
+                          ilen += 1;
+                        else
+                          { if (dlen > 0)
+                              printf("%dD",dlen);
+                            if (ilen > 0)
+                              printf("%dI",ilen);
+                            printf("%dM",blen);
+                            dlen = 0;
+                            ilen = 1;
+                          }
+                      }
+                    else
+                      { blen = p-h;
+                        k += blen+1;
+                        h += blen;
+                        if (blen == 0)
+                          dlen += 1;
+                        else
+                          { if (dlen > 0)
+                              printf("%dD",dlen);
+                            if (ilen > 0)
+                              printf("%dI",ilen);
+                            printf("%dM",blen);
+                            dlen = 1;
+                            ilen = 0;
+                          }
+                      }
+                  }
+                if (dlen > 0)
+                  printf("%dD",dlen);
+                if (ilen > 0)
+                  printf("%dI",ilen);
+                blen = (path->aepos - k)+1;
+                if (blen > 0)
+                  printf("%dM",blen);
+              }
+            }
+
+          printf("\n");
         }
+        alast = aread;
       }
 
     free(trace);

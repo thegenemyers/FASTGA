@@ -63,8 +63,8 @@ three different forms including .psl format.  The directory also contains all or
 for github, a portion, of the three outputs.
 
 The remainder of this document gives the command line syntax and complete technical description
-for the tools **Gindex** that creates an index, **Gshow** that prints a listing of an index, **FastGA** which compares two genomes and outputs a local alignments (.las) file of all the matches it finds above user-supplied thresholds for length and similarity, and **LAStoPSL** that converts
-a .las file into .psl format.
+for the tools **Gindex** that creates an index, **Gshow** that prints a listing of an index, **FastGA** which compares two genomes and outputs a local alignments (.las) file of all the matches it finds above user-supplied thresholds for length and similarity, **LAStoPSL** that converts
+a .las file into .psl format, and **LAStoPAF** that converts a .las file into .paf format.
 
 <a name="Gindex"></a>
 
@@ -135,12 +135,35 @@ thresholds for chaining and alignment.
 
 
 ```
-4. LAStoPSL <source1>[.dam] <source2>[.dam] <alignments>[.las]
+4. LAStoPSL <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
 ```
 
-In order to convert a .las file into a .psl file, LAStoPSL also needs as arguments the two genomes,
-as Dazzler .dam's, that were compared by FastGA to produce the file.  Given these 3 arguments in the
+In order to convert a .las file into a [.psl](https://www.ensembl.org/info/website/upload/psl.html) file, LAStoPSL also needs as arguments the one or two genomes,
+as Dazzler .dam's, that were compared by FastGA to produce the file.  Given these 2 or 3 arguments in the
 order shown above, the program outputs .psl encoded alignments, one alignment per line to the
 standard output.
 Warning, the .psl output is almost 15 times larger than the .las file.
+
+
+
+```
+5. LAStoPAF [-ct] <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
+```
+
+In order to convert a .las file into a [.paf](https://github.com/lh3/miniasm/blob/master/PAF.md) file, LAStoPAF also needs as arguments the one or two genomes,
+as Dazzler .dam's, that were compared by FastGA to produce the file.  Given these 2 or 3 arguments in the
+order shown above, the program outputs .paf encoded records, one alignment per line to the
+standard output.
+In addition to the standard .par fields, LAStoPAF outputs a ```dv:F<fraction>``` SAM-tag that gives the divergences of the query from the target and a ```df:I<diffs>``` SAM-tag that gives the number
+of differences in an optimal alignment between the two intervals of the query and target.
+If the -t option is set then the program also outputs a ```tz:Z<length-list>``` tag and a
+```td:Z<diff-list>``` encoding the LAS trace information from which an explicit alignment can be
+constructed.  Perhaps more relevant to most users is the -c option that requests LAStoPAF to produce
+a CIGAR string tag of the form ```cg:Z<cigar-string>``` that explicitly encodes an optimal alignment.
+
+The -t option doubles the time taken and quadruples the size of the .paf file.  Beware, the -c option
+increases the time taken by a factor of 9 and the file size by a factor of over 300 !
+
+
+
 

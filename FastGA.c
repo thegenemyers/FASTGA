@@ -27,6 +27,7 @@
 #undef    DEBUG_SORT
 #undef    DEBUG_SEARCH
 #undef    DEBUG_HIT
+#undef    DEBUG_TUBE
 #define   CALL_ALIGNER
 #undef    DEBUG_ALIGN
 #undef    DEBUG_ENTWINE
@@ -40,8 +41,9 @@ static int ABYTE;       //  TBYTES is 1
 static int PTR_SIZE = sizeof(void *);
 static int OVL_SIZE = sizeof(Overlap) - sizeof(void *);
 
-#define    BUCK_WIDTH    64
 #define    BUCK_SHIFT     6
+#define    BUCK_WIDTH    64  //  2^BUCK_SHIFT
+#define    BUCK_ANTI    128  //  2*BUCK_WIDTH
 
 static int    CHAIN_BREAK;
 static int    CHAIN_MIN;
@@ -79,7 +81,10 @@ static int KBYTE;   // # of bytes for a k-mer table entry (both T1 & T2)
 static int CBYTE;   // byte of k-mer table entry containing post count
 static int LBYTE;   // byte of k-mer table entry containing lcp
 
-static int DBYTE;   // # of bytes for a pair diagonal
+static int64 AMXPOS;  //  longest contig in DB1
+static int64 BMXPOS;  //  longest contig in DB1
+static int64 MAXDAG;  //  AMXPOS + BMXPOS
+static int   DBYTE;   // # of bytes for a pair diagonal or anti-diagonal
 
 static int    NCONTS;    //  # of A contigs
 static int    NPARTS;    //  # of panels A-contigs divided into
@@ -141,7 +146,7 @@ typedef struct
     int64  *neps;       //  Size of each thread part in elements
   } Post_List;
 
-#define POST_BLOCK 1024
+#define POST_BLOCK 0x20000
 
 //  Load up the table buffer with the next STREAM_BLOCK suffixes (if possible)
 
@@ -1195,7 +1200,7 @@ static void *self_merge_thread(void *args)
                     printf("      %ld: %c",((int64 *) jptr)-post,ss?'-':'+');
                     ip = 0;
                     memcpy((uint8 *) (&ip),jptr+JPOST,JCONT);
-                    printf(" %4d",P2->perm[ip]);
+                    printf(" %4d",Perm2[ip]);
                     ip = 0;
                     memcpy((uint8 *) (&ip),jptr,JPOST);
                     printf(" %9lld\n",ip);
@@ -1237,7 +1242,7 @@ static void *self_merge_thread(void *args)
               printf("      %ld: %c",((int64 *) iptr)-post,isign?'-':'+');
               ip = 0;
               memcpy((uint8 *) (&ip),iptr+IPOST,ICONT);
-              printf(" %4d",P2->perm[ip]);
+              printf(" %4d",Perm1[ip]);
               ip = 0;
               memcpy((uint8 *) (&ip),iptr,IPOST);
               printf(" %9lld\n",ip);
@@ -1479,18 +1484,17 @@ static void *reimport_thread(void *args)
   uint8 *bufr   = parm->buffer;
   int64 *buck   = parm->buck;
 
-  DAZZ_READ *jreads = parm->DB2->reads;
-
-  int64  ipost, jpost, icont, jcont, pdiag;
+  int64  ipost, jpost, icont, jcont, band, anti;
   uint8 *_ipost = (uint8 *) (&ipost);
   uint8 *_jpost = (uint8 *) (&jpost);
   uint8 *_icont = (uint8 *) (&icont);
   uint8 *_jcont = (uint8 *) (&jcont);
-  uint8 *_pdiag  = (uint8 *) (&pdiag);
+  uint8 *_band  = (uint8 *) (&band);
+  uint8 *_anti  = (uint8 *) (&anti);
 
   uint8 *x;
   int    iolen, iunit, lcp, flip;
-  int64  drem, flag, mask;
+  int64  diag, flag, mask;
   uint8 *bend, *btop, *b;
 
   iolen = 2*NPARTS*1000000;
@@ -1530,18 +1534,30 @@ static void *reimport_thread(void *args)
       x = sarr + swide * buck[icont]++;
       *x++ = lcp;
       if (comp)
-        drem = ipost + jpost;
-      else
-        { drem = (ipost - jpost) + jreads[Perm2[jcont]].rlen;
-          if (flip)
-            ipost += (KMER-lcp);
+        { if (flip)
+            { ipost += lcp;
+              jpost += KMER-lcp;
+            }
+          else
+            ipost += KMER;
+          diag = MAXDAG - (ipost + jpost);
+          anti = AMXPOS - (ipost - jpost);
         }
-      pdiag = (drem >> BUCK_SHIFT);
-      *x++ = drem-(pdiag<<BUCK_SHIFT);
+      else
+        { if (flip)
+            { lcp   = KMER-lcp;
+              ipost += lcp;
+              jpost += lcp;
+            }
+          diag = BMXPOS + (ipost - jpost);
+          anti = ipost + jpost;
+        }
+      band = (diag >> BUCK_SHIFT);
+      *x++ = diag-(band<<BUCK_SHIFT);
 
-      memcpy(x,_ipost,IPOST);
-      x += IPOST;
-      memcpy(x,_pdiag,DBYTE);
+      memcpy(x,_anti,DBYTE);
+      x += DBYTE;
+      memcpy(x,_band,DBYTE);
       x += DBYTE;
       memcpy(x,_jcont,JCONT);
       x += JCONT;
@@ -1572,13 +1588,13 @@ void print_seeds(uint8 *sarray, int swide, Range *range, int64 *panel,
   int    n, p;
   int    lcp, drm;
 
-  int64  ipost, dbuck, jcont;
-  int64  jpost, diag;
-  uint8 *_ipost = (uint8 *) (&ipost);
+  int64  anti, dbuck, jcont;
+  int64  ipost, jpost, diag;
+  uint8 *_anti  = (uint8 *) (&anti);
   uint8 *_dbuck = (uint8 *) (&dbuck);
   uint8 *_jcont = (uint8 *) (&jcont);
 
-  ipost = 0;
+  anti  = 0;
   dbuck = 0;
   jcont = 0;
 
@@ -1588,30 +1604,34 @@ void print_seeds(uint8 *sarray, int swide, Range *range, int64 *panel,
     { x = sarray + range[n].off;
       for (p = range[n].beg; p < range[n].end; p++)
         { e = x + panel[p];
+          printf("\nContig %d:\n",p);
           while (x < e)
             { lcp = *x++;
               drm = *x++;
-              memcpy(_ipost,x,IPOST);
-              x += IPOST;
+              memcpy(_anti,x,DBYTE);
+              x += DBYTE;
               memcpy(_dbuck,x,DBYTE);
               x += DBYTE;
               memcpy(_jcont,x,JCONT);
               x += JCONT;
 
+              diag = (dbuck<<BUCK_SHIFT)+drm;
               if (comp)
-                { diag  = (dbuck<<BUCK_SHIFT)+drm;
-                  jpost = diag-ipost;
+                { anti += DB1->reads[Perm1[p]].rlen - AMXPOS;
+                  diag += DB1->reads[Perm1[p]].rlen - MAXDAG;
                 }
               else
-                { diag  = ((dbuck<<BUCK_SHIFT)+drm) - DB2->reads[Perm2[jcont]].rlen;
-                  jpost = ipost-diag;
-                }
+                diag -= BMXPOS;
+             jpost = (anti - diag) >> 1;
+             ipost = (anti + diag) >> 1;
 
              if (jpost < 0 || jpost > DB2->reads[Perm2[jcont]].rlen)
-               printf("SHOUT OUT\n");
+               printf("J index out of bounds\n");
+             if (ipost < 0 || ipost > DB1->reads[Perm1[jcont]].rlen)
+               printf("I index out of bounds\n");
 
-              printf("  %10ld:  %5d %5lld: %8lld  %10lld x %10lld  (%2d)  %2d\n",
-                     (x-sarray)/swide,p,jcont,diag,ipost,jpost,drm,lcp);
+             printf("  %10ld:  %5d %5lld: %8lld  %10lld x d=%10lld i=%10lld j=%10lld  (%2d)  %2d\n",
+                     (x-sarray)/swide,p,jcont,dbuck,anti,diag,ipost,jpost,drm,lcp);
             }
         }
     }
@@ -1754,15 +1774,8 @@ static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *
 }
 
 typedef struct
-  { int  jpost;
-    int  lcp;
-  } Jspan;
-
-typedef struct
 
   { DAZZ_DB    *DB1, *DB2;
-    int         lmax;           //  dynamic list for adjacent bucket merges
-    Jspan      *list;
     FILE       *ofile;
     FILE       *tfile;
     int64       nhits;
@@ -1777,39 +1790,10 @@ typedef struct
 
   } Contig_Bundle;
 
-#define SHOW_LAS(printer)					\
-  if (comp)							\
-    { Complement_Seq(align->aseq+(alen-path->aepos),		\
-                     path->aepos-path->abpos);			\
-      Complement_Seq(align->bseq+(blen-path->bepos),		\
-                     path->bepos-path->bbpos);			\
-    }								\
-  Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);		\
-  printer(stdout,align,work,4,100,10,0,8);			\
-  fflush(stdout);						\
-  if (comp)							\
-    { Complement_Seq(align->aseq+(alen-path->aepos),		\
-                     path->aepos-path->abpos);			\
-      Complement_Seq(align->bseq+(blen-path->bepos),		\
-                     path->bepos-path->bbpos);			\
-    }
+static int ALIGN_SORT(const void *l, const void *r)
+{ Overlap *ol = *((Overlap **) l);
+  Overlap *or = *((Overlap **) r);
 
-static int JSORT(const void *l, const void *r)
-{ Jspan *x = (Jspan *) l;
-  Jspan *y = (Jspan *) r;
-
-  return (x->jpost-y->jpost);
-}
-
-static void *IBLOCK;
-
-static int ALN_SORT(const void *l, const void *r)
-{ int64 x = *((int64 *) l);
-  int64 y = *((int64 *) r);
-  Overlap *ol, *or;
-
-  ol = (Overlap *) (IBLOCK+x);
-  or = (Overlap *) (IBLOCK+y);
   return (ol->path.abpos - or->path.abpos);
 }
 
@@ -1818,20 +1802,15 @@ static int ALN_SORT(const void *l, const void *r)
 //    of sufficient score, and when found search for an alignment, outputing it if found.
 
 void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig_Bundle *pair)
-{ int    lmax = pair->lmax;
-  Jspan *list = pair->list;
-
-  Overlap    *ovl   = &(pair->ovl);
+{ Overlap    *ovl   = &(pair->ovl);
   int         comp  = (ovl->flags != 0);
 #ifdef CALL_ALIGNER
   Work_Data  *work  = pair->work;
   Align_Spec *spec  = pair->spec;
   Alignment  *align = &(pair->align);
   Path       *path  = align->path;
-#ifndef DEBUG_ALIGN
   FILE       *ofile = pair->ofile;
   FILE       *tfile = pair->tfile;
-#endif
 #endif
 #if defined(DEBUG_SEARCH) || defined(DEBUG_HIT)
   int         repgo;
@@ -1840,7 +1819,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
   uint8 *b, *m, *e;
 
   int64  nhit, nlas, nmem, nliv, ncov;
-  int64  alen, blen;
+  int64  alen, blen, mlen;
   int64  aoffset, doffset;
 
   int    new, aux;
@@ -1865,6 +1844,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
   blen   = pair->DB2->reads[ctg2].rlen;
   alen   = pair->DB1->reads[ctg1].rlen;
+  mlen   = alen+blen;
+
   nhit   = 0;
   nlas   = 0;
   nmem   = 0;
@@ -1876,14 +1857,15 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
   else
     self = 0;
 
-  aoffset = alen-KMER;
+  doffset = alen - MAXDAG;
+  aoffset = alen - AMXPOS;
 
   //  Find segments b,m,e such that b > m and diag is cdiag for elements [b,m) and
   //    cdiag+1 for elements [m,e) (if m < e)
   //  If m == e (i.e. !aux) and b,m = m',e' of previous find (i.e. !new) then don't examine
   //    as the chain for this triple is subset of the chain for the previous triple.
 
-  b = e = beg + (IPOST+2);
+  b = e = beg + (DBYTE+2);
   memcpy(_ndiag,e,DBYTE);
   cdiag = ndiag;
   while (ndiag == cdiag && e < end)
@@ -1907,12 +1889,11 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
         }
 
       if (new || aux)
-        { int    go, lcp, wch, mix;
-          int64  lps, cov, npost, alast;
+        { int    go, lcp, wch, mix, cov;
+          int64  ahgh, alow, amid, alast;
+          int64  anti, eant;
           int    dgmin, dgmax, dg;
-          int    apmin, apmax;
           uint8 *s, *t;
-          int    len;
      
 #ifdef DEBUG_SEARCH
           if (repgo)
@@ -1927,52 +1908,38 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
           //    [m,e) in list[0..len) and process any above-threshold chains encountered while
           //    doing the merge.
 
-          if (comp)
-            { doffset = aoffset-(cdiag<<BUCK_SHIFT);
-              alast   = alen+1;
-            }
-          else
-            { doffset = (cdiag<<BUCK_SHIFT)-blen;
-              alast   = -1;
-            }
+          alast = -1;
 
-          if (e-b > lmax)
-            { lmax = (e-b)*1.2+100;
-              list = Realloc(list,(lmax+1)*sizeof(Jspan),"Expanding merge index");
-              if (list == NULL)
-                exit (1);
-            }
+          e -= DBYTE;
+          m -= DBYTE;
 
-          e -= IPOST;
-          m -= IPOST;
-
-          s = b-IPOST;
-          memcpy(_ipost,s,IPOST);
+          s = b-DBYTE;
+          memcpy(_ipost,s,DBYTE);
           t = m; 
           if (aux)
-            memcpy(_apost,t,IPOST);
+            memcpy(_apost,t,DBYTE);
           else
             apost = MAX_INT64;
 
-          lps = -CHAIN_BREAK;
-          cov = 0;
-          go  = 1;
+          ahgh = -CHAIN_BREAK;
+          cov  = 0;
+          go   = 1;
           while (go)
             { if (apost < ipost)
                 { lcp   = t[-2];
                   dg    = t[-1] + BUCK_WIDTH;
-                  npost = apost;
+                  anti  = apost;
                   t += swide;
                   if (t >= e)
                     apost = MAX_INT64;
                   else
-                    memcpy(_apost,t,IPOST);
+                    memcpy(_apost,t,DBYTE);
                   wch = 0x2;
                 }
               else
                 { lcp   = s[-2];
                   dg    = s[-1];
-                  npost = ipost;
+                  anti  = ipost;
                   s += swide;
                   if (s >= m)
                     { if (s > m)
@@ -1981,23 +1948,22 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                         ipost = MAX_INT64;
                     }
                   else
-                    memcpy(_ipost,s,IPOST);
+                    memcpy(_ipost,s,DBYTE);
                   wch = 0x1;
                 }
-  
-              if (npost < lps + CHAIN_BREAK)
+              lcp <<= 1;
+
+              if (anti < ahgh + CHAIN_BREAK)
                 { int64 cps;
 
-                  cps = npost + lcp;
-                  if (cps > lps)
-                    { if (npost >= lps)
+                  cps = anti + lcp;
+                  if (cps > ahgh)
+                    { if (anti >= ahgh)
                         cov += lcp;
                       else
-                        cov += cps-lps;
-                      lps = cps;
+                        cov += cps-ahgh;
+                      ahgh = cps;
                     }
-                  list[len].jpost = npost-dg;
-                  list[len++].lcp = lcp;
                   mix |= wch;
                   if (dg < dgmin)
                     dgmin = dg;
@@ -2007,13 +1973,11 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
               else
                 { if (cov >= CHAIN_MIN && (mix != 1 || new))
 
-                    //  Have a chain that covers CHAIN_MIN or more bases of the A-sequence:
+                    //  Have a chain that covers CHAIN_MIN or more anti-diagonals:
+                    //    in the "tube" (alow..ahgh,dgmin..dgmax)
+                    //    Search for local alignments within it.
 
-                    { int    k, mo;
-                      int64  jcov;
-                      int64  anti;
-
-                      nhit += 1;
+                    { nhit += 1;
 #ifdef DEBUG_SEARCH
                       if (repgo)
                         printf("                  Process\n");
@@ -2023,164 +1987,163 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                         { printf("Hit on bucket %lld",cdiag);
                           if (aux)
                             printf("+1");
-                          printf(" A-cov = %lld # seeds = %d\n",cov,len);
+                          printf(" Coverage = %d\n",cov);
                         }
 #endif
 
-                      //  Check that also cover CHAIN_MIN or more bases of the B-sequence
-                      //    and involves hit in new diagonal (if aux then + else .)
-
-                      { int64 jlps, jpost;
-                        int64 jcps, jlcp;
-
-                        qsort(list,len,sizeof(Jspan),JSORT);
-
-                        jlps  = -128;
-                        jcov  = 0;
-                        for (k = 0; k < len; k++)
-                          { jlcp  = list[k].lcp;
-                            jpost = list[k].jpost;
-                            jcps  = jpost + jlcp;
-                            if (jcps > jlps)
-                              { if (jpost >= jlps)
-                                  jcov += jlcp;
-                                else
-                                  jcov += jcps-jlps;
-                                jlps = jcps;
-                              }
-                          }
-#ifdef DEBUG_HIT
-                        if (repgo)
-                          printf("  J-coverage = %lld\n",jcov);
-#endif
-                      }
-
-		      if (jcov >= CHAIN_MIN)
-                        {
-
-                          //  Filter passed, now search for local alignments for each
-                          //    reduced seed match (several adaptemer seeds that overlap)
-
-                          //  Have a hit in the trapezoid (apmin..apmax,dgmin..dgmax)
-                          //  Search for a local alignment spanning it a-center
-
-                          apmax = lps;
-
-                          //  Fetch contig sequences if not already loaded
+                      //  Fetch contig sequences if not already loaded
 #ifdef CALL_ALIGNER
-                          if (ctg1 != ovl->aread)
-                            { Load_Read(pair->DB1,ctg1,align->aseq,0);
-                              align->alen = alen;
-                              ovl->aread = ctg1;
-                              if (comp)
-                                Complement_Seq(align->aseq,align->alen);
-#ifdef DEBUG_HIT
-                              if (repgo)
-                                printf("Loading A = %d%c\n",ctg1,comp?'c':'n');
-                              fflush(stdout);
-#endif
-                            }
-                          if (ctg2 != ovl->bread)
-                            { Load_Read(pair->DB2,ctg2,align->bseq,0);
-                              align->blen = blen;
-                              ovl->bread = ctg2;
-#ifdef DEBUG_HIT
-                              if (repgo)
-                                printf("Loading B = %dn\n",ctg2);
-                              fflush(stdout);
-#endif
-                            }
-#endif
-
+                      if (ctg1 != ovl->aread)
+                        { Load_Read(pair->DB1,ctg1,align->aseq,0);
+                          align->alen = alen;
+                          ovl->aread = ctg1;
+                          if (comp)
+                            Complement_Seq(align->aseq,align->alen);
 #ifdef DEBUG_HIT
                           if (repgo)
-                            { if (comp)
-                                printf("  Box:  %10lld,%10lld: %4d %3d\n",
-                                       aoffset-apmax,doffset-dgmax,apmax-apmin,dgmax-dgmin);
-                              else
-                                printf("  Box:  %10d,%10lld: %4d %3d [%d %lld]\n",
-                                       apmin,dgmin+doffset,apmax-apmin,dgmax-dgmin,apmax,lps);
-                              fflush(stdout);
-                            }
+                            printf("Loading A = %d%c\n",ctg1,comp?'c':'n');
+                          fflush(stdout);
 #endif
-                          if (comp)
-                            { if ((mo = (apmax <= alast)))
-                                { anti  = doffset - dgmin;
-                                  dgmin = doffset - dgmax;
-                                  dgmax = anti;
-                                  anti  = ((aoffset << 1) - (apmin + apmax)) - ((dgmax+dgmin)>>1);
-                                }
-                            }
-                          else
-                            { if ((mo = (apmin >= alast)))
-                                { dgmin += doffset;
-                                  dgmax += doffset;
-                                  anti   = (apmin + apmax) - ((dgmax+dgmin)>>1);
-                                }
-                            }
-#ifdef DEBUG_HIT
-                          if (mo & repgo)
-                            printf("      Diag = %d:%d  Anti = %lld\n",
-                                   dgmin,dgmax,anti);
-#endif
-#ifdef CALL_ALIGNER
-                          if (mo)
-                            { if (self)
-                                { if (dgmin > 0)
-                                    Local_Alignment(align,work,spec,dgmin,dgmax,anti,dgmin-1,-1);
-                                  else if (dgmax < 0)
-                                    Local_Alignment(align,work,spec,dgmin,dgmax,anti,-1,-(dgmax+1));
-                                }
-                              else
-                                Local_Alignment(align,work,spec,dgmin,dgmax,anti,-1,-1);
-#ifdef DEBUG_ALIGN
-                              if (path->aepos - path->abpos >= ALIGN_MIN)
-                                { printf("Local %d: %d-%d vs %d %d\n",k-lst,
-                                         path->abpos,path->aepos,path->bbpos,path->bepos);
-                                  SHOW_LAS(Print_Alignment)
-                                  nlas += 1;
-                                }
-                              else
-                                printf("Not found, len = %d\n",
-                                       path->aepos-path->abpos);
-#else
-                              if (path->aepos - path->abpos >= ALIGN_MIN)
-                                { if (ABYTE)
-                                    Compress_TraceTo8(ovl,0);
-                                  if (Write_Overlap(tfile,ovl,TBYTES))
-                                    { fprintf(stderr,"%s: Cannot write output\n",Prog_Name);
-                                      exit (1);
-                                    }
-                                  nlas += 1;
-                                  nmem += path->tlen * TBYTES + OVL_SIZE;
-                                }
-#endif
-                              if (comp)
-                                alast = alen - path->abpos;
-                              else
-                                alast = path->aepos;
-                            }
-#ifdef DEBUG_HIT
-                          else if (repgo)
-                            printf("BLOCKED %lld\n",alast);
-#endif
-#endif // CALL_ALIGNER
                         }
+                      if (ctg2 != ovl->bread)
+                        { Load_Read(pair->DB2,ctg2,align->bseq,0);
+                          align->blen = blen;
+                          ovl->bread = ctg2;
+#ifdef DEBUG_HIT
+                          if (repgo)
+                            printf("Loading B = %dn\n",ctg2);
+                          fflush(stdout);
+#endif
+                        }
+#endif
+
+                      dgmin += (cdiag<<BUCK_SHIFT);
+                      dgmax += (cdiag<<BUCK_SHIFT);
+                      if (comp)
+                        { dgmin += doffset;
+                          dgmax += doffset;
+                          alow  += aoffset;
+                          ahgh  += aoffset;
+                        }
+                      else
+                        { dgmin -= BMXPOS;
+                          dgmax -= BMXPOS;
+                        }
+
+#ifdef DEBUG_HIT
+                      if (repgo)
+                        { printf("  Box:   Diag = %d:%d  Anti = %lld:%lld:%lld :: %d x %lld\n",
+                                 dgmin,dgmax,alow,(alow+ahgh)>>1,ahgh,dgmax-dgmin,ahgh-alow);
+                         
+                          fflush(stdout);
+                        }
+#endif
+
+                      if (ahgh > alast)
+                        { if (alow < alast)
+                            alow = alast;
+                          ahgh -= BUCK_ANTI;
+#ifdef CALL_ALIGNER
+                          do {
+                            amid = alow + BUCK_ANTI;
+                            if (amid > ahgh)
+                              amid = ahgh;
+                            if (self)
+                              { if (dgmin > 0)
+                                  Local_Alignment(align,work,spec,dgmin,dgmax,amid,dgmin-1,-1);
+                                else if (dgmax < 0)
+                                  Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-(dgmax+1));
+                              }
+                            else
+                              Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-1);
+
+                            if (path->aepos - path->abpos >= ALIGN_MIN)
+                              { if (ABYTE)
+                                  Compress_TraceTo8(ovl,0);
+                                if (Write_Overlap(tfile,ovl,TBYTES))
+                                  { fprintf(stderr,"%s: Cannot write output\n",Prog_Name);
+                                    exit (1);
+                                  }
+                                nlas += 1;
+                                nmem += path->tlen * TBYTES + OVL_SIZE;
+                              }
+
+#ifdef DEBUG_ALIGN
+                            if (path->aepos - path->abpos >= ALIGN_MIN &&
+                                       path->diffs > .4*(path->aepos-path->abpos))
+                              { if (ABYTE)
+                                  Decompress_TraceTo16(ovl);
+                                printf("\nLocal %lld: %d-%d vs %d %d (%d)\n",nlas+1,
+                                       path->abpos,path->aepos,path->bbpos,path->bepos,path->diffs);
+                                if (comp)
+                                  { Complement_Seq(align->aseq+(alen-path->aepos),
+                                                   path->aepos-path->abpos);
+                                    Complement_Seq(align->bseq+(blen-path->bepos),
+                                                   path->bepos-path->bbpos);
+                                  }
+                                Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);
+                                Print_Alignment(stdout,align,work,4,100,10,0,8);
+                                fflush(stdout);
+                                if (comp)
+                                  { Complement_Seq(align->aseq+(alen-path->aepos),
+                                                   path->aepos-path->abpos);
+                                    Complement_Seq(align->bseq+(blen-path->bepos),
+                                                   path->bepos-path->bbpos);
+                                  }
+                              }
+                            else
+                              printf("Not found, len = %d\n",
+                                     path->aepos-path->abpos);
+#endif
+
+                            if (comp)
+                              eant = mlen-(path->abpos+path->bbpos);
+                            else
+                              eant = path->aepos+path->bepos;
+    
+#ifdef DEBUG_TUBE
+                            { int64 bant;
+
+                              if (comp)
+                                bant = mlen-(path->aepos+path->bepos);
+                              else
+                                bant = path->abpos+path->bbpos;
+                              if (eant < ahgh)
+                                printf("Did not reach top %lld %lld %lld\n",
+                                       ahgh-eant,eant-bant,ahgh-alow);
+                              else if (bant > alow)
+                                printf("Did not reach bottom %lld %lld %lld\n",
+                                       bant-alow,eant-bant,ahgh-alow);
+                              else
+                                printf("Good\n");
+                            }
+#endif
+
+                            if (eant <= alow)
+                              alow = amid;
+                            else
+                             alow = eant;
+                          } while (alow < ahgh);
+#endif
+                          alast = alow;
+                        }
+#ifdef DEBUG_HIT
+                      else if (repgo)
+                        printf("BLOCKED %lld\n",alast);
+#endif
                     }
+
 #ifdef DEBUG_SEARCH
                   else if (repgo)
                     printf("                  Break\n");
 #endif
 
                   if (go)
-                    { cov = lcp;
-                      lps = npost + lcp;
-                      mix = wch;
-                      len = 0;
+                    { cov  = lcp;
+                      ahgh = anti + lcp;
+                      mix  = wch;
+                      alow = anti;
                       dgmin = dgmax = dg;
-                      apmin = npost;
-                      list[len].jpost = npost-dg;
-                      list[len++].lcp = lcp;
                     }
                 }
 
@@ -2194,17 +2157,17 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                   else
                     n = t - swide;
                   if (comp)
-                    printf("   %c %10ld: c %10lld x %10lld %2d %4lld (%d)\n",
-                           wch==0x1?'.':'+',(n-beg)/swide,npost,dg-npost,n[-2],cov,n[-1]);
+                    printf("   %c %10ld: c %10lld x %10lld %2d %4d (%d)\n",
+                           wch==0x1?'.':'+',(n-beg)/swide,anti+aoffset,dg+doffset,n[-2],cov,n[-1]);
                   else
-                    printf("   %c %10ld: n %10lld x %10lld %2d %4lld (%d)\n",
-                           wch==0x1?'.':'+',(n-beg)/swide,npost,npost-(dg-blen),n[-2],cov,n[-1]);
+                    printf("   %c %10ld: n %10lld x %10lld %2d %4d (%d)\n",
+                           wch==0x1?'.':'+',(n-beg)/swide,anti,dg-BMXPOS,n[-2],cov,n[-1]);
                 }
 #endif
             }
 
-          e += IPOST;
-          m += IPOST;
+          e += DBYTE;
+          m += DBYTE;
 
           ipost = apost = 0;
         }
@@ -2231,7 +2194,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
   if (nlas > 0)
     { void    *oblock = Malloc(nmem,"Allocating overlap block");
-      int64   *perm   = Malloc(nlas*sizeof(int64),"Allocating permutation array");
+      Overlap **perm  = Malloc(nlas*sizeof(Overlap *),"Allocating permutation array");
       int      j, k, where, dist;
       Path     tpath;
       void    *tcopy;
@@ -2247,22 +2210,21 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
         off = -PTR_SIZE;
         for (j = 0; j < nlas; j++)
-          { perm[j] = off;
+          { perm[j] = (Overlap *) (oblock + off);
             off += OVL_SIZE + ((Overlap *) (oblock+off))->path.tlen*TBYTES;
           }
       }
 
-      IBLOCK = oblock;
-      qsort(perm,nlas,sizeof(int64),ALN_SORT);
+      qsort(perm,nlas,sizeof(Overlap *),ALIGN_SORT);
 
 #define ELIMINATED  0x4
 
       for (j = nlas-1; j >= 0; j--)
-        { Overlap *o  = (Overlap *) (oblock+perm[j]);
+        { Overlap *o  = perm[j];
           Path    *op = &(o->path);
 
           for (k = j+1; k < nlas; k++)
-            { Overlap *w  = (Overlap *) (oblock+perm[k]);
+            { Overlap *w  = perm[k];
               Path    *wp = &(w->path);
 
               if (op->aepos <= wp->abpos)
@@ -2310,7 +2272,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
         }
 
       for (j = nlas-1; j >= 0; j--)
-        { Overlap *o  = (Overlap *) (oblock+perm[j]);
+        { Overlap *o  = perm[j];
           Path    *op = &(o->path);
 
           if (o->flags & ELIMINATED)
@@ -2319,7 +2281,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
           //  Both endpoints of o are distinct
 
           for (k = j+1; k < nlas; k++)
-            { Overlap *w  = (Overlap *) (oblock+perm[k]);
+            { Overlap *w  = perm[k];
               Path    *wp = &(w->path);
 
               if (op->aepos <= wp->abpos)   //  No further a-interval overlap
@@ -2406,7 +2368,7 @@ continue;
         }
 
       for (j = 0; j < nlas; j++)
-        { Overlap *o = (Overlap *) (oblock+perm[j]);
+        { Overlap *o = perm[j];
 
           if (o->flags & ELIMINATED)
             continue;
@@ -2421,8 +2383,6 @@ continue;
       free(oblock);
     }
 
-  pair->lmax   = lmax;
-  pair->list   = list;
   pair->nhits += nhit;
   pair->nlass += nlas;
   pair->nlive += nliv;
@@ -2471,10 +2431,6 @@ static void *search_seeds(void *args)
 
   jcrnt = 0;
 
-  pair->lmax = 1000;
-  pair->list = Malloc(pair->lmax*sizeof(Jspan),"Allocating merge index");
-  if (pair->list == NULL)
-    exit (1);
   pair->DB1 = DB1;
   pair->DB2 = DB2;
   pair->align.aseq = New_Read_Buffer(DB1);
@@ -2519,7 +2475,6 @@ static void *search_seeds(void *args)
   Free_Work_Data(pair->work);
   free(pair->align.aseq-1);
   free(pair->align.bseq-1);
-  free(pair->list);
 
   parm->nhits += pair->nhits;
   parm->nlass += pair->nlass;
@@ -2582,7 +2537,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
           }
       }
 
-    swide  = IPOST + DBYTE + JCONT + 2;
+    swide  = 2*DBYTE + JCONT + 2;
     sarray = Malloc((nelmax+1)*swide,"Sort Array");
     panel  = Malloc(NCONTS*sizeof(int64),"Bucket Array");
     if (sarray == NULL || panel == NULL)
@@ -2814,9 +2769,9 @@ int main(int argc, char *argv[])
 
     FREQ = -1;
     OUTP = NULL;
-    CHAIN_BREAK = 500;
-    CHAIN_MIN   = 100;
-    ALIGN_MIN   = 100;
+    CHAIN_BREAK = 1000;   //  2x in anti-diagonal space
+    CHAIN_MIN   =  200;
+    ALIGN_MIN   =  100;
     ALIGN_RATE  = .7;
     SORT_PATH   = "/tmp";
 
@@ -2832,6 +2787,7 @@ int main(int argc, char *argv[])
             break;
           case 'c':
             ARG_NON_NEGATIVE(CHAIN_MIN,"minimum seed cover");
+            CHAIN_MIN <<= 1;
             break;
           case 'e':
             ARG_REAL(ALIGN_RATE);
@@ -2849,6 +2805,7 @@ int main(int argc, char *argv[])
             break;
           case 's':
             ARG_NON_NEGATIVE(CHAIN_BREAK,"seed chain break threshold");
+            CHAIN_BREAK <<= 1;
             break;
           case 'P':
             SORT_PATH = argv[i]+2;
@@ -3018,11 +2975,38 @@ int main(int argc, char *argv[])
   KBYTE = T2->pbyte;
   CBYTE = T2->hbyte;
   LBYTE = CBYTE+1;
-  if (IPOST > JPOST)
-    DBYTE = IPOST;
-  else
-    DBYTE = JPOST;
+
   ESHIFT = 8*IPOST;
+
+  { int64 cum;      // DBYTE accommodates the sum of the largest contig positions in each DB !
+    int   r, len;
+
+    AMXPOS = 0;
+    for (r = 0; r < DB1->treads; r++)
+      { len = DB1->reads[r].rlen;
+        if (len > AMXPOS)
+          AMXPOS = len;
+      }
+
+    if (SELF)
+      BMXPOS = AMXPOS;
+    else
+      { BMXPOS = 0;
+        for (r = 0; r < DB2->treads; r++)
+          { len = DB2->reads[r].rlen;
+            if (len > BMXPOS)
+              BMXPOS = len;
+          }
+      }
+
+    MAXDAG = AMXPOS+BMXPOS;
+    DBYTE = 0;
+    cum   = 1;
+    while (cum < MAXDAG)
+      { cum   *= 256;
+        DBYTE += 1;
+      }
+  }
 
   if (TSPACE < TRACE_XOVR)
     { ABYTE  = 1;

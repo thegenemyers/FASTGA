@@ -745,7 +745,7 @@ typedef struct
 
 #define STREAM(S) ((_Kmer_Stream *) S)
 
-#define STREAM_BLOCK 1024
+#define STREAM_BLOCK 0x20000
 
 /****************************************************************************************
  *

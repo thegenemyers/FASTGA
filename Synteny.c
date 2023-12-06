@@ -154,25 +154,6 @@ static CHAIN *NEXT(CHAIN *v, int x, CHAIN *w)
     return (NEXT(v->R,x,w));
 }
 
-/*
-
-static CHAIN *PREV(CHAIN *v, int x, CHAIN *w)
-{ if (v == NULL || x == v->bepos)
-    { if (v->L != NULL)
-        { w = v->L;
-          while (w->R != NULL)
-            w = w->R;
-        }
-      return (w);
-    }
-  if (x < v->bepos)
-    return (NEXT(v->L,x,v));
-  else
-    return (NEXT(v->R,x,w));
-}
-
-*/
-
 static CHAIN *JOIN(CHAIN *v, CHAIN *w)
 { CHAIN *p;
 
@@ -267,7 +248,7 @@ void analyze(int ascaf, CHAIN *chain, CHAIN **blist, int *bstack, int btop, ORDE
       prof = NULL;
       for (i = 0; i < 2*acnt; i++)
         { e = chain + order[i].which;
-          if (order[i].event < 0)
+          if (order[i].event <= 0)
             { v = FIND(prof,e->ovl.path.bbpos);
               e->link = v;
               if (v == NULL)
@@ -376,7 +357,7 @@ int main(int argc, char *argv[])
   DAZZ_DB   _db2, *db2 = &_db2;
   Overlap   _ovl, *ovl = &_ovl;
   int       amax, tmax;
-  int       bscaf, *scaffold;
+  int       bscaf, *scaffold, *invscaff;
 
   FILE   *input;
   int     sameDB, ISTWO;
@@ -520,16 +501,21 @@ int main(int argc, char *argv[])
 
   { int r;
 
-    scaffold = (int *) Malloc(sizeof(int)*db2->treads,"Allocating scaffold map");
+    scaffold = (int *) Malloc(sizeof(int)*(2*db2->treads+1),"Allocating scaffold map");
     if (scaffold == NULL)
       exit (1);
+    invscaff = scaffold + db2->treads;
 
-    bscaf = 0;
+    bscaf = -1;
     for (r = 0; r < db2->treads; r++)
-      { scaffold[r] = bscaf;
-        if (db2->reads[r].fpulse == 0)
-          bscaf += 1;
+      { if (db2->reads[r].fpulse == 0)
+          { bscaf += 1;
+            invscaff[bscaf] = r;
+          }
+        scaffold[r] = bscaf;
       }
+    bscaf += 1;
+    invscaff[bscaf] = db2->treads;
 
     printf("There are %d scaffolds with %d contigs\n",bscaf,db2->treads);
     fflush(stdout);
@@ -551,15 +537,15 @@ int main(int argc, char *argv[])
     fread(&tspace,sizeof(int),1,input);
 
     chain  = (CHAIN *) Malloc(sizeof(CHAIN)*amax,"Allocating alignment space");
-    blist  = (CHAIN **) Malloc(sizeof(CHAIN *)*bscaf,"Allocating alignment space");
-    bstack = (int *) Malloc(sizeof(int)*bscaf,"Allocating alignment space");
+    blist  = (CHAIN **) Malloc(sizeof(CHAIN *)*2*bscaf,"Allocating alignment space");
+    bstack = (int *) Malloc(sizeof(int)*2*bscaf,"Allocating alignment space");
     order  = (ORDER *) Malloc(2*sizeof(ORDER)*amax,"Allocation of order array");
     if (chain == NULL || blist == NULL || bstack == NULL || order == NULL)
       exit (1);
 
     acnt  = 0;
     ascaf = 0;
-    for (b = 0; b < bscaf; b++)
+    for (b = 0; b < 2*bscaf; b++)
       blist[b] = NULL;
     btop  = 0;
 
@@ -588,15 +574,14 @@ int main(int argc, char *argv[])
               { int   bs, len, span;
                 int   mnum, snum;
                 Path *p;
-/*
                 Path *q;
                 int   dela, delb;
-*/
 
                 bs = bstack[b];
 
                 for (w = blist[b]; w != NULL; w = w->next)
-                  w->L = NULL;
+                  if (w != NULL)
+                    w->L = NULL;
 
                 mnum = snum = 0;
                 for (w = blist[b]; w != NULL; w = w->next)
@@ -629,7 +614,6 @@ int main(int argc, char *argv[])
                             if (len > 3 && u->score > .1*span)
                               { // printf("Keeping spur %d with score %6d, %4d links, span = %7d\n",
                                         // snum+1,u->score,len,span);
-fflush(stdout);
                                 snum += 1;
                                 for (n = u; n != NULL; n = n->L)
                                   { n->dead = 2;
@@ -650,10 +634,10 @@ fflush(stdout);
                             span = n->ovl.path.aepos;
                           }
                         span -= w->ovl.path.abpos;
-                        if (len <= 3 || w->score < .02*span)
+                        if (w->score < 10000)
                           { // printf("Removing main with score %6d, %4d links, span = %7d\n",
-                                    // w->score,len,span);
-fflush(stdout);
+                                   // w->score,len,span);
+                            fflush(stdout);
                             for (n = w; n != NULL; n = n->L)
                               n->dead = 1;
                           }
@@ -666,14 +650,18 @@ fflush(stdout);
                   }
 
 /*
-                printf("\n  Chains with scaffold %d\n",bs+1);
+                if (bs >= bscaf)
+                  printf("\n  Chains with scaffold %d(c)\n",(bs-bscaf)+1);
+                else
+                  printf("\n  Chains with scaffold %d(n)\n",bs+1);
                 for (w = blist[b]; w != NULL; w = w->next)
                   { if (w->dead == 1)
                       continue;
                     p = &(w->ovl.path);
                     printf("    %6ld:",w-chain);
-                    printf(" [%9d,%9d] vs [%9d,%9d]",w->ovl.path.abpos,w->ovl.path.aepos,
-                                                     w->ovl.path.bbpos,w->ovl.path.bepos);
+                    printf(" %5d[%9d,%9d] vs %5d[%9d,%9d]",
+                           w->ovl.aread+1,w->ovl.path.abpos,w->ovl.path.aepos,
+                           w->ovl.bread+1,w->ovl.path.bbpos,w->ovl.path.bepos);
                     if (w->L == NULL)
                       printf("  <%5d += %8d>",w->score,w->score);
                     else
@@ -703,29 +691,49 @@ fflush(stdout);
                   { if (w->dead == 1)
                       continue;
                     if (w->dead == 0 && w->L == NULL)
-                      { for (u = w; u->link != NULL; u = u->link)
+                      { int64 slen;
+                        int   last;
+
+                        if (bs >= bscaf)
+                          last = invscaff[(b-bscaf)+1]-1;
+                        else
+                          last = invscaff[b+1]-1;
+                        slen = db2->reads[last].fpulse + db2->reads[last].rlen;
+
+                        for (u = w; u->link != NULL; u = u->link)
                           ;
-                        printf("  Main vs %d: len = %6d  span = %9d  covr = %9d\n",
-                               bs+1,u->clen,w->ovl.path.aepos - u->ovl.path.abpos,u->score);
-/*
-                        printf("\n  Main with scaffold %d\n",bs+1);
+                        if (u->score < .001*slen)
+                          continue;
+                        if (u->score < .01*(w->ovl.path.aepos - u->ovl.path.abpos))
+                          continue;
+                        if (bs >= bscaf)
+                          printf("  vs %4d(c) = %8lld:",(bs-bscaf)+1,slen);
+                        else
+                          printf("  vs %4d(n) = %8lld:",bs+1,slen);
+                        printf(" len = %6d  span = [%9d - %9d] = %9d  covr = %9d = %.2f%%\n",
+                               u->clen,u->ovl.path.abpos,w->ovl.path.aepos,
+                               w->ovl.path.aepos - u->ovl.path.abpos,u->score,
+                               (100.*u->score)/(w->ovl.path.aepos - u->ovl.path.abpos));
+                        fflush(stdout);
+#define DETAIL
+#ifdef DETAIL
                         for (u = w; u != NULL; u = u->link)
                           { p = &(u->ovl.path);
                             printf("    %6ld:",u-chain);
-                            printf(" [%9d,%9d] vs [%9d,%9d]",p->abpos,p->aepos,
-                                                             p->bbpos,p->bepos);
+                            printf(" %5d[%9d,%9d] vs %5d[%9d,%9d]",u->ovl.aread,p->abpos,p->aepos,
+                                                                   u->ovl.bread,p->bbpos,p->bepos);
                             if (u->L == NULL)
                               printf("  <%5d += %8d>",u->score,u->score);
                             else
                               printf("  <%5d += %8d>",u->score - u->L->score,u->score);
                             printf("  [%4d]  R=%3d%%",u->clen,u->mark);
                             if (u->link == NULL)
-                              printf("  ___\n");
+                              printf("  ___  END\n");
                             else
                               { q = &(u->link->ovl.path);
                                 dela = p->abpos - q->aepos;
                                 delb = p->bbpos - q->bepos;
-                                if ((dela > 50000 || delb > 50000) && abs(dela-delb) > 10000) 
+                                if (dela > 50000 || delb > 50000 || abs(dela-delb) > 20000) 
                                   printf("  ___  BREAK  %6d / %6d\n\n",dela,delb);
                                 else
                                   { for (n = u->next; n != NULL; n = n->next)
@@ -739,11 +747,11 @@ fflush(stdout);
                                   }
                               }
                           }
-*/
-fflush(stdout);
+#endif
                       }
                   }
 
+/*
                 for (w = blist[b]; w != NULL; w = w->next)
                   { if (w->dead == 1)
                       continue;
@@ -752,7 +760,6 @@ fflush(stdout);
                           ;
                         printf("  Spur vs %d: len = %6d  span = %9d  covr = %9d\n",
                                bs+1,u->clen,w->ovl.path.aepos - u->ovl.path.abpos,u->score);
-/*
                         printf("\n  Spur for scaffold %d\n",bs+1);
                         for (u = w; u != NULL; u = u->link)
                           { p = &(u->ovl.path);
@@ -784,10 +791,9 @@ fflush(stdout);
                                   }
                               }
                           }
-*/
-fflush(stdout);
                       }
                   }
+*/
               }
 
             if (j >= novl)
@@ -809,8 +815,10 @@ fflush(stdout);
         ovl->path.bepos += bpulse;
 
         b = scaffold[bread];
-        n = chain + acnt++;
+        if (COMP(ovl->flags))
+          b += bscaf;
         w = blist[b];
+        n = chain + acnt++;
         n->ovl  = *ovl;
         n->next = w;
         n->dead = 0;

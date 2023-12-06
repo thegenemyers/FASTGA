@@ -296,6 +296,8 @@ void distribute(DAZZ_DB *DB)
         { Load_Read(DB,r,(char *) seq,0);   //  Load the contig
     
           len = DB->reads[r].rlen;
+          if (len == 0)
+            continue;
     
 #ifdef DEBUG_MAP
           printf("Src:");

@@ -879,7 +879,6 @@ int Load_Read(DAZZ_DB *db, int i, char *read, int ascii)
 
   if (i < 0 || i >= db->nreads)
     { EPRINTF(EPLACE,"%s: Index out of bounds (Load_Read)\n",Prog_Name);
-printf("Index = %d\n",i);
       EXIT(1);
     }
 

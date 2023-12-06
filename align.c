@@ -1847,6 +1847,7 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
         { low  = apath->aepos - apath->bepos;
           anti = apath->aepos + apath->bepos;
           apath->tlen = bpath->tlen = 0;
+          apath->diffs = 0;
           if (reverse_wave(work,spec,align,bpath,low,low,anti,minp,maxp,aoff,boff))
             EXIT(NULL);
         }

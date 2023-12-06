@@ -2047,7 +2047,13 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                           do {
                             amid = alow + BUCK_ANTI;
                             if (amid > ahgh)
-                              amid = ahgh;
+                              { amid = ahgh;
+                                if (amid + dgmin < 0)
+                                  { dgmin = -amid;
+                                    if (dgmin > dgmax)
+                                      break;
+                                  }
+                              }
                             if (self)
                               { if (dgmin > 0)
                                   Local_Alignment(align,work,spec,dgmin,dgmax,amid,dgmin-1,-1);

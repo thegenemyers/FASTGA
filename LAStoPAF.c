@@ -21,7 +21,7 @@
 
 static int BORDER = 0;
 
-static char *Usage = " [-ct] <src1:db|dam> [ <src2:db|dam> ] <align:las>";
+static char *Usage = " [-mxt] [-T<int(8)>] <src1:db|dam> [ <src2:db|dam> ] <align:las>";
 
 int main(int argc, char *argv[])
 { DAZZ_DB   _db1, *db1 = &_db1;
@@ -29,6 +29,8 @@ int main(int argc, char *argv[])
   Overlap   _ovl, *ovl = &_ovl;
   Alignment _aln, *aln = &_aln;
 
+  int  CIGAR_M;
+  int  CIGAR_X;
   int  CIGAR;
   int  TRACE;
 
@@ -50,21 +52,29 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("ct")
+            ARG_FLAGS("mxt")
             break;
         }
       else
         argv[j++] = argv[i];
     argc = j;
 
-    CIGAR = flags['c'];
-    TRACE = flags['t'];
+    CIGAR_X = flags['x'];
+    CIGAR_M = flags['m'];
+    TRACE   = flags['t'];
+    CIGAR   = CIGAR_X || CIGAR_M;
 
     if (argc != 3 && argc != 4)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
-        fprintf(stderr,"      -c: produce Cigar string tag\n");
+        fprintf(stderr,"      -m: produce Cigar string tag with M's\n");
+        fprintf(stderr,"      -x: produce Cigar string tag with X's and ='s\n");
         fprintf(stderr,"      -t: produce LAS trace and diff list tags\n");
+        exit (1);
+      }
+
+    if (CIGAR_X + CIGAR_M + TRACE > 1)
+      { fprintf(stderr,"%s: Only one of -m, -x, or -t can be set\n",Prog_Name);
         exit (1);
       }
   }
@@ -286,57 +296,147 @@ int main(int argc, char *argv[])
 
               Compute_Trace_PTS(aln,work,tspace,GREEDIEST);
 
-              { int    k, h, p, x, blen;
-                int32 *t = (int32 *) path->trace;
-                int    T = path->tlen;
-                int    ilen, dlen;
+              if (CIGAR_M)
+                { int    k, h, p, x, blen;
+                  int32 *t = (int32 *) path->trace;
+                  int    T = path->tlen;
+                  int    ilen, dlen;
 
-                ilen = dlen = 0;
-                printf("\tcg:Z");
-                k = path->abpos+1;
-                h = path->bbpos+1;
-                for (x = 0; x < T; x++)
-                  { if ((p = t[x]) < 0)
-                      { blen = -(p+k);
-                        k += blen;
-                        h += blen+1;
-                        if (blen == 0)
-                          ilen += 1;
-                        else
-                          { if (dlen > 0)
-                              printf("%dD",dlen);
-                            if (ilen > 0)
-                              printf("%dI",ilen);
-                            printf("%dM",blen);
-                            dlen = 0;
-                            ilen = 1;
-                          }
-                      }
-                    else
-                      { blen = p-h;
-                        k += blen+1;
-                        h += blen;
-                        if (blen == 0)
-                          dlen += 1;
-                        else
-                          { if (dlen > 0)
-                              printf("%dD",dlen);
-                            if (ilen > 0)
-                              printf("%dI",ilen);
-                            printf("%dM",blen);
-                            dlen = 1;
-                            ilen = 0;
-                          }
-                      }
-                  }
-                if (dlen > 0)
-                  printf("%dD",dlen);
-                if (ilen > 0)
-                  printf("%dI",ilen);
-                blen = (path->aepos - k)+1;
-                if (blen > 0)
-                  printf("%dM",blen);
-              }
+                  ilen = dlen = 0;
+                  printf("\tcg:Z");
+                  k = path->abpos+1;
+                  h = path->bbpos+1;
+                  for (x = 0; x < T; x++)
+                    { if ((p = t[x]) < 0)
+                        { blen = -(p+k);
+                          k += blen;
+                          h += blen+1;
+                          if (dlen > 0)
+                            printf("%dD",dlen);
+                          dlen = 0;
+                          if (blen == 0)
+                            ilen += 1;
+                          else
+                            { if (ilen > 0)
+                                printf("%dI",ilen);
+                              printf("%dM",blen);
+                              ilen = 1;
+                            }
+                        }
+                      else
+                        { blen = p-h;
+                          k += blen+1;
+                          h += blen;
+                          if (ilen > 0)
+                            printf("%dI",ilen);
+                          ilen = 0;
+                          if (blen == 0)
+                            dlen += 1;
+                          else
+                            { if (dlen > 0)
+                                printf("%dD",dlen);
+                              printf("%dM",blen);
+                              dlen = 1;
+                            }
+                        }
+                    }
+                  if (dlen > 0)
+                    printf("%dD",dlen);
+                  if (ilen > 0)
+                    printf("%dI",ilen);
+                  blen = (path->aepos - k)+1;
+                  if (blen > 0)
+                    printf("%dM",blen);
+                }
+
+              else  //  CIGAR_X
+                { int    k, h, p, x, b, blen;
+                  int32 *t = (int32 *) path->trace;
+                  int    T = path->tlen;
+                  int    ilen, dlen;
+                  int    xlen, elen;
+                  char  *A, *B;
+
+                  A = aln->aseq-1;
+                  B = aln->bseq-1;
+                  ilen = dlen = 0;
+                  printf("\tcg:Z");
+                  k = path->abpos+1;
+                  h = path->bbpos+1;
+                  for (x = 0; x < T; x++)
+                    { if ((p = t[x]) < 0)
+                        { blen = -(p+k);
+                          if (dlen > 0)
+                            printf("%dD",dlen);
+                          dlen = 0;
+                          if (blen == 0)
+                            ilen += 1;
+                          else
+                            { if (ilen > 0)
+                                printf("%dI",ilen);
+                              elen = xlen = 0;
+                              for (b = 0; b < blen; b++, k++, h++)
+                                if (A[k] == B[h])
+                                  { if (xlen > 0)
+                                      printf("%dX",xlen);
+                                    xlen = 0;
+                                    elen += 1;
+                                  }
+                                else
+                                  { if (elen > 0)
+                                      printf("%d=",elen);
+                                    elen = 0;
+                                    xlen += 1;
+                                  }
+                              if (xlen > 0)
+                                printf("%dX",xlen);
+                              if (elen > 0)
+                                printf("%d=",elen);
+                              ilen = 1;
+                            }
+                          h += 1;
+                        }
+                      else
+                        { blen = p-h;
+                          if (ilen > 0)
+                            printf("%dI",ilen);
+                          ilen = 0;
+                          if (blen == 0)
+                            dlen += 1;
+                          else
+                            { if (dlen > 0)
+                                printf("%dD",dlen);
+                              elen = xlen = 0;
+                              for (b = 0; b < blen; b++, k++, h++)
+                                if (A[k] == B[h])
+                                  { if (xlen > 0)
+                                      printf("%dX",xlen);
+                                    xlen = 0;
+                                    elen += 1;
+                                  }
+                                else
+                                  { if (elen > 0)
+                                      printf("%d=",elen);
+                                    elen = 0;
+                                    xlen += 1;
+                                  }
+                              if (xlen > 0)
+                                printf("%dX",xlen);
+                              if (elen > 0)
+                                printf("%d=",elen);
+                              dlen = 1;
+                            }
+                          k += 1;
+                        }
+                    }
+                  if (dlen > 0)
+                    printf("%dD",dlen);
+                  if (ilen > 0)
+                    printf("%dI",ilen);
+                  blen = (path->aepos - k)+1;
+                  if (blen > 0)
+                    printf("%dM",blen);
+                }
             }
 
           printf("\n");

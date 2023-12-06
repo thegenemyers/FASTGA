@@ -147,7 +147,7 @@ Warning, the .psl output is almost 15 times larger than the .las file.
 
 
 ```
-5. LAStoPAF [-ct] <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
+5. LAStoPAF [-mxt] <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
 ```
 
 In order to convert a .las file into a [.paf](https://github.com/lh3/miniasm/blob/master/PAF.md) file, LAStoPAF also needs as arguments the one or two genomes,
@@ -158,8 +158,10 @@ In addition to the standard .par fields, LAStoPAF outputs a ```dv:F<fraction>```
 of differences in an optimal alignment between the two intervals of the query and target.
 If the -t option is set then the program also outputs a ```tz:Z<length-list>``` tag and a
 ```td:Z<diff-list>``` encoding the LAS trace information from which an explicit alignment can be
-constructed.  Perhaps more relevant to most users is the -c option that requests LAStoPAF to produce
-a CIGAR string tag of the form ```cg:Z<cigar-string>``` that explicitly encodes an optimal alignment.
+constructed.  Perhaps more relevant to most users are the -m and -x options that requests LAStoPAF to produce a CIGAR string tag of the form ```cg:Z<cigar-string>``` that explicitly encodes an optimal alignment.  With the -m option, aligned characters regardless of whether they are equal
+or not are
+encoded with an 'M'.  With the -x option, aligned *equal* characters are encoded with an '=' and
+aligned *unequal* characters with an 'X'.
 
 The -t option doubles the time taken and quadruples the size of the .paf file.  Beware, the -c option
 increases the time taken by a factor of 9 and the file size by a factor of over 300 !

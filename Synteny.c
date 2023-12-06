@@ -715,7 +715,6 @@ int main(int argc, char *argv[])
                                w->ovl.path.aepos - u->ovl.path.abpos,u->score,
                                (100.*u->score)/(w->ovl.path.aepos - u->ovl.path.abpos));
                         fflush(stdout);
-#define DETAIL
 #ifdef DETAIL
                         for (u = w; u != NULL; u = u->link)
                           { p = &(u->ovl.path);

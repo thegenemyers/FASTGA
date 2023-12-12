@@ -96,8 +96,7 @@ static int   *Perm1;     //  Sorted contig permutation of DB1
 static int   *Perm2;     //  Sorted contig permutation of DB2
 
 typedef struct
-  { char  *name;
-    uint8 *bufr;
+  { uint8 *bufr;
     uint8 *btop;
     uint8 *bend;
     int64 *buck;
@@ -835,10 +834,8 @@ static void *merge_thread(void *args)
     for (j = 0; j < NPARTS; j++)
       { if (nunit[j].btop > nunit[j].bufr)
           write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr);
-        close(nunit[j].file);
         if (cunit[j].btop > cunit[j].bufr)
           write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr);
-        close(cunit[j].file);
       }
   }
 
@@ -1262,10 +1259,8 @@ static void *self_merge_thread(void *args)
     for (j = 0; j < NPARTS; j++)
       { if (nunit[j].btop > nunit[j].bufr)
           write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr);
-        close(nunit[j].file);
         if (cunit[j].btop > cunit[j].bufr)
           write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr);
-        close(cunit[j].file);
       }
   }
 
@@ -1285,7 +1280,7 @@ static void adaptamer_merge(char *g1,        char *g2,
 #endif
   uint8     *cache;
   int64      nhits, g1len, tseed;
-  int        i, j;
+  int        i;
 
   if (VERBOSE)
     { fprintf(stdout,"  Starting adaptive seed merge\n");
@@ -1314,18 +1309,6 @@ static void adaptamer_merge(char *g1,        char *g2,
       parm[i].cache = cache + i * (P2->maxp+1) * KBYTE;
       parm[i].nunit = nu = N_Units + i * NPARTS;
       parm[i].cunit = cu = C_Units + i * NPARTS;
-      for (j = 0; j < NPARTS; j++)
-        { nu[j].file = open(nu[j].name,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
-          if (nu[j].file < 0)
-            { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,nu[j].name);
-              exit (1);
-            }
-          cu[j].file = open(cu[j].name,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
-          if (cu[j].file < 0)
-            { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,cu[j].name);
-              exit (1);
-            }
-        }
       bzero(nu[0].buck,sizeof(int64)*NCONTS);
       bzero(cu[0].buck,sizeof(int64)*NCONTS);
     }
@@ -1378,7 +1361,7 @@ static void self_adaptamer_merge(char *g1, Kmer_Stream *T1, Post_List *P1)
 #endif
   uint8     *cache;
   int64      nhits, g1len, tseed;
-  int        i, j;
+  int        i;
 
   if (VERBOSE)
     { fprintf(stdout,"  Starting adaptive seed merge\n");
@@ -1403,18 +1386,6 @@ static void self_adaptamer_merge(char *g1, Kmer_Stream *T1, Post_List *P1)
       parm[i].cache = cache + i * (P1->maxp+1) * KBYTE;
       parm[i].nunit = nu = N_Units + i * NPARTS;
       parm[i].cunit = cu = C_Units + i * NPARTS;
-      for (j = 0; j < NPARTS; j++)
-        { nu[j].file = open(nu[j].name,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
-          if (nu[j].file < 0)
-            { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,nu[j].name);
-              exit (1);
-            }
-          cu[j].file = open(cu[j].name,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
-          if (cu[j].file < 0)
-            { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,cu[j].name);
-              exit (1);
-            }
-        }
       bzero(nu[0].buck,sizeof(int64)*NCONTS);
       bzero(cu[0].buck,sizeof(int64)*NCONTS);
     }
@@ -1782,6 +1753,7 @@ typedef struct
     int64       nlass;
     int64       nlive;
     int64       nlcov;
+    int64       nmemo;
                             //  See align.h for doc on the following:
     Work_Data  *work;           //  work storage for alignment module
     Align_Spec *spec;           //  alignment spec
@@ -2054,11 +2026,14 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                                       break;
                                   }
                               }
+
                             if (self)
                               { if (dgmin > 0)
                                   Local_Alignment(align,work,spec,dgmin,dgmax,amid,dgmin-1,-1);
                                 else if (dgmax < 0)
                                   Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-(dgmax+1));
+                                else
+                                  path->abpos = path->aepos = 0;
                               }
                             else
                               Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-1);
@@ -2075,8 +2050,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                               }
 
 #ifdef DEBUG_ALIGN
-                            if (path->aepos - path->abpos >= ALIGN_MIN &&
-                                       path->diffs > .4*(path->aepos-path->abpos))
+                            if (path->aepos - path->abpos >= ALIGN_MIN)
                               { if (ABYTE)
                                   Decompress_TraceTo16(ovl);
                                 printf("\nLocal %lld: %d-%d vs %d %d (%d)\n",nlas+1,
@@ -2199,11 +2173,16 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
   //  Detect and remove redundant alignments
 
   if (nlas > 0)
-    { void    *oblock = Malloc(nmem,"Allocating overlap block");
-      Overlap **perm  = Malloc(nlas*sizeof(Overlap *),"Allocating permutation array");
+    { void    *oblock;
+      Overlap **perm;
       int      j, k, where, dist;
       Path     tpath;
       void    *tcopy;
+
+      oblock = Malloc(nmem,"Allocating overlap block");
+      perm   = Malloc(nlas*sizeof(Overlap *),"Allocating permutation array");
+      if (oblock == NULL || perm == NULL)
+        exit (1);
 
       rewind(tfile);
       if (fread(oblock,nmem,1,tfile) != 1) 
@@ -2211,13 +2190,12 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
           exit (1);
         }
 
+      { void *off;
 
-      { int64 off;
-
-        off = -PTR_SIZE;
+        off = oblock-PTR_SIZE;
         for (j = 0; j < nlas; j++)
-          { perm[j] = (Overlap *) (oblock + off);
-            off += OVL_SIZE + ((Overlap *) (oblock+off))->path.tlen*TBYTES;
+          { perm[j] = (Overlap *) off;
+            off += OVL_SIZE + ((Overlap *) off)->path.tlen*TBYTES;
           }
       }
 
@@ -2373,6 +2351,7 @@ continue;
 	    }
         }
 
+      nmem = 0;
       for (j = 0; j < nlas; j++)
         { Overlap *o = perm[j];
 
@@ -2382,17 +2361,21 @@ continue;
           fwrite( (char *) (o+1), TBYTES, o->path.tlen, ofile);
           nliv += 1;
           ncov += o->path.aepos - o->path.abpos;
+          nmem += OVL_SIZE + o->path.tlen * TBYTES;
         }
 
       rewind (tfile);
       free(perm);
       free(oblock);
     }
+  else
+    nmem = 0;
 
   pair->nhits += nhit;
   pair->nlass += nlas;
   pair->nlive += nliv;
   pair->nlcov += ncov;
+  pair->nmemo += nmem;
 }
 
 
@@ -2410,6 +2393,7 @@ typedef struct
     int64     nlass;
     int64     nlive;
     int64     nlcov;
+    int64     nmemo;
   } TP;
 
 static void *search_seeds(void *args)
@@ -2460,6 +2444,7 @@ static void *search_seeds(void *args)
   pair->nlass = 0;
   pair->nlive = 0;
   pair->nlcov = 0;
+  pair->nmemo = 0;
 
   x = sarray + range->off;
   for (icrnt = beg; icrnt < end; icrnt++)
@@ -2486,7 +2471,334 @@ static void *search_seeds(void *args)
   parm->nlass += pair->nlass;
   parm->nlive += pair->nlive;
   parm->nlcov += pair->nlcov;
+  parm->nmemo += pair->nmemo;
   return (NULL);
+}
+
+static int SORT_MAP(const void *x, const void *y)
+{ Overlap *ol = *((Overlap **) x);
+  Overlap *or = *((Overlap **) y);
+
+  int      al, ar;
+  int      bl, br;
+  int      cl, cr;
+  int      pl, pr;
+
+  al = ol->aread;
+  ar = or->aread;
+  if (al != ar)
+    return (al-ar);
+
+  pl = ol->path.abpos;
+  pr = or->path.abpos;
+  if (pl != pr)
+    return (pl-pr);
+
+  bl = ol->bread;
+  br = or->bread;
+  if (bl != br)
+    return (bl-br);
+
+  cl = COMP(ol->flags);
+  cr = COMP(or->flags);
+  if (cl != cr)
+    return (cl-cr);
+
+  if (ol < or)
+    return (-1);
+  else if (ol > or)
+    return (1);
+  else
+    return (0);
+}
+
+static void *la_sort(void *args)
+{ TP *parm = (TP *) args;
+
+  FILE *fid  = parm->ofile;
+  int64 novl = parm->nlive;
+  int64 size = parm->nmemo;
+  
+  void     *iblock, *off;
+  Overlap **perm;
+  int       j;
+  
+  if (novl == 0)
+    return (NULL);
+
+  iblock = Malloc(size+PTR_SIZE,"Allocating overlap block");
+  perm   = Malloc(sizeof(Overlap *)*novl,"Allocating permutation array");
+  if (iblock == NULL || perm == NULL)
+    exit (1);
+  iblock += PTR_SIZE;
+
+  rewind(fid);
+
+  if (fread(iblock,size,1,fid) != 1)
+    { fprintf(stderr,"\n%s: Cannot read overlap block file\n",Prog_Name);
+      exit (1);
+    }
+  
+  rewind(fid);
+    
+  off = iblock-PTR_SIZE;
+  for (j = 0; j < novl; j++)
+    { perm[j] = (Overlap *) off;
+      off += OVL_SIZE + ((Overlap *) off)->path.tlen*TBYTES;
+    }
+
+  qsort(perm,novl,sizeof(Overlap *),SORT_MAP);
+
+  for (j = 0; j < novl; j++)
+    { Overlap *o = perm[j];
+
+      fwrite( ((void *) o)+PTR_SIZE, OVL_SIZE, 1, fid);
+      fwrite( (void *) (o+1), TBYTES, o->path.tlen, fid);
+    }
+
+  rewind(fid);
+
+  free(perm);
+  free(iblock-PTR_SIZE);
+
+  return (NULL);
+}
+
+#define MEMORY 4000   // in Mb
+
+  //  Heap sort of records according to (aread,abpos) order
+
+#define MAPARE(lp,rp)				\
+  if (lp->aread > rp->aread)			\
+    bigger = 1;					\
+  else if (lp->aread < rp->aread)		\
+    bigger = 0;					\
+  else if (lp->path.abpos > rp->path.abpos)	\
+    bigger = 1;					\
+  else if (lp->path.abpos < rp->path.abpos)	\
+    bigger = 0;					\
+  else if (lp > rp)				\
+    bigger = 1;					\
+  else						\
+    bigger = 0;
+
+static void maheap(int s, Overlap **heap, int hsize)
+{ int      c, l, r;
+  int      bigger;
+  Overlap *hs, *hr, *hl;
+
+  c  = s;
+  hs = heap[s];
+  while ((l = 2*c) <= hsize)
+    { r  = l+1;
+      hl = heap[l];
+      if (r > hsize)
+        bigger = 1;
+      else
+        { hr = heap[r];
+          MAPARE(hr,hl)
+        }
+      if (bigger)
+        { MAPARE(hs,hl)
+          if (bigger)
+            { heap[c] = hl;
+              c = l;
+            }
+          else
+            break;
+        }
+      else
+        { MAPARE(hs,hr)
+          if (bigger)
+            { heap[c] = hr;
+              c = r;
+            }
+          else
+            break;
+        }
+    }
+  if (c != s)
+    heap[c] = hs;
+}
+
+#ifdef DEBUG
+
+static void showheap(Overlap **heap, int hsize)
+{ int i;
+  printf("\n");
+  for (i = 1; i <= hsize; i++)
+    printf(" %3d: %5d, %5d\n",i,heap[i]->aread,heap[i]->bread);
+}
+
+#endif
+
+  //  Input block data structure and block fetcher
+
+typedef struct
+  { FILE   *stream;
+    void   *block;
+    void   *ptr;
+    void   *top;
+    int64   count;
+  } IO_block;
+
+static void ovl_reload(IO_block *in, int64 bsize)
+{ int64 remains;
+
+  remains = in->top - in->ptr;
+  if (remains > 0)
+    memmove(in->block, in->ptr, remains);
+  in->ptr  = in->block;
+  in->top  = in->block + remains;
+  in->top += fread(in->top,1,bsize-remains,in->stream);
+}
+
+static void la_merge(TP *parm)
+{ IO_block *in;
+  char     *oname;
+  int64     bsize;
+  char     *block, *oblock;
+  int       i, c;
+  Overlap **heap;
+  int       hsize;
+  Overlap  *ovls;
+  int64     totl;
+  FILE     *output;
+  char     *optr, *otop;
+
+  //  Base level merge: Open all the input files and initialize their buffers
+
+  bsize  = (MEMORY*1000000ll)/(NTHREADS + 1);
+  block  = (char *) Malloc(bsize*(NTHREADS+1)+PTR_SIZE,"Allocating LAmerge blocks");
+  in     = (IO_block *) Malloc(sizeof(IO_block)*NTHREADS,"Allocating LAmerge IO-reacords");
+  if (block == NULL || in == NULL)
+    exit (1);
+  block += PTR_SIZE;
+
+  totl = 0;
+  for (c = 0; c < NTHREADS; c++)
+    { void *iblock;
+
+      in[c].stream = parm[c].ofile;
+      in[c].block  = iblock = block+c*bsize;
+      in[c].ptr    = iblock;
+      in[c].top    = iblock + fread(iblock,1,bsize,parm[c].ofile);
+      in[c].count  = 0;
+      totl += parm[c].nlive;
+    }
+
+  //  Initialize the heap
+
+  heap = (Overlap **) Malloc(sizeof(Overlap *)*(NTHREADS+1),"Allocating heap");
+  ovls = (Overlap *) Malloc(sizeof(Overlap)*NTHREADS,"Allocating heap");
+  if (heap == NULL || ovls == NULL)
+    exit (1);
+
+  hsize = 0;
+  for (i = 0; i < NTHREADS; i++)
+    { if (in[i].ptr < in[i].top)
+        { ovls[i]     = *((Overlap *) (in[i].ptr - PTR_SIZE));
+          in[i].ptr  += OVL_SIZE;
+          hsize      += 1;
+          heap[hsize] = ovls + i;
+        }
+    }
+
+  if (hsize > 3)
+    for (i = hsize/2; i > 1; i--)
+      maheap(i,heap,hsize);
+
+  //  Open the output file buffer and write (novl,tspace) header
+
+  oname  = Catenate(ALGN_NAME,".las","","");
+  output = Fopen(oname,"w");
+  if (output == NULL)
+    exit (1);
+
+  if (fwrite(&totl,sizeof(int64),1,output) != 1)
+    { fprintf(stderr,"%s: Could not write to %s\n",Prog_Name,oname);
+      unlink(oname);
+      exit (1);
+    }
+  i = TSPACE;
+  if (fwrite(&i,sizeof(int),1,output) != 1)
+    { fprintf(stderr,"%s: Could not write to %s\n",Prog_Name,oname);
+      unlink(oname);
+      exit (1);
+    }
+
+  oblock = block+NTHREADS*bsize;
+  optr   = oblock;
+  otop   = oblock + bsize;
+
+  //  While the heap is not empty do
+
+  while (hsize > 0)
+    { Overlap  *ov;
+      IO_block *src;
+      int64     tsize, span;
+
+      maheap(1,heap,hsize);
+
+      ov  = heap[1];
+      src = in + (ov - ovls);
+
+      src->count += 1;
+
+      tsize = ov->path.tlen*TBYTES;
+      span  = OVL_SIZE + tsize;
+      if (src->ptr + span > src->top)
+        ovl_reload(src,bsize);
+      if (optr + span > otop)
+        { if (fwrite(oblock,1,optr-oblock,output) != (size_t) (optr-oblock))
+            { fprintf(stderr,"%s: Could not write to %s\n",Prog_Name,oname);
+              unlink(oname);
+              exit (1);
+            }
+          optr = oblock;
+        }
+
+      memmove(optr,((void *) ov) + PTR_SIZE,OVL_SIZE);
+      optr += OVL_SIZE;
+      memmove(optr,src->ptr,tsize);
+      optr += tsize;
+
+      src->ptr += tsize;
+      if (src->ptr >= src->top)
+        { heap[1] = heap[hsize];
+          hsize  -= 1;
+          continue;
+        }
+      *ov       = *((Overlap *) (src->ptr - PTR_SIZE));
+      src->ptr += OVL_SIZE;
+    }
+
+  //  Flush output buffer and wind up
+
+  if (optr > oblock)
+    { if (fwrite(oblock,1,optr-oblock,output) != (size_t) (optr-oblock))
+        { fprintf(stderr,"%s: Could not write to %s\n",Prog_Name,oname);
+          unlink(oname);
+          exit (1);
+        }
+    }
+  fclose(output);
+
+  for (i = 0; i < NTHREADS; i++)
+    fclose(parm[i].ofile);
+
+  for (i = 0; i < NTHREADS; i++)
+    totl -= in[i].count;
+  if (totl != 0)
+    { fprintf(stderr,"%s: Did not write all records to %s (%lld)\n",Prog_Name,oname,totl);
+      unlink(oname);
+      exit (1);
+    }
+
+  free(ovls);
+  free(heap);
+  free(in);
+  free(block-PTR_SIZE);
 }
 
 static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
@@ -2582,16 +2894,15 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       tarm[p].nlass = 0;
       tarm[p].nlive = 0;
       tarm[p].nlcov = 0;
+      tarm[p].nmemo = 0;
 
-      tarm[p].ofile = fopen(Catenate(SORT_PATH,"/",ALGN_UNIQ,Numbered_Suffix(".",p,".las")),"w");
+      tarm[p].ofile = fopen(Catenate(SORT_PATH,"/",ALGN_UNIQ,Numbered_Suffix(".",p,".las")),"w+");
       if (tarm[p].ofile == NULL)
         { fprintf(stderr,"%s: Cannot open %s/%s.%d.las for writing\n",
                          Prog_Name,SORT_PATH,ALGN_UNIQ,p);
           exit (1);
         }
-      fwrite(&nels,sizeof(int64),1,tarm[p].ofile);
-      nused = 100;
-      fwrite(&nused,sizeof(int),1,tarm[p].ofile);
+      unlink(Catenate(SORT_PATH,"/",ALGN_UNIQ,Numbered_Suffix(".",p,".las")));
 
       tarm[p].tfile = fopen(Catenate(SORT_PATH,"/",ALGN_PAIR,Numbered_Suffix(".",p,".las")),"w+");
       if (tarm[p].tfile == NULL)
@@ -2599,6 +2910,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
                          Prog_Name,SORT_PATH,ALGN_PAIR,p);
           exit (1);
         }
+      unlink(Catenate(SORT_PATH,"/",ALGN_PAIR,Numbered_Suffix(".",p,".las")));
     }
 
   for (u = 0; u < 2; u++)
@@ -2611,11 +2923,8 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
         }
 
       for (p = 0; p < NTHREADS; p++)
-        { rarm[p].in = open(nu[p].name,O_RDONLY);
-          if (rarm[p].in < 0)
-            { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,nu[p].name);
-              exit (1);
-            }
+        { rarm[p].in = nu[p].file;
+          lseek(nu[p].file,0,SEEK_SET);
           rarm[p].buck = nu[p].buck;
           rarm[p].comp = u;
         }
@@ -2631,12 +2940,9 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
         pthread_join(threads[p],NULL);
 #endif
 
-      for (p = 0; p < NTHREADS; p++)
-        unlink(nu[p].name);
-
 #ifdef DEBUG_SORT
       for (p = 0; p < NTHREADS; p++)
-        printf("  %s",nu[p].name);
+        printf("  %d",nu[p].file);
       printf("\n");
       for (j = 0; j < NCONTS; j++)
         { printf(" %4d:",j);
@@ -2698,14 +3004,8 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
 
   free(panel);
   free(sarray);
-
   for (p = 0; p < NTHREADS; p++)
-    { fclose(tarm[p].tfile);
-      rewind(tarm[p].ofile);
-      fwrite(&(tarm[p].nlive),sizeof(int64),1,tarm[p].ofile);
-      fclose(tarm[p].ofile);
-    }
-
+    fclose(tarm[p].tfile);
   for (p = 1; p < NTHREADS; p++)
     { fclose(tarm[p].DB2.bases);
       fclose(tarm[p].DB1.bases);
@@ -2732,6 +3032,22 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
            "\n  Total hits over %d = %lld, %lld la's, %lld non-redundant la's of ave len %lld\n",
                        CHAIN_MIN,nhit,nlas,nliv,ncov/nliv);
     }
+
+  if (VERBOSE)
+    fprintf(stdout,"\n  Sorting and merging local alignments\n");
+
+#ifdef DEBUG_LASORT
+  for (p = 0; p < NTHREADS; p++)
+    la_sort(tarm+p);
+#else
+  for (p = 1; p < NTHREADS; p++)
+    pthread_create(threads+p,NULL,la_sort,tarm+p);
+  la_sort(tarm);
+  for (p = 1; p < NTHREADS; p++)
+    pthread_join(threads[p],NULL);
+#endif
+
+  la_merge(tarm);
 }
 
 
@@ -2968,6 +3284,27 @@ int main(int argc, char *argv[])
       exit (1);
     }
 
+    //  Make sure you can open (NTHREADS + 3) * 2 * NTHREADS + tid files at one time.
+    //    tid is typically 3 unless using valgrind or other instrumentation.
+
+    { struct rlimit rlp;
+      int           tid;
+      uint64        nfiles;
+
+      tid = open(".xxx",O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+      close(tid);
+      unlink(".xxx");
+
+      nfiles = (NTHREADS+3)*2*NTHREADS + tid;
+      getrlimit(RLIMIT_NOFILE,&rlp);
+      if (nfiles > rlp.rlim_max)
+        { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);
+          exit (1);
+        }
+      rlp.rlim_cur = nfiles;
+      setrlimit(RLIMIT_NOFILE,&rlp);
+    }
+
   IBYTE = P1->pbyte;
   ICONT = P1->cbyte;
   IPOST = IBYTE-ICONT;
@@ -3071,15 +3408,14 @@ int main(int argc, char *argv[])
   { int    i, j, k, x;   // Setup temporary pair file IO buffers
     uint8 *buffer;
     int64 *bucks;
-    char  *names;
-    int    namelen = strlen(PAIR_NAME)+strlen(SORT_PATH)+16;
+    char  *name;
+    int   *nfile, *cfile;
 
     N_Units = Malloc(NPARTS*NTHREADS*sizeof(IOBuffer),"IO buffers");
     C_Units = Malloc(NPARTS*NTHREADS*sizeof(IOBuffer),"IO buffers");
     buffer  = Malloc(2*NPARTS*NTHREADS*1000000,"IO buffers");
     bucks   = Malloc(2*NTHREADS*NCONTS*sizeof(int64),"IO buffers");
-    names   = Malloc(2*NPARTS*NTHREADS*namelen,"IO names");
-    if (N_Units == NULL || C_Units == NULL || buffer == NULL || bucks == NULL || names == NULL)
+    if (N_Units == NULL || C_Units == NULL || buffer == NULL || bucks == NULL)
       exit (1);
 
     k = 0;
@@ -3087,19 +3423,29 @@ int main(int argc, char *argv[])
       for (j = 0; j < NPARTS; j++)
         { N_Units[k].bufr = buffer + (2*k) * 1000000; 
           C_Units[k].bufr = buffer + (2*k+1) * 1000000; 
-          N_Units[k].name = names + (2*k) * namelen;
-          C_Units[k].name = names + (2*k+1) * namelen;
-          sprintf(N_Units[k].name,"%s/%s.%d.N",SORT_PATH,PAIR_NAME,k);
-          sprintf(C_Units[k].name,"%s/%s.%d.C",SORT_PATH,PAIR_NAME,k);
           N_Units[k].buck = bucks + (2*i) * NCONTS; 
           C_Units[k].buck = bucks + (2*i+1) * NCONTS; 
+          name = Catenate(SORT_PATH,"/",PAIR_NAME,Numbered_Suffix(".",k,".N"));
+          N_Units[k].file = open(name,O_RDWR|O_CREAT|O_TRUNC,S_IRWXU);
+          if (N_Units[k].file < 0)
+            { fprintf(stderr,"%s: Cannot open %s for reading & writing\n",Prog_Name,name);
+              exit (1);
+            }
+          unlink(name);
+          name = Catenate(SORT_PATH,"/",PAIR_NAME,Numbered_Suffix(".",k,".C"));
+          C_Units[k].file = open(name,O_RDWR|O_CREAT|O_TRUNC,S_IRWXU);
+          if (C_Units[j].file < 0)
+            { fprintf(stderr,"%s: Cannot open %s for reading & writing\n",Prog_Name,name);
+              exit (1);
+            }
+          unlink(name);
           k += 1;
         }
 
 #ifdef DEBUG_SPLIT
     for (i = 0; i < NTHREADS; i++)
       { for (j = 0; j < NPARTS; j++)
-          printf("%s ",N_Units[i*NPARTS+j].name);
+          printf("%d ",N_Units[i*NPARTS+j].file);
         printf("\n");
         for (j = 0; j < NPARTS; j++)
           printf("%ld ",N_Units[i*NPARTS+j].buck-bucks);
@@ -3117,23 +3463,32 @@ int main(int argc, char *argv[])
 
     //  Effectively transpose N_unit & C_unit matrices
 
+    nfile = (int *) buffer;
+    cfile = nfile + NPARTS*NTHREADS;
     k = 0;
     for (j = 0; j < NPARTS; j++)
       for (i = 0; i < NTHREADS; i++)
         { N_Units[k].bufr = 
           C_Units[k].bufr = buffer + i * (2*NPARTS*1000000); 
           x = i*NPARTS+j;
-          N_Units[k].name = names + (2*x) * namelen;
-          C_Units[k].name = names + (2*x+1) * namelen;
+          nfile[k] = N_Units[x].file;
+          cfile[k] = C_Units[x].file;
           N_Units[k].buck = bucks + (2*i) * NCONTS; 
           C_Units[k].buck = bucks + (2*i+1) * NCONTS; 
+          k += 1;
+        }
+    k = 0;
+    for (j = 0; j < NPARTS; j++)
+      for (i = 0; i < NTHREADS; i++)
+        { N_Units[k].file = nfile[k];
+          C_Units[k].file = cfile[k];
           k += 1;
         }
 
 #ifdef DEBUG_SPLIT
     for (j = 0; j < NPARTS; j++)
       { for (i = 0; i < NTHREADS; i++)
-          printf("%s ",N_Units[j*NTHREADS+i].name);
+          printf("%d ",N_Units[j*NTHREADS+i].file);
         printf("\n");
         for (i = 0; i < NTHREADS; i++)
           printf("%ld ",N_Units[j*NTHREADS+i].buck-bucks);
@@ -3146,46 +3501,10 @@ int main(int argc, char *argv[])
   
     pair_sort_search(DB1,DB2);
 
-    free(N_Units->name);
     free(N_Units->buck);
     free(N_Units->bufr);
     free(C_Units);
     free(N_Units);
-  }
-
-  { char *command;
-
-    if (VERBOSE)
-      fprintf(stdout,"\n  Sorting and merging local alignments\n");
-
-    command = Malloc(2*strlen(ALGN_UNIQ)+strlen(SORT_PATH)+500,"Command string");
-    if (command == NULL)
-      exit (1);
-
-    sprintf(command,"LAsort -a %s/%s.*.las",SORT_PATH,ALGN_UNIQ); 
-    if (system(command) != 0)
-      { fprintf(stderr,"%s: Alignment sorts with LAsort failed. ?\n",Prog_Name);
-        sprintf(command,"rm -f %s/%s.*.las %s/%s.*.S.las",SORT_PATH,ALGN_UNIQ,SORT_PATH,ALGN_UNIQ); 
-        system(command);
-        exit (1);
-      }
-
-    sprintf(command,"LAmerge -a %s.las %s/%s.*.S.las",ALGN_NAME,SORT_PATH,ALGN_UNIQ); 
-    if (system(command) != 0)
-      { fprintf(stderr,"%s: Alignment merge with LAmerge failed. ?\n",Prog_Name);
-        sprintf(command,"rm -f %s/%s.*.las %s/%s.*.S.las",SORT_PATH,ALGN_UNIQ,SORT_PATH,ALGN_UNIQ); 
-        system(command);
-        exit (1);
-      }
-
-    sprintf(command,"rm -f %s/%s.*.las %s/%s.*.las %s/%s.*.S.las",
-                    SORT_PATH,ALGN_PAIR,SORT_PATH,ALGN_UNIQ,SORT_PATH,ALGN_UNIQ); 
-    if (system(command) != 0)
-      { fprintf(stderr,"%s: Could not remove intermediate alignment files. ?\n",Prog_Name);
-        exit (1);
-      }
-
-    free(command);
   }
 
   free(Select);

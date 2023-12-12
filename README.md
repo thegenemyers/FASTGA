@@ -8,52 +8,54 @@ The core assumption is that the genomes are nearly complete involving at most se
 thousand contigs with a sequence quality of Q40 or better.
 Based on a novel adaptive seed finding algorithm and the wave-based local aligner developed for
 [daligner](https://github.com/thegenemyers/DALIGNER), the tool can for example compare
-two 2Gbp genomes finding almost all regions over 100bp that are 70% or more similar
-in about 4 minutes wall clock time on my MacPro with 8 cores (about 24 CPU minutes).
-Moreover, it uses a trace point concept to record all the found alignments in a very space-efficient manner, e.g. just 50MB for over
-640,000 local alignments (la's) in our running example.
-The alignments can also be translated into .psl format and 1-code format with programs
-described below.
+two 2Gbp bat genomes finding almost all regions over 100bp that are 70% or more similar
+in about 4 minutes wall clock time on my MacPro with 8 cores (about 26 CPU minutes).
+Moreover, it uses a trace point concept to record all the found alignments in a very space-efficient manner, e.g. just 57MB for over
+759,000 local alignments (la's) in our running example.
+The alignments can also be translated into .psl format, .paf format, or 1-code format
+with programs described below.
 
-FastGA uses several components of the Daligner assembler software suite,
-namely its concept of a genome "database" and its tools for encoding
-and manipulating local alignments.  So in addition to installing this
-repository, you need to download the repositories and install
-[DAZZ_DB](https://github.com/thegenemyers/DAZZ_DB) and
-[DALIGNER](https://github.com/thegenemyers/DALIGNER).
+FastGA uses the Daligner assembler's
+"genome database" encoding of a genome or assembly.  So in addition to installing this
+repository, you need to download and install the repository
+[DAZZ_DB](https://github.com/thegenemyers/DAZZ_DB).
 No need to panic, simply download and say "make" and that's it.
 You should then place the produced binaries on your execution path so
-that you then have fasta2DAM, DBsplit, DAM2fasta, DBstats, and DBshow available for
+that you then have fasta2DAM, DAM2fasta, DBstats, and DBshow available for
 creating and viewing a genome database made from the standard fasta
-encoding, and the tools LAshow, LAsort, and LAmerge for manipulating and
-viewing your alignments in .las format.  In
-addition, there are programs therein, [DB2ONE](https://github.com/thegenemyers/DAZZ_DB)
-and [LA2ONE](https://github.com/thegenemyers/DALIGNER) to convert the genome database and the
-local alignments into [ONEcode](https://github.com/thegenemyers/ONEcode) formated files which are trivial to read and analyze.
-The Hiller lab's tools take .psl-formated alignment files as input, so we provide in
-this repository LAStoPSL that converts our .las files into .psl.
+encoding of an assembly/genome.  In addition, the program fasta2DAM converts a database back
+into the original .fasta file from which it was built
 
-FastGA also uses the data encodings used by the [FastK](https://github.com/thegenemyers/FASTK)
-k-mer counter suite
-for a k-mer table, so in principle one could use tools from FastK to manipulate
-the .ktab portion of a genome index produced by **Gindex**.  But unlike the
-Daligner components this is strictly optional and not necessary.
+FastGA outputs all the local alignments it finds in the Daligner assembler's .las binary
+format which very compactly encode alignments.  If one is comfortable with or wishes to work directly with this format, then one should download and install the repository
+[DALIGNER](https://github.com/thegenemyers/DALIGNER)
+so that they have the tools LAshow, LAsort, and LAmerge for manipulating and
+viewing alignments in .las format.  But most user's will likely want to work with a more
+popular, albeit voluminous, format such a .psl or .paf.  To this end we provide here
+LAStoPSL that converts our .las files into .psl, and LAStoPAF that converts
+them into .paf.
+
+For [ONEcode](https://github.com/thegenemyers/ONEcode) enthusiasts there is a program
+[DB2ONE](https://github.com/thegenemyers/DAZZ_DB) in the Dazzler repository that
+converts a genome database into a 1-code file, and another
+[LA2ONE](https://github.com/thegenemyers/DALIGNER) in the Daligner repository that
+converts a .las file into a 1-code file.  ONEcode is a general data encoding system
+that supports an easy to read and interpret ASCII format coupled with a production-capable
+binary form that includes compression.
 
 The overall workflow for using **FastGA**, assuming you are starting from
-say NCBI fasta files of the target genomes, is to first convert each of them into a Dazzler database with [fasta2DAM](https://github.com/thegenemyers/DAZZ_DB) and
-[DBsplit](https://github.com/thegenemyers/DAZZ_DB), then build an index of each of them with **Gindex**, and then you are ready to compare pairs of
+say NCBI fasta files of the target genomes, is to first convert each of them into a Dazzler database with [fasta2DAM](https://github.com/thegenemyers/DAZZ_DB), then build an index of each of them with **Gindex**, and then you are ready to compare pairs of
 genomes with **FastGA**.
 While you may at first think it a little inconvenient to have to build
 a Dazzler database, its actually a good thing as (a) the database is
 25% the size of the fasta file, (b) you can delete the fasta file as it can be reconstructed *exactly* from the database with [DAM2fasta](https://github.com/thegenemyers/DAZZ_DB), and (c) you have a tool [DBstats](https://github.com/thegenemyers/DAZZ_DB) to give you summary statistics and another, [DBshow](https://github.com/thegenemyers/DAZZ_DB), to randomly access
-and view the contigs of the genome.  Creating the data base for a genome in file say ```mygenome.fasta``` is as simple as issuing the two commands:
+and view the contigs of the genome.  Creating the data base for a genome in file say ```mygenome.fasta``` is as simple as issuing the command:
 
 ```
    fasta2DAM -v mydb mygenome.fasta
-   DBsplit mydb
 ```
 
-The two command sequence above results in the creation of the visible file ```mydb.dam``` and 3 hidden
+This command results in the creation of the visible file ```mydb.dam``` and 3 hidden
 files ```.mydb.idx```, ```.mydb.hdr```, and ```.mydb.bps```.  The database can be deleted
 with ```DBrm  mydb``` which removes the visible file and the 3 hidden files.
 
@@ -81,7 +83,7 @@ repetitive regions of the genome from consideration.  It must be specified, we s
 default value is say 10.  With the -v
 option the program prints a progress report to the standard output.
 
-The program runs with -T threads, 8 by default and for which it typically sees a 6X or more
+The program runs with -T threads, 8 by default, for which it typically sees a 6X or more
 speed up in wall clock time.  **Especially note that every index to be compared must be built
 with the same number of threads, and this number of threads will be used by FastGA**.
 
@@ -114,7 +116,7 @@ produces a number of large intermediate files in the directory ```/tmp``` unless
 directory is given with -P parameter.
 
 You can also call FastGA with a single source in which case it compares the genome/assembly against
-itself, avoiding the finding and reporting of identity matches.  We anticipate that this mode may be usefule for (a) identifying repetitive regions in the genome, and (b) resolving and identifying haplotype correspondences between the various contigs of an assembly. 
+itself, avoiding the finding and reporting of identity matches.  We anticipate that this mode may be usefule for (a) identifying repetitive regions in a genome, and (b) resolving and identifying haplotype correspondences between the various contigs of an assembly. 
 
 The traditional definition of the *adaptive seed* at a given position p of source1, is the longest string beginning at that position that is also somewhere in source2.  If the number of
 occurences of this string in source2 is greater than -f, then the adaptamer is deemed repetitive and is not considered.  Otherwise an adpatamer seed hit occurs at p and the positions of source2
@@ -154,17 +156,17 @@ In order to convert a .las file into a [.paf](https://github.com/lh3/miniasm/blo
 as Dazzler .dam's, that were compared by FastGA to produce the file.  Given these 2 or 3 arguments in the
 order shown above, the program outputs .paf encoded records, one alignment per line to the
 standard output.
-In addition to the standard .par fields, LAStoPAF outputs a ```dv:F<fraction>``` SAM-tag that gives the divergences of the query from the target and a ```df:I<diffs>``` SAM-tag that gives the number
+In addition to the standard .paf fields, LAStoPAF outputs a ```dv:F<fraction>``` SAM-tag that gives the divergences of the query from the target and a ```df:I<diffs>``` SAM-tag that gives the number
 of differences in an optimal alignment between the two intervals of the query and target.
 If the -t option is set then the program also outputs a ```tz:Z<length-list>``` tag and a
-```td:Z<diff-list>``` encoding the LAS trace information from which an explicit alignment can be
+```td:Z<diff-list>``` tag encoding the .las trace information from which an explicit alignment
+can be efficiently
 constructed.  Perhaps more relevant to most users are the -m and -x options that requests LAStoPAF to produce a CIGAR string tag of the form ```cg:Z<cigar-string>``` that explicitly encodes an optimal alignment.  With the -m option, aligned characters regardless of whether they are equal
 or not are
 encoded with an 'M'.  With the -x option, aligned *equal* characters are encoded with an '=' and
 aligned *unequal* characters with an 'X'.
-
-The -t option doubles the time taken and quadruples the size of the .paf file.  Beware, the -c option
-increases the time taken by a factor of 9 and the file size by a factor of over 300 !
+The -t option doubles the time taken and quadruples the size of the .paf file.  Beware, the -m and -x options
+increase the time taken by a factor of 10 and the file size by a factor of almost 100 !
 
 
 

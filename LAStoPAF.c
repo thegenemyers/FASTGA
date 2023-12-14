@@ -290,8 +290,8 @@ int main(int argc, char *argv[])
         printf("\t%d",blocksum/2);
         printf("\t255");
 
-        printf("\tdv:F%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
-        printf("\tdf:I%d",path->diffs);
+        printf("\tdv:f%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
+        printf("\tdf:i%d",path->diffs);
 
         if (TRACE)
           { int i;
@@ -347,7 +347,7 @@ int main(int argc, char *argv[])
                 int    ilen, dlen;
 
                 ilen = dlen = 0;
-                printf("\tcg:Z");
+                printf("\tcg:Z:");
                 k = path->abpos+1;
                 h = path->bbpos+1;
                 for (x = 0; x < T; x++)

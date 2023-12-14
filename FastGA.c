@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <pthread.h>
+#include <sys/resource.h>
 
 #include "libfastk.h"
 #include "DB.h"
@@ -227,6 +228,7 @@ static Post_List *Open_Post_List(char *name)
     exit (1);
 
   read(f,P->perm,sizeof(int)*nctg);
+  close(f);
 
   nels = 0;
   for (p = 1; p <= nfile; p++)

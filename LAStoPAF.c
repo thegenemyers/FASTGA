@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
   { int  r, s;
     int  status;
 
-    ISTWO  = 0;
+    ISTWO  = (argc > 3);
     status = Open_DB(argv[1],db1);
     if (status < 0)
       exit (1);
@@ -98,7 +98,7 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"%s: Cannot be called on a .db: %s\n",Prog_Name,argv[1]);
         exit (1);
       }
-    if (argc > 3)
+    if (ISTWO)
       { status = Open_DB(argv[2],db2);
         if (status < 0)
           exit (1);
@@ -122,7 +122,7 @@ int main(int argc, char *argv[])
         exit (1);
       }
     if (ISTWO)
-      { bhdr = fopen(Catenate(db2->path,".hdr",NULL,NULL),"r");
+      { bhdr = fopen(Catenate(db2->path,".hdr","",""),"r");
         if (bhdr == NULL)
           { fprintf(stderr,"%s: Cannot open .hdr file for %s\n",Prog_Name,argv[2]);
             exit (1);

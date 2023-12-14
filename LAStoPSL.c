@@ -304,9 +304,9 @@ int main(int argc, char *argv[])
           S = path->diffs - (I+D);
           X = (M+N - (I+D+2*S))/2;
 
-          printf("%d %d 0 0 %d %d %d %d +%c",X,S,IB,I,DB,D,COMP(ovl->flags)?'-':'+');
-          printf(" %s %d %d %d",aheader+1,alen[aread],aoff+path->abpos,aoff+path->aepos);
-          printf(" %s %d %d %d",bheader+1,blen[bread],boff+path->bbpos,boff+path->bepos);
+          printf("%d\t%d\t0\t0\t%d\t%d\t%d\t%d\t%c",X,S,IB,I,DB,D,COMP(ovl->flags)?'-':'+');
+          printf("\t%s\t%d\t%d\t%d",aheader+1,alen[aread],aoff+path->abpos,aoff+path->aepos);
+          printf("\t%s\t%d\t%d\t%d",bheader+1,blen[bread],boff+path->bbpos,boff+path->bepos);
 
           bcnt = 0;
           i = path->abpos+1;
@@ -328,7 +328,7 @@ int main(int argc, char *argv[])
           bmat = (path->aepos - i)+1;
           if (bmat > 0)
             bcnt += 1;
-          printf(" %d ",bcnt);
+          printf("\t%d\t",bcnt);
 
           i = path->abpos+1;
           j = path->bbpos+1;
@@ -349,7 +349,7 @@ int main(int argc, char *argv[])
           bmat = (path->aepos - i)+1;
           if (bmat > 0)
             printf("%d,",bmat);
-          printf(" ");
+          printf("\t");
 
           i = path->abpos+1;
           j = path->bbpos+1;
@@ -372,7 +372,7 @@ int main(int argc, char *argv[])
           bmat = (path->aepos - i)+1;
           if (bmat > 0)
             printf("%d,",i);
-          printf(" ");
+          printf("\t");
 
           i = path->abpos+1;
           j = path->bbpos+1;

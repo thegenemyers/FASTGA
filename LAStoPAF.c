@@ -39,6 +39,8 @@ int main(int argc, char *argv[])
   int     ISTWO;
   int64   novl;
   int     tspace, tbytes, small;
+  int    *amap, *bmap;
+  int    *alen, *blen;
 
   //  Process options
 
@@ -81,9 +83,8 @@ int main(int argc, char *argv[])
 
   //  Open trimmed DB or DB pair
 
-  { int   status;
-    char *pwd, *root;
-    FILE *input;
+  { int  r, s;
+    int  status;
 
     ISTWO  = 0;
     status = Open_DB(argv[1],db1);
@@ -93,25 +94,23 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"%s: Cannot be called on a block: %s\n",Prog_Name,argv[1]);
         exit (1);
       }
+    if (status == 0)
+      { fprintf(stderr,"%s: Cannot be called on a .db: %s\n",Prog_Name,argv[1]);
+        exit (1);
+      }
     if (argc > 3)
-      { pwd   = PathTo(argv[3]);
-        root  = Root(argv[3],".las");
-        if ((input = fopen(Catenate(pwd,"/",root,".las"),"r")) != NULL)
-          { ISTWO = 1;
-            fclose(input);
-            status = Open_DB(argv[2],db2);
-            if (status < 0)
-              exit (1);
-            if (db2->part > 0)
-              { fprintf(stderr,"%s: Cannot be called on a block: %s\n",Prog_Name,argv[2]);
-                exit (1);
-              }
-            Trim_DB(db2);
+      { status = Open_DB(argv[2],db2);
+        if (status < 0)
+          exit (1);
+        if (db2->part > 0)
+          { fprintf(stderr,"%s: Cannot be called on a block: %s\n",Prog_Name,argv[2]);
+            exit (1);
           }
-        else
-          db2 = db1;
-        free(root);
-        free(pwd);
+        if (status == 0)
+          { fprintf(stderr,"%s: Cannot be called on a .db: %s\n",Prog_Name,argv[2]);
+            exit (1);
+          }
+        Trim_DB(db2);
       }
     else
       db2 = db1;
@@ -131,6 +130,43 @@ int main(int argc, char *argv[])
       }
     else
       bhdr = ahdr;
+
+    if (ISTWO)
+      amap = (int *) Malloc(sizeof(int)*2*(db1->treads+db2->treads),"Allocating scaffold map");
+    else
+      amap = (int *) Malloc(sizeof(int)*2*db1->treads,"Allocating scaffold map");
+    if (amap == NULL)
+      exit (1);
+    alen = amap + db1->treads;
+
+    s = -1;
+    for (r = 0; r < db1->treads; r++)
+      { if (db1->reads[r].fpulse == 0)
+          s += 1;
+        alen[s] = db1->reads[r].fpulse + db1->reads[r].rlen;
+        amap[r] = s;
+      }
+    for (r = 0; r < db1->treads; r++)
+      alen[r] = alen[amap[r]];
+
+    if (ISTWO)
+      { bmap = alen + db1->treads;
+        blen = bmap + db2->treads;
+
+        s = -1;
+        for (r = 0; r < db2->treads; r++)
+          { if (db2->reads[r].fpulse == 0)
+              s += 1;
+            blen[s] = db2->reads[r].fpulse + db2->reads[r].rlen;
+            bmap[r] = s;
+          }
+        for (r = 0; r < db1->treads; r++)
+          blen[r] = blen[bmap[r]];
+      }
+    else
+      { bmap = amap;
+        blen = alen;
+      }
   }
 
   //  Initiate file reading and read (novl, tspace) header
@@ -170,15 +206,22 @@ int main(int argc, char *argv[])
   { int        j;
     uint16    *trace;
     int        tmax;
+    DAZZ_READ *reads1, *reads2;
     int        aread, bread;
+    int        aoff, boff;
     int        alast;
     char      *aseq, *bseq;
     Path      *path;
     Work_Data *work;
+    char       aheader[MAX_NAME], bheader[MAX_NAME];
+    int        blocksum, iid;
 
     work = New_Work_Data();
     aseq = New_Read_Buffer(db1);
     bseq = New_Read_Buffer(db2);
+
+    reads1 = db1->reads;
+    reads2 = db2->reads;
 
     tmax  = 1000;
     trace = (uint16 *) Malloc(sizeof(uint16)*tmax,"Allocating trace vector");
@@ -204,243 +247,243 @@ int main(int argc, char *argv[])
         Read_Trace(input,ovl,tbytes);
 
         aread = ovl->aread;
-        aln->alen = db1->reads[aread].rlen;
+        aln->alen = reads1[aread].rlen;
         bread = ovl->bread;
-        aln->blen  = db2->reads[ovl->bread].rlen;
+        aln->blen  = reads2[bread].rlen;
         aln->flags = ovl->flags;
 
+        aoff = reads1[aread].fpulse;
+        boff = reads2[bread].fpulse;
 
-        { char header[MAX_NAME];
-          int  blocksum, iid;
+        if (aread != alast)
+          { fseeko(ahdr,reads1[aread].coff,SEEK_SET);
+            fgets(aheader,MAX_NAME,ahdr);
+            aheader[strlen(aheader)-1] = '\0';
+          }
+        printf("%s",aheader+1);
 
-          fseeko(ahdr,db1->reads[aread].coff,SEEK_SET);
-          fgets(header,MAX_NAME,ahdr);
-          header[strlen(header)-1] = '\0';
-          printf("%s",header+1);
+        printf("\t%d",alen[aread]);
+        printf("\t%d",aoff + path->abpos);
+        printf("\t%d",aoff + path->aepos);
 
-          printf("\t%d",aln->alen);
-          printf("\t%d",path->abpos);
-          printf("\t%d",path->aepos);
+        printf("\t%c",COMP(aln->flags)?'-':'+');
 
-          printf("\t%c",COMP(aln->flags)?'-':'+');
+        fseeko(bhdr,reads2[bread].coff,SEEK_SET);
+        fgets(bheader,MAX_NAME,bhdr);
+        bheader[strlen(bheader)-1] = '\0';
+        printf("\t%s",bheader+1);
 
-          fseeko(bhdr,db2->reads[bread].coff,SEEK_SET);
-          fgets(header,MAX_NAME,bhdr);
-          header[strlen(header)-1] = '\0';
-          printf("\t%s",header+1);
+        printf("\t%d",blen[bread]);
+        if (COMP(aln->flags))
+          { printf("\t%d",blen[bread] - (boff + path->bepos));
+            printf("\t%d",blen[bread] - (boff + path->bbpos));
+          }
+        else
+          { printf("\t%d",boff + path->bbpos);
+            printf("\t%d",boff + path->bepos);
+          }
 
-          printf("\t%d",aln->blen);
-          if (COMP(aln->flags))
-            { printf("\t%d",aln->blen-path->bepos);
-              printf("\t%d",aln->blen-path->bbpos);
-            }
-          else
-            { printf("\t%d",path->bbpos);
-              printf("\t%d",path->bepos);
-            }
+        blocksum = (path->aepos-path->abpos) + (path->bepos-path->bbpos);
+        iid      = (blocksum - path->diffs)/2;
+       
+        printf("\t%d",iid);
+        printf("\t%d",blocksum/2);
+        printf("\t255");
 
-          blocksum = (path->aepos-path->abpos) + (path->bepos-path->bbpos);
-          iid      = (blocksum - path->diffs)/2;
-         
-          printf("\t%d",iid);
-          printf("\t%d",blocksum/2);
-          printf("\t255");
+        printf("\tdv:F%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
+        printf("\tdf:I%d",path->diffs);
 
-	  printf("\tdv:F%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
-	  printf("\tdf:I%d",path->diffs);
+        if (TRACE)
+          { int i;
 
-          if (TRACE)
-            { int i;
+            if (small)
+              Decompress_TraceTo16(ovl);
 
-              if (small)
-                Decompress_TraceTo16(ovl);
+            printf("\ttz:Z%d",trace[1]);
+            for (i = 3; i < path->tlen; i+= 2)
+              printf(",%d",trace[i]);
+            printf("\ttd:Z%d",trace[0]);
+            for (i = 2; i < path->tlen; i+= 2)
+              printf(",%d",trace[i]);
+          }
 
-              printf("\ttz:Z%d",trace[1]);
-              for (i = 3; i < path->tlen; i+= 2)
-                printf(",%d",trace[i]);
-              printf("\ttd:Z%d",trace[0]);
-              for (i = 2; i < path->tlen; i+= 2)
-                printf(",%d",trace[i]);
-            }
+        if (CIGAR)
+          { int  bmin, bmax;
+            char *bact;
 
-          if (CIGAR)
-            { int  bmin, bmax;
-              char *bact;
+            if (small && !TRACE)
+              Decompress_TraceTo16(ovl);
 
-              if (small && !TRACE)
-                Decompress_TraceTo16(ovl);
+            if (aread != alast)
+              Load_Read(db1,aread,aseq,0);
 
-              if (aread != alast)
-                Load_Read(db1,aread,aseq,0);
+            if (COMP(aln->flags))
+              { bmin = (aln->blen-path->bepos) - BORDER;
+                if (bmin < 0) bmin = 0;
+                bmax = (aln->blen-path->bbpos) + BORDER;
+                if (bmax > aln->blen) bmax = aln->blen;
+              }
+            else
+              { bmin = path->bbpos - BORDER;
+                if (bmin < 0) bmin = 0;
+                bmax = path->bepos + BORDER;
+                if (bmax > aln->blen) bmax = aln->blen;
+              }
 
-              if (COMP(aln->flags))
-                { bmin = (aln->blen-path->bepos) - BORDER;
-                  if (bmin < 0) bmin = 0;
-                  bmax = (aln->blen-path->bbpos) + BORDER;
-                  if (bmax > aln->blen) bmax = aln->blen;
-                }
-              else
-                { bmin = path->bbpos - BORDER;
-                  if (bmin < 0) bmin = 0;
-                  bmax = path->bepos + BORDER;
-                  if (bmax > aln->blen) bmax = aln->blen;
-                }
+            bact  = Load_Subread(db2,bread,bmin,bmax,bseq,0);
+            if (COMP(aln->flags))
+              { Complement_Seq(bact,bmax-bmin);
+                aln->bseq = bact - (aln->blen-bmax);
+              }
+            else
+              aln->bseq = bact - bmin; 
 
-              bact  = Load_Subread(db2,bread,bmin,bmax,bseq,0);
-              if (COMP(aln->flags))
-                { Complement_Seq(bact,bmax-bmin);
-                  aln->bseq = bact - (aln->blen-bmax);
-                }
-              else
-                aln->bseq = bact - bmin; 
+            Compute_Trace_PTS(aln,work,tspace,GREEDIEST);
 
-              Compute_Trace_PTS(aln,work,tspace,GREEDIEST);
+            if (CIGAR_M)
+              { int    k, h, p, x, blen;
+                int32 *t = (int32 *) path->trace;
+                int    T = path->tlen;
+                int    ilen, dlen;
 
-              if (CIGAR_M)
-                { int    k, h, p, x, blen;
-                  int32 *t = (int32 *) path->trace;
-                  int    T = path->tlen;
-                  int    ilen, dlen;
+                ilen = dlen = 0;
+                printf("\tcg:Z");
+                k = path->abpos+1;
+                h = path->bbpos+1;
+                for (x = 0; x < T; x++)
+                  { if ((p = t[x]) < 0)
+                      { blen = -(p+k);
+                        k += blen;
+                        h += blen+1;
+                        if (dlen > 0)
+                          printf("%dD",dlen);
+                        dlen = 0;
+                        if (blen == 0)
+                          ilen += 1;
+                        else
+                          { if (ilen > 0)
+                              printf("%dI",ilen);
+                            printf("%dM",blen);
+                            ilen = 1;
+                          }
+                      }
+                    else
+                      { blen = p-h;
+                        k += blen+1;
+                        h += blen;
+                        if (ilen > 0)
+                          printf("%dI",ilen);
+                        ilen = 0;
+                        if (blen == 0)
+                          dlen += 1;
+                        else
+                          { if (dlen > 0)
+                              printf("%dD",dlen);
+                            printf("%dM",blen);
+                            dlen = 1;
+                          }
+                      }
+                  }
+                if (dlen > 0)
+                  printf("%dD",dlen);
+                if (ilen > 0)
+                  printf("%dI",ilen);
+                blen = (path->aepos - k)+1;
+                if (blen > 0)
+                  printf("%dM",blen);
+              }
 
-                  ilen = dlen = 0;
-                  printf("\tcg:Z");
-                  k = path->abpos+1;
-                  h = path->bbpos+1;
-                  for (x = 0; x < T; x++)
-                    { if ((p = t[x]) < 0)
-                        { blen = -(p+k);
-                          k += blen;
-                          h += blen+1;
-                          if (dlen > 0)
-                            printf("%dD",dlen);
-                          dlen = 0;
-                          if (blen == 0)
-                            ilen += 1;
-                          else
-                            { if (ilen > 0)
-                                printf("%dI",ilen);
-                              printf("%dM",blen);
-                              ilen = 1;
-                            }
-                        }
-                      else
-                        { blen = p-h;
-                          k += blen+1;
-                          h += blen;
-                          if (ilen > 0)
-                            printf("%dI",ilen);
-                          ilen = 0;
-                          if (blen == 0)
-                            dlen += 1;
-                          else
-                            { if (dlen > 0)
-                                printf("%dD",dlen);
-                              printf("%dM",blen);
-                              dlen = 1;
-                            }
-                        }
-                    }
-                  if (dlen > 0)
-                    printf("%dD",dlen);
-                  if (ilen > 0)
-                    printf("%dI",ilen);
-                  blen = (path->aepos - k)+1;
-                  if (blen > 0)
-                    printf("%dM",blen);
-                }
+            else  //  CIGAR_X
+              { int    k, h, p, x, b, blen;
+                int32 *t = (int32 *) path->trace;
+                int    T = path->tlen;
+                int    ilen, dlen;
+                int    xlen, elen;
+                char  *A, *B;
 
-              else  //  CIGAR_X
-                { int    k, h, p, x, b, blen;
-                  int32 *t = (int32 *) path->trace;
-                  int    T = path->tlen;
-                  int    ilen, dlen;
-                  int    xlen, elen;
-                  char  *A, *B;
+                A = aln->aseq-1;
+                B = aln->bseq-1;
+                ilen = dlen = 0;
+                printf("\tcg:Z");
+                k = path->abpos+1;
+                h = path->bbpos+1;
+                for (x = 0; x < T; x++)
+                  { if ((p = t[x]) < 0)
+                      { blen = -(p+k);
+                        if (dlen > 0)
+                          printf("%dD",dlen);
+                        dlen = 0;
+                        if (blen == 0)
+                          ilen += 1;
+                        else
+                          { if (ilen > 0)
+                              printf("%dI",ilen);
+                            elen = xlen = 0;
+                            for (b = 0; b < blen; b++, k++, h++)
+                              if (A[k] == B[h])
+                                { if (xlen > 0)
+                                    printf("%dX",xlen);
+                                  xlen = 0;
+                                  elen += 1;
+                                }
+                              else
+                                { if (elen > 0)
+                                    printf("%d=",elen);
+                                  elen = 0;
+                                  xlen += 1;
+                                }
+                            if (xlen > 0)
+                              printf("%dX",xlen);
+                            if (elen > 0)
+                              printf("%d=",elen);
+                            ilen = 1;
+                          }
+                        h += 1;
+                      }
+                    else
+                      { blen = p-h;
+                        if (ilen > 0)
+                          printf("%dI",ilen);
+                        ilen = 0;
+                        if (blen == 0)
+                          dlen += 1;
+                        else
+                          { if (dlen > 0)
+                              printf("%dD",dlen);
+                            elen = xlen = 0;
+                            for (b = 0; b < blen; b++, k++, h++)
+                              if (A[k] == B[h])
+                                { if (xlen > 0)
+                                    printf("%dX",xlen);
+                                  xlen = 0;
+                                  elen += 1;
+                                }
+                              else
+                                { if (elen > 0)
+                                    printf("%d=",elen);
+                                  elen = 0;
+                                  xlen += 1;
+                                }
+                            if (xlen > 0)
+                              printf("%dX",xlen);
+                            if (elen > 0)
+                              printf("%d=",elen);
+                            dlen = 1;
+                          }
+                        k += 1;
+                      }
+                  }
+                if (dlen > 0)
+                  printf("%dD",dlen);
+                if (ilen > 0)
+                  printf("%dI",ilen);
+                blen = (path->aepos - k)+1;
+                if (blen > 0)
+                  printf("%dM",blen);
+              }
+          }
 
-                  A = aln->aseq-1;
-                  B = aln->bseq-1;
-                  ilen = dlen = 0;
-                  printf("\tcg:Z");
-                  k = path->abpos+1;
-                  h = path->bbpos+1;
-                  for (x = 0; x < T; x++)
-                    { if ((p = t[x]) < 0)
-                        { blen = -(p+k);
-                          if (dlen > 0)
-                            printf("%dD",dlen);
-                          dlen = 0;
-                          if (blen == 0)
-                            ilen += 1;
-                          else
-                            { if (ilen > 0)
-                                printf("%dI",ilen);
-                              elen = xlen = 0;
-                              for (b = 0; b < blen; b++, k++, h++)
-                                if (A[k] == B[h])
-                                  { if (xlen > 0)
-                                      printf("%dX",xlen);
-                                    xlen = 0;
-                                    elen += 1;
-                                  }
-                                else
-                                  { if (elen > 0)
-                                      printf("%d=",elen);
-                                    elen = 0;
-                                    xlen += 1;
-                                  }
-                              if (xlen > 0)
-                                printf("%dX",xlen);
-                              if (elen > 0)
-                                printf("%d=",elen);
-                              ilen = 1;
-                            }
-                          h += 1;
-                        }
-                      else
-                        { blen = p-h;
-                          if (ilen > 0)
-                            printf("%dI",ilen);
-                          ilen = 0;
-                          if (blen == 0)
-                            dlen += 1;
-                          else
-                            { if (dlen > 0)
-                                printf("%dD",dlen);
-                              elen = xlen = 0;
-                              for (b = 0; b < blen; b++, k++, h++)
-                                if (A[k] == B[h])
-                                  { if (xlen > 0)
-                                      printf("%dX",xlen);
-                                    xlen = 0;
-                                    elen += 1;
-                                  }
-                                else
-                                  { if (elen > 0)
-                                      printf("%d=",elen);
-                                    elen = 0;
-                                    xlen += 1;
-                                  }
-                              if (xlen > 0)
-                                printf("%dX",xlen);
-                              if (elen > 0)
-                                printf("%d=",elen);
-                              dlen = 1;
-                            }
-                          k += 1;
-                        }
-                    }
-                  if (dlen > 0)
-                    printf("%dD",dlen);
-                  if (ilen > 0)
-                    printf("%dI",ilen);
-                  blen = (path->aepos - k)+1;
-                  if (blen > 0)
-                    printf("%dM",blen);
-                }
-            }
-
-          printf("\n");
-        }
+        printf("\n");
         alast = aread;
       }
 
@@ -453,6 +496,7 @@ int main(int argc, char *argv[])
     fclose(bhdr);
   fclose(ahdr);
 
+  free(amap);
   Close_DB(db1);
   if (ISTWO)
     Close_DB(db2);

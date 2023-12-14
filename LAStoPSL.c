@@ -32,9 +32,12 @@ int main(int argc, char *argv[])
   Alignment _aln, *aln = &_aln;
 
   FILE   *input;
-  int     sameDB, ISTWO;
+  int     ISTWO;
   int64   novl;
   int     tspace, tbytes, small;
+  FILE   *ahdr, *bhdr;
+  int    *amap, *bmap;
+  int    *alen, *blen;
 
   //  Process options
 
@@ -63,10 +66,8 @@ int main(int argc, char *argv[])
 
   //  Open trimmed DB or DB pair
 
-  { int   status;
-    char *pwd, *root;
-    FILE *input;
-    struct stat stat1, stat2;
+  { int status;
+    int s, r;
 
     ISTWO  = 0;
     status = Open_DB(argv[1],db1);
@@ -76,34 +77,79 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"%s: Cannot be called on a block: %s\n",Prog_Name,argv[1]);
         exit (1);
       }
-    sameDB = 1;
+    if (status == 0)
+      { fprintf(stderr,"%s: Cannot be called on a .db: %s\n",Prog_Name,argv[1]);
+        exit (1);
+      }
     if (argc > 3)
-      { pwd   = PathTo(argv[3]);
-        root  = Root(argv[3],".las");
-        if ((input = fopen(Catenate(pwd,"/",root,".las"),"r")) != NULL)
-          { ISTWO = 1;
-            fclose(input);
-            status = Open_DB(argv[2],db2);
-            if (status < 0)
-              exit (1);
-            if (db2->part > 0)
-              { fprintf(stderr,"%s: Cannot be called on a block: %s\n",Prog_Name,argv[2]);
-                exit (1);
-              }
-            stat(Catenate(db1->path,"","",".idx"),&stat1);
-            stat(Catenate(db2->path,"","",".idx"),&stat2);
-            if (stat1.st_ino != stat2.st_ino)
-              sameDB = 0;
-            Trim_DB(db2);
+      { status = Open_DB(argv[2],db2);
+        if (status < 0)
+          exit (1);
+        if (db2->part > 0)
+          { fprintf(stderr,"%s: Cannot be called on a block: %s\n",Prog_Name,argv[2]);
+            exit (1);
           }
-        else
-          db2 = db1;
-        free(root);
-        free(pwd);
+        if (status == 0)
+          { fprintf(stderr,"%s: Cannot be called on a .db: %s\n",Prog_Name,argv[2]);
+            exit (1);
+          }
+        Trim_DB(db2);
       }
     else
       db2 = db1;
     Trim_DB(db1);
+
+    ahdr = fopen(Catenate(db1->path,".hdr","",""),"r");
+    if (ahdr == NULL)
+      { fprintf(stderr,"%s: Cannot open .hdr file for %s\n",Prog_Name,argv[1]);
+        exit (1);
+      }
+    if (ISTWO)
+      { bhdr = fopen(Catenate(db2->path,".hdr",NULL,NULL),"r");
+        if (bhdr == NULL)
+          { fprintf(stderr,"%s: Cannot open .hdr file for %s\n",Prog_Name,argv[2]);
+            exit (1);
+          }
+      }
+    else
+      bhdr = ahdr;
+
+    if (ISTWO)
+      amap = (int *) Malloc(sizeof(int)*2*(db1->treads+db2->treads),"Allocating scaffold map");
+    else
+      amap = (int *) Malloc(sizeof(int)*2*db1->treads,"Allocating scaffold map");
+    if (amap == NULL)
+      exit (1);
+    alen = amap + db1->treads;
+
+    s = -1;
+    for (r = 0; r < db1->treads; r++)
+      { if (db1->reads[r].fpulse == 0)
+          s += 1;
+        alen[s] = db1->reads[r].fpulse + db1->reads[r].rlen;
+        amap[r] = s;
+      }
+    for (r = 0; r < db1->treads; r++)
+      alen[r] = alen[amap[r]];
+
+    if (ISTWO)
+      { bmap = alen + db1->treads;
+        blen = bmap + db2->treads;
+
+        s = -1;
+        for (r = 0; r < db2->treads; r++)
+          { if (db2->reads[r].fpulse == 0)
+              s += 1;
+            blen[s] = db2->reads[r].fpulse + db2->reads[r].rlen;
+            bmap[r] = s;
+          }
+        for (r = 0; r < db1->treads; r++)
+          blen[r] = blen[bmap[r]];
+      }
+    else
+      { bmap = amap;
+        blen = alen;
+      }
   }
 
   //  Initiate file reading and read (novl, tspace) header
@@ -143,15 +189,21 @@ int main(int argc, char *argv[])
   { int        j;
     uint16    *trace;
     int        tmax;
-    int        aread;
+    DAZZ_READ *reads1, *reads2;
+    int        aread, bread;
     int        bmin, bmax;
     char      *aseq, *bseq, *bact;
+    int        aoff, boff;
     Path      *path;
     Work_Data *work;
+    char       aheader[MAX_NAME], bheader[MAX_NAME];
 
     work = New_Work_Data();
     aseq = New_Read_Buffer(db1);
     bseq = New_Read_Buffer(db2);
+
+    reads1 = db1->reads;
+    reads2 = db2->reads;
 
     tmax  = 1000;
     trace = (uint16 *) Malloc(sizeof(uint16)*tmax,"Allocating trace vector");
@@ -164,6 +216,7 @@ int main(int argc, char *argv[])
 
     //  For each alignment do
 
+    aread = -1;
     for (j = 0; j < novl; j++)
       { Read_Overlap(input,ovl);
         if (ovl->path.tlen > tmax)
@@ -181,9 +234,18 @@ int main(int argc, char *argv[])
         if (aread != ovl->aread)
           { aread = ovl->aread;
             Load_Read(db1,aread,aseq,0);
-            aln->alen = db1->reads[aread].rlen;
+            aln->alen = reads1[aread].rlen;
+            aoff      = reads1[aread].fpulse;
+            fseeko(ahdr,reads1[aread].coff,SEEK_SET);
+            fgets(aheader,MAX_NAME,ahdr);
+            aheader[strlen(aheader)-1] = '\0';
           }
-        aln->blen  = db2->reads[ovl->bread].rlen;
+        bread = ovl->bread;
+        aln->blen  = reads2[bread].rlen;
+        boff       = reads2[bread].fpulse;
+        fseeko(bhdr,reads2[bread].coff,SEEK_SET);
+        fgets(bheader,MAX_NAME,bhdr);
+        bheader[strlen(bheader)-1] = '\0';
         aln->flags = ovl->flags;
 
         if (COMP(aln->flags))
@@ -199,7 +261,7 @@ int main(int argc, char *argv[])
             if (bmax > aln->blen) bmax = aln->blen;
           }
 
-        bact = Load_Subread(db2,ovl->bread,bmin,bmax,bseq,0);
+        bact = Load_Subread(db2,bread,bmin,bmax,bseq,0);
         if (COMP(aln->flags))
           { Complement_Seq(bact,bmax-bmin);
             aln->bseq = bact - (aln->blen-bmax);
@@ -216,7 +278,7 @@ int main(int argc, char *argv[])
           int     M, N;
           int     I, D, S, X;
           int     IB, DB;
-          int     bcnt, blen;
+          int     bcnt, bmat;
 
           t = (int *) path->trace;
           T = path->tlen;
@@ -243,28 +305,28 @@ int main(int argc, char *argv[])
           X = (M+N - (I+D+2*S))/2;
 
           printf("%d %d 0 0 %d %d %d %d +%c",X,S,IB,I,DB,D,COMP(ovl->flags)?'-':'+');
-          printf(" C%d %d %d %d",aread+1,aln->alen,path->abpos,path->aepos);
-          printf(" D%d %d %d %d",ovl->bread+1,aln->blen,path->bbpos,path->bepos);
+          printf(" %s %d %d %d",aheader+1,alen[aread],aoff+path->abpos,aoff+path->aepos);
+          printf(" %s %d %d %d",bheader+1,blen[bread],boff+path->bbpos,boff+path->bepos);
 
           bcnt = 0;
           i = path->abpos+1;
           j = path->bbpos+1;
           for (x = 0; x < T; x++)
             { if ((p = t[x]) < 0)
-                { blen = -(p+i);
-                  i += blen;
-                  j += blen+1;
+                { bmat = -(p+i);
+                  i += bmat;
+                  j += bmat+1;
                 }
               else
-                { blen = p-j;
-                  i += blen+1;
-                  j += blen;
+                { bmat = p-j;
+                  i += bmat+1;
+                  j += bmat;
                 }
-              if (blen > 0)
+              if (bmat > 0)
                 bcnt += 1;
             }
-          blen = (path->aepos - i)+1;
-          if (blen > 0)
+          bmat = (path->aepos - i)+1;
+          if (bmat > 0)
             bcnt += 1;
           printf(" %d ",bcnt);
 
@@ -272,43 +334,43 @@ int main(int argc, char *argv[])
           j = path->bbpos+1;
           for (x = 0; x < T; x++)
             { if ((p = t[x]) < 0)
-                { blen = -(p+i);
-                  i += blen;
-                  j += blen+1;
+                { bmat = -(p+i);
+                  i += bmat;
+                  j += bmat+1;
                 }
               else
-                { blen = p-j;
-                  i += blen+1;
-                  j += blen;
+                { bmat = p-j;
+                  i += bmat+1;
+                  j += bmat;
                 }
-              if (blen > 0)
-                printf("%d,",blen);
+              if (bmat > 0)
+                printf("%d,",bmat);
             }
-          blen = (path->aepos - i)+1;
-          if (blen > 0)
-            printf("%d,",blen);
+          bmat = (path->aepos - i)+1;
+          if (bmat > 0)
+            printf("%d,",bmat);
           printf(" ");
 
           i = path->abpos+1;
           j = path->bbpos+1;
           for (x = 0; x < T; x++)
             { if ((p = t[x]) < 0)
-                { blen = -(p+i);
-                  if (blen > 0)
+                { bmat = -(p+i);
+                  if (bmat > 0)
                     printf("%d,",i);
-                  i += blen;
-                  j += blen+1;
+                  i += bmat;
+                  j += bmat+1;
                 }
               else
-                { blen = p-j;
-                  if (blen > 0)
+                { bmat = p-j;
+                  if (bmat > 0)
                     printf("%d,",i);
-                  i += blen+1;
-                  j += blen;
+                  i += bmat+1;
+                  j += bmat;
                 }
             }
-          blen = (path->aepos - i)+1;
-          if (blen > 0)
+          bmat = (path->aepos - i)+1;
+          if (bmat > 0)
             printf("%d,",i);
           printf(" ");
 
@@ -316,22 +378,22 @@ int main(int argc, char *argv[])
           j = path->bbpos+1;
           for (x = 0; x < T; x++)
             { if ((p = t[x]) < 0)
-                { blen = -(p+i);
-                  if (blen > 0)
+                { bmat = -(p+i);
+                  if (bmat > 0)
                     printf("%d,",j);
-                  i += blen;
-                  j += blen+1;
+                  i += bmat;
+                  j += bmat+1;
                 }
               else
-                { blen = p-j;
-                  if (blen > 0)
+                { bmat = p-j;
+                  if (bmat > 0)
                     printf("%d,",j);
-                  i += blen+1;
-                  j += blen;
+                  i += bmat+1;
+                  j += bmat;
                 }
             }
-          blen = (path->aepos - i)+1;
-          if (blen > 0)
+          bmat = (path->aepos - i)+1;
+          if (bmat > 0)
             printf("%d,",j);
           printf("\n");
         }
@@ -342,6 +404,7 @@ int main(int argc, char *argv[])
     free(aseq-1);
   }
 
+  free(amap);
   Close_DB(db1);
   if (ISTWO)
     Close_DB(db2);

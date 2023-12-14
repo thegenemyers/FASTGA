@@ -143,7 +143,7 @@ int main(int argc, char *argv[])
             blen[s] = db2->reads[r].fpulse + db2->reads[r].rlen;
             bmap[r] = s;
           }
-        for (r = 0; r < db1->treads; r++)
+        for (r = 0; r < db2->treads; r++)
           blen[r] = blen[bmap[r]];
       }
     else

@@ -320,7 +320,6 @@ void Complement_Seq(char *a, int n);
                        int indent, int block, int border, int upper, int coord);
 
   void Flip_Alignment(Alignment *align, int full);
-  void Complement_Alignment(Alignment *align, int full);
 
 
 /*** OVERLAP ABSTRACTION:

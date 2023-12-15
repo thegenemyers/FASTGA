@@ -3430,19 +3430,18 @@ int Print_Alignment(FILE *file, Alignment *align, Work_Data *ework,
   b = align->bseq - 1;
 
   o  = 0;
-  i = j = 1;
+  i = align->path->abpos;
+  j = align->path->bbpos;
 
-  prefa = align->path->abpos;
-  prefb = align->path->bbpos;
+  prefa = 0;
+  for (prefa = 0; prefa < border && a[i] != 4; prefa++)
+    i -= 1;
+  i += 1;
 
-  if (prefa > border)
-    { i = prefa-(border-1);
-      prefa = border;
-    }
-  if (prefb > border)
-    { j = prefb-(border-1);
-      prefb = border;
-    }
+  prefb = 0;
+  for (prefb = 0; prefb < border && b[j] != 4; prefb++)
+    j -= 1;
+  j += 1;
 
   sa   = i-1;
   sb   = j-1;
@@ -3693,19 +3692,18 @@ int Print_Reference(FILE *file, Alignment *align, Work_Data *ework,
   b = align->bseq - 1;
 
   o  = 0;
-  i = j = 1;
+  i = align->path->abpos;
+  j = align->path->bbpos;
 
-  prefa = align->path->abpos;
-  prefb = align->path->bbpos;
+  prefa = 0;
+  for (prefa = 0; prefa < border && a[i] != 4; prefa++)
+    i -= 1;
+  i += 1;
 
-  if (prefa > border)
-    { i = prefa-(border-1);
-      prefa = border;
-    }
-  if (prefb > border)
-    { j = prefb-(border-1);
-      prefb = border;
-    }
+  prefb = 0;
+  for (prefb = 0; prefb < border && b[j] != 4; prefb++)
+    j -= 1;
+  j += 1;
 
   s0   = i;
   sa   = i-1;

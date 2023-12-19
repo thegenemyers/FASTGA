@@ -149,7 +149,7 @@ Warning, the .psl output is almost 15 times larger than the .las file.
 
 
 ```
-5. LAStoPAF [-mxt] <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
+5. LAStoPAF [-mxt] [-T<int(8)>] <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
 ```
 
 In order to convert a .las file into a [.paf](https://github.com/lh3/miniasm/blob/master/PAF.md) file, LAStoPAF also needs as arguments the one or two genomes,
@@ -166,7 +166,8 @@ or not are
 encoded with an 'M'.  With the -x option, aligned *equal* characters are encoded with an '=' and
 aligned *unequal* characters with an 'X'.
 The -t option doubles the time taken and quadruples the size of the .paf file.  Beware, the -m and -x options
-increase the time taken by a factor of 10 and the file size by a factor of almost 100 !
+increase the time taken by a factor of 10 and the file size by a factor of almost 100 !  This can
+be ameliorated somewhat by running LAStoPAF with more threads, controllable with the -T option.
 
 
 

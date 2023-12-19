@@ -101,13 +101,13 @@ int main(int argc, char *argv[])
 
     ahdr = fopen(Catenate(db1->path,".hdr","",""),"r");
     if (ahdr == NULL)
-      { fprintf(stderr,"%s: Cannot open .hdr file for %s\n",Prog_Name,argv[1]);
+      { fprintf(stderr,"%s: Cannot open %s.hdr file for reading\n",Prog_Name,db1->path);
         exit (1);
       }
     if (ISTWO)
       { bhdr = fopen(Catenate(db2->path,".hdr","",""),"r");
         if (bhdr == NULL)
-          { fprintf(stderr,"%s: Cannot open .hdr file for %s\n",Prog_Name,argv[2]);
+          { fprintf(stderr,"%s: Cannot open %s.hdr file for reading\n",Prog_Name,db2->path);
             exit (1);
           }
       }
@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
         alen[s] = db1->reads[r].fpulse + db1->reads[r].rlen;
         amap[r] = s;
       }
-    for (r = 0; r < db1->treads; r++)
+    for (r = db1->treads-1; r >= 0; r++)
       alen[r] = alen[amap[r]];
 
     if (ISTWO)
@@ -143,7 +143,7 @@ int main(int argc, char *argv[])
             blen[s] = db2->reads[r].fpulse + db2->reads[r].rlen;
             bmap[r] = s;
           }
-        for (r = 0; r < db2->treads; r++)
+        for (r = db2->treads-1; r >= 0; r++)
           blen[r] = blen[bmap[r]];
       }
     else

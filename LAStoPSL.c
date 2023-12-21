@@ -577,7 +577,7 @@ int main(int argc, char *argv[])
                            Prog_Name,oprefix,p);
             exit (1);
           }
-        unlink(Numbered_Suffix(oprefix,p,".paf"));
+        unlink(Numbered_Suffix(oprefix,p,".psl"));
       }
 
     //  Launch and then gather threads

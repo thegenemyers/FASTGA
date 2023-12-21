@@ -44,46 +44,46 @@ static int OVL_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BUCK_WIDTH    64  //  2^BUCK_SHIFT
 #define    BUCK_ANTI    128  //  2*BUCK_WIDTH
 
-static int    CHAIN_BREAK;
-static int    CHAIN_MIN;
-static int    ALIGN_MIN;
-static double ALIGN_RATE;
-
 static char *Usage[] = { "[-v] [-P<dir(/tmp)>] [-o<out:name>] -f<int>",
                          "[-c<int(100)> [-s<int(500)>] [-a<int(100)>] [-e<float(.7)]",
                          "<source1>[.dam] [<source2>[.dam]]"
                        };
 
-static int   FREQ;     //  Adaptemer frequence cutoff parameter
-static int   VERBOSE;  //  Verbose output
-static int   KMER;
-static int   NTHREADS;
-static int   SELF;     //  Comparing A to A, or A to B?
+static int    FREQ;        //  -f: Adaptemer frequence cutoff parameter
+static int    VERBOSE;     //  -v: Verbose output
+static int    CHAIN_BREAK; //  -s
+static int    CHAIN_MIN;   //  -c
+static int    ALIGN_MIN;   //  -a
+static double ALIGN_RATE;  //  -e
+static char  *SORT_PATH;   //  -P
+static char  *ALGN_NAME;   //  -o
+static int    SELF;        //  Comparing A to A, or A to B?
 
-static char *PAIR_NAME;
-static char *ALGN_NAME;
+static int   KMER;         //  K-mer length and # of threads from genome indices
+static int   NTHREADS;
+
+static char *PAIR_NAME;    //  Prefixes for temporary files
 static char *ALGN_UNIQ;
 static char *ALGN_PAIR;
-static char *SORT_PATH;
 
-static int IBYTE;   // # of bytes for an entry in P1
-static int IPOST;   // # of bytes in post of a P1 entry
-static int ICONT;   // # of bytes in contig of a P1 entry
-static int ISIGN;   // byte index in a P1 entry of the sign flag
+static int IBYTE;         // # of bytes for an entry in P1
+static int IPOST;         // # of bytes in post of a P1 entry
+static int ICONT;         // # of bytes in contig of a P1 entry
+static int ISIGN;         // byte index in a P1 entry of the sign flag
 
-static int JBYTE;   // # of bytes for an entry in P2
-static int JPOST;   // # of bytes in post of a P2 entry
-static int JCONT;   // # of bytes in contig of a P2 entry
-static int JSIGN;   // byte index in a P2 entry of the sign flag
+static int JBYTE;         // # of bytes for an entry in P2
+static int JPOST;         // # of bytes in post of a P2 entry
+static int JCONT;         // # of bytes in contig of a P2 entry
+static int JSIGN;         // byte index in a P2 entry of the sign flag
 
-static int KBYTE;   // # of bytes for a k-mer table entry (both T1 & T2)
-static int CBYTE;   // byte of k-mer table entry containing post count
-static int LBYTE;   // byte of k-mer table entry containing lcp
+static int KBYTE;         // # of bytes for a k-mer table entry (both T1 & T2)
+static int CBYTE;         // byte of k-mer table entry containing post count
+static int LBYTE;         // byte of k-mer table entry containing lcp
 
-static int64 AMXPOS;  //  longest contig in DB1
-static int64 BMXPOS;  //  longest contig in DB1
-static int64 MAXDAG;  //  AMXPOS + BMXPOS
-static int   DBYTE;   // # of bytes for a pair diagonal or anti-diagonal
+static int64 AMXPOS;     //  longest contig in DB1
+static int64 BMXPOS;     //  longest contig in DB1
+static int64 MAXDAG;     //  AMXPOS + BMXPOS
+static int   DBYTE;      // # of bytes for a pair diagonal or anti-diagonal
 
 static int    NCONTS;    //  # of A contigs
 static int    NPARTS;    //  # of panels A-contigs divided into
@@ -2276,7 +2276,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
               dist = entwine(&(o->path),(uint8 *) (o+1),&(w->path),(uint8 *) (w+1),&where,0);
               if (where != -1)
                 { //  Fuse here
-// printf("FUSE %d %d\n",op->aepos-op->abpos,wp->aepos-wp->abpos);
+// printf("FUSE %d %d\n",wp->abpos-op->abpos,wp->aepos-op->aepos);
                   // printf(" %3d: %d-%d vs %d-%d\n            %d-%d vs %d-%d\n",
                          // where,o->path.abpos,o->path.aepos,w->path.abpos,w->path.aepos,
                          // o->path.bbpos,o->path.bepos,w->path.bbpos,w->path.bepos);

@@ -4,8 +4,8 @@
  *    a minimal listing of intervals, a cartoon, and a full out alignment.
  *
  *  Author:    Gene Myers
- *  Creation:  July 2013
- *  Last Mod:  Jan 2015
+ *  Creation:  Nov 2023
+ *  Last Mod:  Dec 2023
  *
  *******************************************************************************************/
 
@@ -34,8 +34,6 @@ static int  NTHREADS;  // -T
 static int  ISTWO;     // one dam or two?
 
 static int TSPACE;   // Trace spacing
-static int TBYTES;   // 1 if SMALL, 2 otherwise: # of bytes / value in external files
-static int SMALL;
 
 static int  AMAX,  BMAX;   //  Max sequence length in A and B
 static int *AMAP, *BMAP;   //  Map contig to its scaffold
@@ -88,13 +86,13 @@ static int64 find_ovl_boundary(int64 offset, FILE *input, void *buffer)
       len = plausible_record(off);
       if (len == 0)
         continue;
-      off += OVL_SIZE + len*TBYTES;
+      off += OVL_SIZE + len;
       if (off >= bend)
         return (0);
       len = plausible_record(off);
       if (len == 0)
         continue;
-      off += OVL_SIZE + len*TBYTES;
+      off += OVL_SIZE + len;
       if (off >= bend)
         return (0);
       len = plausible_record(off);
@@ -179,7 +177,7 @@ void *gen_paf(void *args)
 
   //  For each alignment do
 
-  fseek(in,parm->beg,SEEK_SET);
+  fseek(in,beg,SEEK_SET);
 
   alast = -1;
   bytes = 0;
@@ -192,9 +190,9 @@ void *gen_paf(void *args)
             exit (1);
         }
       path->trace = (void *) trace;
-      Read_Trace(in,ovl,TBYTES);
+      Read_Trace(in,ovl,1);
 
-      bytes += OVL_SIZE + path->tlen * TBYTES;
+      bytes += OVL_SIZE + path->tlen;
 
       aread = ovl->aread;
       aln->alen = reads1[aread].rlen;
@@ -246,8 +244,7 @@ void *gen_paf(void *args)
       if (TRACE)
         { int i;
 
-          if (SMALL)
-            Decompress_TraceTo16(ovl);
+          Decompress_TraceTo16(ovl);
 
           fprintf(out,"\ttz:Z%d",trace[1]);
           for (i = 3; i < path->tlen; i+= 2)
@@ -261,8 +258,7 @@ void *gen_paf(void *args)
         { int  bmin, bmax;
           char *bact;
 
-          if (SMALL)
-            Decompress_TraceTo16(ovl);
+          Decompress_TraceTo16(ovl);
 
           if (aread != alast)
             Load_Read(db1,aread,aseq,0);
@@ -606,17 +602,9 @@ int main(int argc, char *argv[])
       SYSTEM_READ_ERROR
     if (fread(&TSPACE,sizeof(int),1,input) != 1)
       SYSTEM_READ_ERROR
-    if (TSPACE < 0)
+    if (TSPACE != 100)
       { fprintf(stderr,"%s: Garbage .las file, trace spacing < 0 !\n",Prog_Name);
         exit (1);
-      }
-    if (TSPACE <= TRACE_XOVR && TSPACE != 0)
-      { SMALL  = 1;
-        TBYTES = sizeof(uint8);
-      }
-    else
-      { SMALL  = 0;
-        TBYTES = sizeof(uint16);
       }
 
     buffer = Malloc(SEEK_BLOCK,"Allocating seek block");
@@ -679,10 +667,11 @@ int main(int argc, char *argv[])
         unlink(Numbered_Suffix(oprefix,p,".paf"));
       }
 
+
     //  Launch and then gather threads
 
 #ifdef DEBUG_THREADS
-    for (p = 7; p < NTHREADS; p++)
+    for (p = 0; p < NTHREADS; p++)
       gen_paf(parm+p);
 #else
     for (p = 1; p < NTHREADS; p++)

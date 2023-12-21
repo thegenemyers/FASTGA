@@ -36,8 +36,6 @@
 #define   MAX_INT64    0x7fffffffffffffffll
 
 #define    TSPACE       100
-static int TBYTES;      //  # of bytes per trace element
-static int ABYTE;       //  TBYTES is 1
 
 static int PTR_SIZE = sizeof(void *);
 static int OVL_SIZE = sizeof(Overlap) - sizeof(void *);
@@ -2041,20 +2039,18 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                               Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-1);
 
                             if (path->aepos - path->abpos >= ALIGN_MIN)
-                              { if (ABYTE)
-                                  Compress_TraceTo8(ovl,0);
-                                if (Write_Overlap(tfile,ovl,TBYTES))
+                              { Compress_TraceTo8(ovl,0);
+                                if (Write_Overlap(tfile,ovl,1))
                                   { fprintf(stderr,"%s: Cannot write output\n",Prog_Name);
                                     exit (1);
                                   }
                                 nlas += 1;
-                                nmem += path->tlen * TBYTES + OVL_SIZE;
+                                nmem += path->tlen + OVL_SIZE;
                               }
 
 #ifdef DEBUG_ALIGN
                             if (path->aepos - path->abpos >= ALIGN_MIN)
-                              { if (ABYTE)
-                                  Decompress_TraceTo16(ovl);
+                              { Decompress_TraceTo16(ovl);
                                 printf("\nLocal %lld: %d-%d vs %d %d (%d)\n",nlas+1,
                                        path->abpos,path->aepos,path->bbpos,path->bepos,path->diffs);
                                 if (comp)
@@ -2197,7 +2193,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
         off = oblock-PTR_SIZE;
         for (j = 0; j < nlas; j++)
           { perm[j] = (Overlap *) off;
-            off += OVL_SIZE + ((Overlap *) off)->path.tlen*TBYTES;
+            off += OVL_SIZE + ((Overlap *) off)->path.tlen;
           }
       }
 
@@ -2360,10 +2356,10 @@ continue;
           if (o->flags & ELIMINATED)
             continue;
           fwrite( ((char *) o)+PTR_SIZE, OVL_SIZE, 1, ofile);
-          fwrite( (char *) (o+1), TBYTES, o->path.tlen, ofile);
+          fwrite( (char *) (o+1), o->path.tlen, 1, ofile);
           nliv += 1;
           ncov += o->path.aepos - o->path.abpos;
-          nmem += OVL_SIZE + o->path.tlen * TBYTES;
+          nmem += OVL_SIZE + o->path.tlen;
         }
 
       rewind (tfile);
@@ -2546,7 +2542,7 @@ static void *la_sort(void *args)
   off = iblock-PTR_SIZE;
   for (j = 0; j < novl; j++)
     { perm[j] = (Overlap *) off;
-      off += OVL_SIZE + ((Overlap *) off)->path.tlen*TBYTES;
+      off += OVL_SIZE + ((Overlap *) off)->path.tlen;
     }
 
   qsort(perm,novl,sizeof(Overlap *),SORT_MAP);
@@ -2555,7 +2551,7 @@ static void *la_sort(void *args)
     { Overlap *o = perm[j];
 
       fwrite( ((void *) o)+PTR_SIZE, OVL_SIZE, 1, fid);
-      fwrite( (void *) (o+1), TBYTES, o->path.tlen, fid);
+      fwrite( (void *) (o+1), o->path.tlen, 1, fid);
     }
 
   rewind(fid);
@@ -2747,7 +2743,7 @@ static void la_merge(TP *parm)
 
       src->count += 1;
 
-      tsize = ov->path.tlen*TBYTES;
+      tsize = ov->path.tlen;
       span  = OVL_SIZE + tsize;
       if (src->ptr + span > src->top)
         ovl_reload(src,bsize);
@@ -3352,15 +3348,6 @@ int main(int argc, char *argv[])
         DBYTE += 1;
       }
   }
-
-  if (TSPACE < TRACE_XOVR)
-    { ABYTE  = 1;
-      TBYTES = sizeof(uint8);
-    }
-  else
-    { ABYTE  = 0;
-      TBYTES = sizeof(uint16);
-    }
 
   if (VERBOSE)
     { fprintf(stdout,"\n  Using %d threads\n\n",NTHREADS);

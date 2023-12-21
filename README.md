@@ -137,7 +137,7 @@ thresholds for chaining and alignment.
 
 
 ```
-4. LAStoPSL <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
+4. LAStoPSL [-T<int(8)>] <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
 ```
 
 In order to convert a .las file into a [.psl](https://www.ensembl.org/info/website/upload/psl.html) file, LAStoPSL also needs as arguments the one or two genomes,
@@ -145,6 +145,7 @@ as Dazzler .dam's, that were compared by FastGA to produce the file.  Given thes
 order shown above, the program outputs .psl encoded alignments, one alignment per line to the
 standard output.
 Warning, the .psl output is almost 15 times larger than the .las file.
+LAStoPSL uses 8 threads by default, but this can be changed with the -T option.
 
 
 

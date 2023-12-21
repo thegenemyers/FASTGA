@@ -878,7 +878,7 @@ int Load_Read(DAZZ_DB *db, int i, char *read, int ascii)
   DAZZ_READ *r = db->reads;
 
   if (i < 0 || i >= db->nreads)
-    { EPRINTF(EPLACE,"%s: Index out of bounds (Load_Read)\n",Prog_Name);
+    { EPRINTF(EPLACE,"%s: Index %d out of bounds (Load_Read)\n",Prog_Name,i);
       EXIT(1);
     }
 
@@ -955,7 +955,7 @@ char *Load_Subread(DAZZ_DB *db, int i, int beg, int end, char *read, int ascii)
   DAZZ_READ *r = db->reads;
 
   if (i < 0 || i >= db->nreads)
-    { EPRINTF(EPLACE,"%s: Index out of bounds (Load_Read)\n",Prog_Name);
+    { EPRINTF(EPLACE,"%s: Index out of bounds (Load_Subread)\n",Prog_Name);
       EXIT(NULL);
     }
     
@@ -1001,7 +1001,7 @@ char *Load_Subread(DAZZ_DB *db, int i, int beg, int end, char *read, int ascii)
   clen = bend-bbeg;
   if (clen > 0)
     { if (fread(read,clen,1,bases) != 1)
-        { EPRINTF(EPLACE,"%s: Failed read of .bps file (Load_Read)\n",Prog_Name);
+        { EPRINTF(EPLACE,"%s: Failed read of .bps file (Load_Subread)\n",Prog_Name);
           EXIT(NULL);
         }
     }

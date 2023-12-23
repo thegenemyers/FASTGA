@@ -298,13 +298,13 @@ void *gen_paf(void *args)
                       k += blen;
                       h += blen+1;
                       if (dlen > 0)
-                        fprintf(out,"%dD",dlen);
+                        fprintf(out,"%dI",dlen);
                       dlen = 0;
                       if (blen == 0)
                         ilen += 1;
                       else
                         { if (ilen > 0)
-                            fprintf(out,"%dI",ilen);
+                            fprintf(out,"%dD",ilen);
                           fprintf(out,"%dM",blen);
                           ilen = 1;
                         }
@@ -314,22 +314,22 @@ void *gen_paf(void *args)
                       k += blen+1;
                       h += blen;
                       if (ilen > 0)
-                        fprintf(out,"%dI",ilen);
+                        fprintf(out,"%dD",ilen);
                       ilen = 0;
                       if (blen == 0)
                         dlen += 1;
                       else
                         { if (dlen > 0)
-                            fprintf(out,"%dD",dlen);
+                            fprintf(out,"%dI",dlen);
                           fprintf(out,"%dM",blen);
                           dlen = 1;
                         }
                     }
                 }
               if (dlen > 0)
-                fprintf(out,"%dD",dlen);
+                fprintf(out,"%dI",dlen);
               if (ilen > 0)
-                fprintf(out,"%dI",ilen);
+                fprintf(out,"%dD",ilen);
               blen = (path->aepos - k)+1;
               if (blen > 0)
                 fprintf(out,"%dM",blen);
@@ -353,13 +353,13 @@ void *gen_paf(void *args)
                 { if ((p = t[x]) < 0)
                     { blen = -(p+k);
                       if (dlen > 0)
-                        fprintf(out,"%dD",dlen);
+                        fprintf(out,"%dI",dlen);
                       dlen = 0;
                       if (blen == 0)
                         ilen += 1;
                       else
                         { if (ilen > 0)
-                            fprintf(out,"%dI",ilen);
+                            fprintf(out,"%dD",ilen);
                           elen = xlen = 0;
                           for (b = 0; b < blen; b++, k++, h++)
                             if (A[k] == B[h])
@@ -385,13 +385,13 @@ void *gen_paf(void *args)
                   else
                     { blen = p-h;
                       if (ilen > 0)
-                        fprintf(out,"%dI",ilen);
+                        fprintf(out,"%dD",ilen);
                       ilen = 0;
                       if (blen == 0)
                         dlen += 1;
                       else
                         { if (dlen > 0)
-                            fprintf(out,"%dD",dlen);
+                            fprintf(out,"%dI",dlen);
                           elen = xlen = 0;
                           for (b = 0; b < blen; b++, k++, h++)
                             if (A[k] == B[h])
@@ -416,9 +416,9 @@ void *gen_paf(void *args)
                     }
                 }
               if (dlen > 0)
-                fprintf(out,"%dD",dlen);
+                fprintf(out,"%dI",dlen);
               if (ilen > 0)
-                fprintf(out,"%dI",ilen);
+                fprintf(out,"%dD",ilen);
               blen = (path->aepos - k)+1;
               if (blen > 0)
                 fprintf(out,"%dM",blen);

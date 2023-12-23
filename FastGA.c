@@ -31,14 +31,15 @@
 #undef    DEBUG_TUBE
 #define   CALL_ALIGNER
 #undef    DEBUG_ALIGN
-#undef    DEBUG_ENTWINE
+#define    DEBUG_ENTWINE
 
 #define   MAX_INT64    0x7fffffffffffffffll
 
 #define    TSPACE       100
 
 static int PTR_SIZE = sizeof(void *);
-static int OVL_SIZE = sizeof(Overlap) - sizeof(void *);
+static int OVL_SIZE = sizeof(Overlap);
+static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 
 #define    BUCK_SHIFT     6
 #define    BUCK_WIDTH    64  //  2^BUCK_SHIFT
@@ -2040,10 +2041,15 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
                             if (path->aepos - path->abpos >= ALIGN_MIN)
                               { Compress_TraceTo8(ovl,0);
-                                if (Write_Overlap(tfile,ovl,1))
+                                if (fwrite(ovl,OVL_SIZE,1,tfile) != 1)
                                   { fprintf(stderr,"%s: Cannot write output\n",Prog_Name);
                                     exit (1);
                                   }
+                                if (ovl->path.trace != NULL)
+                                  if (fwrite(ovl->path.trace,ovl->path.tlen,1,tfile) != 1)
+                                    { fprintf(stderr,"%s: Cannot write output\n",Prog_Name);
+                                      exit (1);
+                                    }
                                 nlas += 1;
                                 nmem += path->tlen + OVL_SIZE;
                               }
@@ -2190,7 +2196,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
       { void *off;
 
-        off = oblock-PTR_SIZE;
+        off = oblock;
         for (j = 0; j < nlas; j++)
           { perm[j] = (Overlap *) off;
             off += OVL_SIZE + ((Overlap *) off)->path.tlen;
@@ -2199,7 +2205,9 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
       qsort(perm,nlas,sizeof(Overlap *),ALIGN_SORT);
 
-#define ELIMINATED  0x4
+#define ELIMINATED   0x4
+#define OWNS_MEMORY  0x8
+#define RESET_FLAGS  0x3
 
       for (j = nlas-1; j >= 0; j--)
         { Overlap *o  = perm[j];
@@ -2265,6 +2273,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
           for (k = j+1; k < nlas; k++)
             { Overlap *w  = perm[k];
               Path    *wp = &(w->path);
+              uint8   *otrace, *wtrace;
 
               if (op->aepos <= wp->abpos)   //  No further a-interval overlap
                 break;
@@ -2273,13 +2282,60 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
               if (op->bepos <= wp->bbpos || op->bbpos >= wp->bepos)  //  If b-intervals disjoint
                 continue;
 
-              dist = entwine(&(o->path),(uint8 *) (o+1),&(w->path),(uint8 *) (w+1),&where,0);
+              if (o->flags & OWNS_MEMORY)
+                otrace = (uint8 *) op->trace;
+              else
+                otrace = (uint8 *) (o+1);
+              if (w->flags & OWNS_MEMORY)
+                wtrace = (uint8 *) wp->trace;
+              else
+                wtrace = (uint8 *) (w+1);
+
+              dist = entwine(op,otrace,wp,wtrace,&where,0);
               if (where != -1)
-                { //  Fuse here
-// printf("FUSE %d %d\n",wp->abpos-op->abpos,wp->aepos-op->aepos);
+                { uint8 *ntrace;
+                  int    ocut, wcut;
+                  int    d, h, g;
+
+                  //  Fuse here
+
+// printf("FUSE %d %d\n",(wp->abpos-op->abpos)+(wp->aepos-op->aepos),op->aepos-wp->abpos);
                   // printf(" %3d: %d-%d vs %d-%d\n            %d-%d vs %d-%d\n",
                          // where,o->path.abpos,o->path.aepos,w->path.abpos,w->path.aepos,
                          // o->path.bbpos,o->path.bepos,w->path.bbpos,w->path.bepos);
+                  // dist = entwine(op,otrace,wp,wtrace,&where,1);
+
+		  ocut = 2 * (((where-op->abpos)-1)/TSPACE+1);
+                  wcut = 2 * (((where-wp->abpos)-1)/TSPACE+1);
+                  op->tlen  = ocut + (wp->tlen-wcut);
+
+                  ntrace = (uint8 *) Malloc(op->tlen,"Allocating new trace");
+                  if (ntrace == NULL)
+                    exit (1);
+
+                  d = 0;
+                  h = 0;
+                  for (g = 0; g < ocut; g += 2)
+                    { d += (ntrace[h] = otrace[g]);
+                      ntrace[h+1] = otrace[g+1];
+                      h += 2;
+                    }
+                  for (g = wcut; g < wp->tlen; g += 2)
+                    { d += (ntrace[h] = wtrace[g]);
+                      ntrace[h+1] = wtrace[g+1];
+                      h += 2;
+                    }
+                  
+                  if (o->flags & OWNS_MEMORY)
+                    free(otrace);
+                  if (w->flags & OWNS_MEMORY)
+                    free(wtrace);
+                  op->diffs = d;
+                  op->aepos = wp->aepos;
+                  op->bepos = wp->bepos;
+                  w->flags |= ELIMINATED;
+                  o->flags |= OWNS_MEMORY;
+                  op->trace = ntrace;
                   continue;
                 }
               if (dist < 0 && wp->bepos <= op->bepos+10)
@@ -2290,7 +2346,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                 { o->flags |= ELIMINATED;
                   break;
                 }
-continue;
+              continue;
 
 // printf("OTHER\n");
               // printf(" %3d x %3d: %d-%d vs %d-%d\n            %d-%d vs %d-%d\n",
@@ -2352,14 +2408,22 @@ continue;
       nmem = 0;
       for (j = 0; j < nlas; j++)
         { Overlap *o = perm[j];
+          int      hasmem;
 
           if (o->flags & ELIMINATED)
             continue;
-          fwrite( ((char *) o)+PTR_SIZE, OVL_SIZE, 1, ofile);
-          fwrite( (char *) (o+1), o->path.tlen, 1, ofile);
+          hasmem = (o->flags & OWNS_MEMORY);
+          o->flags &= RESET_FLAGS;
+          fwrite( ((char *) o)+PTR_SIZE, EXO_SIZE, 1, ofile);
+          if (hasmem)
+            { fwrite(o->path.trace, o->path.tlen, 1, ofile);
+              free(o->path.trace);
+            }
+          else
+            fwrite( (char *) (o+1), o->path.tlen, 1, ofile);
           nliv += 1;
           ncov += o->path.aepos - o->path.abpos;
-          nmem += OVL_SIZE + o->path.tlen;
+          nmem += EXO_SIZE + o->path.tlen;
         }
 
       rewind (tfile);
@@ -2542,7 +2606,7 @@ static void *la_sort(void *args)
   off = iblock-PTR_SIZE;
   for (j = 0; j < novl; j++)
     { perm[j] = (Overlap *) off;
-      off += OVL_SIZE + ((Overlap *) off)->path.tlen;
+      off += EXO_SIZE + ((Overlap *) off)->path.tlen;
     }
 
   qsort(perm,novl,sizeof(Overlap *),SORT_MAP);
@@ -2550,7 +2614,7 @@ static void *la_sort(void *args)
   for (j = 0; j < novl; j++)
     { Overlap *o = perm[j];
 
-      fwrite( ((void *) o)+PTR_SIZE, OVL_SIZE, 1, fid);
+      fwrite( ((void *) o)+PTR_SIZE, EXO_SIZE, 1, fid);
       fwrite( (void *) (o+1), o->path.tlen, 1, fid);
     }
 
@@ -2696,7 +2760,7 @@ static void la_merge(TP *parm)
   for (i = 0; i < NTHREADS; i++)
     { if (in[i].ptr < in[i].top)
         { ovls[i]     = *((Overlap *) (in[i].ptr - PTR_SIZE));
-          in[i].ptr  += OVL_SIZE;
+          in[i].ptr  += EXO_SIZE;
           hsize      += 1;
           heap[hsize] = ovls + i;
         }
@@ -2744,7 +2808,7 @@ static void la_merge(TP *parm)
       src->count += 1;
 
       tsize = ov->path.tlen;
-      span  = OVL_SIZE + tsize;
+      span  = EXO_SIZE + tsize;
       if (src->ptr + span > src->top)
         ovl_reload(src,bsize);
       if (optr + span > otop)
@@ -2756,8 +2820,8 @@ static void la_merge(TP *parm)
           optr = oblock;
         }
 
-      memmove(optr,((void *) ov) + PTR_SIZE,OVL_SIZE);
-      optr += OVL_SIZE;
+      memmove(optr,((void *) ov) + PTR_SIZE,EXO_SIZE);
+      optr += EXO_SIZE;
       memmove(optr,src->ptr,tsize);
       optr += tsize;
 
@@ -2768,7 +2832,7 @@ static void la_merge(TP *parm)
           continue;
         }
       *ov       = *((Overlap *) (src->ptr - PTR_SIZE));
-      src->ptr += OVL_SIZE;
+      src->ptr += EXO_SIZE;
     }
 
   //  Flush output buffer and wind up

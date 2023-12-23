@@ -238,18 +238,18 @@ void *gen_paf(void *args)
       fprintf(out,"\t%d",blocksum/2);
       fprintf(out,"\t255");
 
-      fprintf(out,"\tdv:f%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
-      fprintf(out,"\tdf:i%d",path->diffs);
+      fprintf(out,"\tdv:f:%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
+      fprintf(out,"\tdf:i:%d",path->diffs);
 
       if (TRACE)
         { int i;
 
           Decompress_TraceTo16(ovl);
 
-          fprintf(out,"\ttz:Z%d",trace[1]);
+          fprintf(out,"\ttz:Z:%d",trace[1]);
           for (i = 3; i < path->tlen; i+= 2)
             fprintf(out,",%d",trace[i]);
-          fprintf(out,"\ttd:Z%d",trace[0]);
+          fprintf(out,"\ttd:Z:%d",trace[0]);
           for (i = 2; i < path->tlen; i+= 2)
             fprintf(out,",%d",trace[i]);
         }
@@ -346,7 +346,7 @@ void *gen_paf(void *args)
               A = aln->aseq-1;
               B = aln->bseq-1;
               ilen = dlen = 0;
-              fprintf(out,"\tcg:Z");
+              fprintf(out,"\tcg:Z:");
               k = path->abpos+1;
               h = path->bbpos+1;
               for (x = 0; x < T; x++)

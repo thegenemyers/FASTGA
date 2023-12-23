@@ -23,7 +23,8 @@
 
 static char *Usage = " <src1:db|dam> [ <src2:db|dam> ] <align:las>";
 
-#undef DEBUG_CHAIN
+#undef  DEBUG_CHAIN
+#define DETAIL
 
 #define ALIGN_OVERLAP 20
 
@@ -259,7 +260,10 @@ void analyze(int ascaf, CHAIN *chain, CHAIN **blist, int *bstack, int btop, ORDE
 #endif
                 }
               else
-                { e->score = v->score + (e->ovl.path.aepos - e->ovl.path.abpos);
+                { // if (v->ovl.path.aepos > e->ovl.path.abpos)
+                    // e->score = v->score + (e->ovl.path.aepos - v->ovl.path.aepos);
+                  // else
+                    e->score = v->score + (e->ovl.path.aepos - e->ovl.path.abpos);
                   e->clen  = v->clen + 1;
                 }
               e->bepos = e->ovl.path.bepos - ALIGN_OVERLAP;
@@ -592,6 +596,7 @@ int main(int argc, char *argv[])
                     if (w->link != NULL)
                       { v = w->link;
                         p = &(v->ovl.path);
+q = &(w->ovl.path);
                         if (v->L != NULL)
                           { if (v->score < w->score + (p->aepos - p->abpos)) 
                               { u = v->L;
@@ -691,8 +696,9 @@ int main(int argc, char *argv[])
                   { if (w->dead == 1)
                       continue;
                     if (w->dead == 0 && w->L == NULL)
-                      { int64 slen;
-                        int   last;
+                      { int64  slen;
+                        int    last;
+                        double pid;
 
                         if (bs >= bscaf)
                           last = invscaff[(b-bscaf)+1]-1;
@@ -719,21 +725,23 @@ int main(int argc, char *argv[])
                         for (u = w; u != NULL; u = u->link)
                           { p = &(u->ovl.path);
                             printf("    %6ld:",u-chain);
-                            printf(" %5d[%9d,%9d] vs %5d[%9d,%9d]",u->ovl.aread,p->abpos,p->aepos,
-                                                                   u->ovl.bread,p->bbpos,p->bepos);
+                            printf(" %2d.%5d[%9d,%9d] vs %2d.%5d[%9d,%9d]",
+                                    ascaf,u->ovl.aread,p->abpos,p->aepos,
+                                    bscaf,u->ovl.bread,p->bbpos,p->bepos);
                             if (u->L == NULL)
                               printf("  <%5d += %8d>",u->score,u->score);
                             else
                               printf("  <%5d += %8d>",u->score - u->L->score,u->score);
-                            printf("  [%4d]  R=%3d%%",u->clen,u->mark);
+                            printf("  [%5d]  %3d%%",u->clen,u->mark);
                             if (u->link == NULL)
                               printf("  ___  END\n");
                             else
                               { q = &(u->link->ovl.path);
                                 dela = p->abpos - q->aepos;
                                 delb = p->bbpos - q->bepos;
+                                pid  = (100.*p->diffs) / (p->aepos - p->abpos);
                                 if (dela > 50000 || delb > 50000 || abs(dela-delb) > 20000) 
-                                  printf("  ___  BREAK  %6d / %6d\n\n",dela,delb);
+                                  printf("  ___  BREAK  %6d / %6d  %4.1f%%\n\n",dela,delb,pid);
                                 else
                                   { for (n = u->next; n != NULL; n = n->next)
                                       if (n->dead != 1)
@@ -742,7 +750,7 @@ int main(int argc, char *argv[])
                                       printf("  ***      ");
                                     else
                                       printf("  -> %6ld",u->link-chain);
-                                    printf("  %6d / %6d\n",dela,delb);
+                                    printf("  %6d / %6d  %4.1f%%\n",dela,delb,pid);
                                   }
                               }
                           }

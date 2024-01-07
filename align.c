@@ -5701,13 +5701,13 @@ void Gap_Improver(Alignment *aln, Work_Data *ework)
         { Fpos = -Fpos;
           Lpos = -Lpos;
 
-          while (A[Fpos-1] == B[(Fpos-Fdag)-1] && A[Fpos-1] != 4)
+          while (A[Fpos-1] != B[(Fpos-Fdag)-1] && A[Fpos-1] != 4 && B[(Fpos-Fdag)-1] != 4)
             { Fpos -= 1;
 #ifdef BOX_STATS
               BxExtend += 1;
 #endif
             }
-          while (A[Lpos] == B[Lpos-d] && A[Lpos] != 4)
+          while (A[Lpos] != B[Lpos-d] && A[Lpos] != 4 && B[Lpos-d] != 4)
             { Lpos += 1;
 #ifdef BOX_STATS
               BxExtend += 1;
@@ -5795,13 +5795,13 @@ void Gap_Improver(Alignment *aln, Work_Data *ework)
             }
         }
       else
-        { while (B[Fpos-1] == A[(Fpos+Fdag)-1] && B[Fpos-1] != 4)
+        { while (B[Fpos-1] != A[(Fpos+Fdag)-1] && B[Fpos-1] != 4 && A[(Fpos+Fdag)-1] != 4)
             { Fpos -= 1;
 #ifdef BOX_STATS
               BxExtend += 1;
 #endif
             }
-          while (B[Lpos] == A[Lpos+d] && B[Lpos] != 4)
+          while (B[Lpos] != A[Lpos+d] && B[Lpos] != 4 && A[Lpos+d] != 4)
             { Lpos += 1;
 #ifdef BOX_STATS
               BxExtend += 1;

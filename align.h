@@ -375,4 +375,12 @@ typedef struct {
 
   int  Check_Trace_Points(Overlap *ovl, int tspace, int verbose, char *fname);
 
+  /* Gap_Improver takes an alignment trace and improves it so the alignment has fewer, larger
+     gaps as if computed under an affine gap penalty.  It should be called immediately after
+     Compute_Trace_(PTS|MID).  The modified trace alignment is guaranteed to have the same
+     length as the input alignment.
+  */
+
+  void Gap_Improver(Alignment *align, Work_Data *work);
+
 #endif // _A_MODULE

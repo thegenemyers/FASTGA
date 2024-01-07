@@ -230,6 +230,7 @@ void *gen_paf(void *args)
         aln->bseq = bact - bmin; 
 
       Compute_Trace_PTS(aln,work,TSPACE,GREEDIEST);
+      Gap_Improver(aln,work);
 
       { int     i, j, x, p, q;
         int    *t, T;
@@ -365,6 +366,7 @@ void *gen_paf(void *args)
   free(trace);
   free(bseq-1);
   free(aseq-1);
+  Free_Work_Data(work);
 
   return (NULL);
 }

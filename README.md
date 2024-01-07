@@ -150,15 +150,17 @@ LAStoPSL uses 8 threads by default, but this can be changed with the -T option.
 
 
 ```
-5. LAStoPAF [-mxt] [-T<int(8)>] <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
+5. LAStoPAF [-mxtg] [-T<int(8)>] <source1>[.dam] [<source2>[.dam]] <alignments>[.las]
 ```
 
 In order to convert a .las file into a [.paf](https://github.com/lh3/miniasm/blob/master/PAF.md) file, LAStoPAF also needs as arguments the one or two genomes,
 as Dazzler .dam's, that were compared by FastGA to produce the file.  Given these 2 or 3 arguments in the
 order shown above, the program outputs .paf encoded records, one alignment per line to the
 standard output.
+
 In addition to the standard .paf fields, LAStoPAF outputs a ```dv:F<fraction>``` SAM-tag that gives the divergences of the query from the target and a ```df:I<diffs>``` SAM-tag that gives the number
 of differences in an optimal alignment between the two intervals of the query and target.
+
 If the -t option is set then the program also outputs a ```tz:Z<length-list>``` tag and a
 ```td:Z<diff-list>``` tag encoding the .las trace information from which an explicit alignment
 can be efficiently
@@ -170,6 +172,9 @@ The -t option doubles the time taken and quadruples the size of the .paf file.  
 increase the time taken by a factor of 10 and the file size by a factor of almost 100 !  This can
 be ameliorated somewhat by running LAStoPAF with more threads, controllable with the -T option.
 
+The -g option is an interim flag that allows one to turn on gap reduction when producing the alignments required to effect the -m or -x options.  Alignment computed under simple Levenstein
+tend to smear characters of one sequence across a large insert in the other sequence.  Affine
+gap costs avoid this
 
 
 

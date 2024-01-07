@@ -24,12 +24,13 @@
 
 #undef  DEBUG_THREADS
 
-static char *Usage = " [-mxt] [-T<int(8)>] <src1:db|dam> [ <src2:db|dam> ] <align:las>";
+static char *Usage = " [-mxtg] [-T<int(8)>] <src1:db|dam> [ <src2:db|dam> ] <align:las>";
 
 static int  CIGAR_M;   // -m
 static int  CIGAR_X;   // -x
 static int  CIGAR;     // -m or -x
 static int  TRACE;     // -t
+static int  IMPROVE;   // -i
 static int  NTHREADS;  // -T
 static int  ISTWO;     // one dam or two?
 
@@ -281,6 +282,8 @@ void *gen_paf(void *args)
             aln->bseq = bact - bmin; 
 
           Compute_Trace_PTS(aln,work,TSPACE,GREEDIEST);
+          if (IMPROVE)
+            Gap_Improver(aln,work);
 
           if (CIGAR_M)
             { int    k, h, p, x, blen;
@@ -437,6 +440,7 @@ void *gen_paf(void *args)
   free(trace);
   free(bseq-1);
   free(aseq-1);
+  Free_Work_Data(work);
 
   return (NULL);
 }
@@ -463,7 +467,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("mxt")
+            ARG_FLAGS("mxtg")
             break;
           case 'T':
             ARG_POSITIVE(NTHREADS,"Number of threads")
@@ -476,6 +480,7 @@ int main(int argc, char *argv[])
     CIGAR_X = flags['x'];
     CIGAR_M = flags['m'];
     TRACE   = flags['t'];
+    IMPROVE = flags['g'];
     CIGAR   = CIGAR_X || CIGAR_M;
 
     if (argc != 3 && argc != 4)
@@ -484,6 +489,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -m: produce Cigar string tag with M's\n");
         fprintf(stderr,"      -x: produce Cigar string tag with X's and ='s\n");
         fprintf(stderr,"      -t: produce LAS trace and diff list tags\n");
+        fprintf(stderr,"      -g: Perform gap reduction pass.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -T: Use -T threads.\n");
         exit (1);
@@ -666,7 +672,6 @@ int main(int argc, char *argv[])
           }
         unlink(Numbered_Suffix(oprefix,p,".paf"));
       }
-
 
     //  Launch and then gather threads
 

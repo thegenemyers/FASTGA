@@ -3379,7 +3379,9 @@ int Print_Alignment(FILE *file, Alignment *align, Work_Data *ework,
   blen = align->blen;
 
   Abuf[width] = Bbuf[width] = Dbuf[width] = '\0';
-                                           /* buffer/output next column */
+
+  // buffer/output next column
+
 #define COLUMN(x,y)							\
 { int u, v;								\
   if (o >= width)							\
@@ -5493,4 +5495,398 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
   path->diffs = diffs;
 
   return (0);
+}
+
+#undef DEBUG_BOX
+#undef DEBUG_DP
+#undef DEBUG_BACK
+#undef BOX_STATS
+
+#define LONG_SNAKE 50
+
+#ifdef DEBUG
+
+static int ASCII[5] = { 'a', 'c', 'g', 't', '.' };
+
+static inline void print_string(char *a, int l)
+{ int i;
+
+  for (i = 0; i < l; i++)
+    printf("%c",ASCII[(int) a[i]]);
+}
+
+#endif
+
+static inline int hamming(char *a, char *b, int n)
+{ int h, i, x, y;
+
+  h = 0;
+  for (i = 0; i < n; i++)
+    { x = *a++;
+      if (x == 4)
+        break;
+      y = *b++;
+      if (x != y)
+        { if (y == 4)
+            break;
+          else
+            h += 1;
+        }
+    }
+  return (h);
+}
+
+static inline int snake(char *a, char *b)
+{ int i, x;
+
+  for (i = 0; 1; i++)
+    { x = *a++;
+      if (x == 4)
+        break;
+      if (x != *b++)
+        break;
+    }
+  return (i);
+}
+
+static inline int rsnake(char *a, char *b)
+{ int i, x;
+
+  for (i = 0; 1; i++)
+    { x = *--a;
+      if (x == 4)
+        break;
+      if (x != *--b)
+        break;
+    }
+  return (i);
+}
+
+#ifdef BOX_STATS
+
+static int   MaxBxArea;
+static int   MaxBxWidth;
+static int   MaxBxHeight;
+static int64 SumBx;
+static int   NumBx;
+static int   BxHist[101];
+static int   BxExtend;
+static int   BxGaps;
+
+void BeginBoxStats()
+{ int i;
+
+  MaxBxArea   = 0;
+  MaxBxWidth  = 0;
+  MaxBxHeight = 0;
+  SumBx       = 0;
+  NumBx       = 0;
+  for (i = 0; i <= 100; i++)
+    BxHist[i] = 0;
+  BxExtend = 0;
+  BxGaps   = 0;
+}
+
+void EndBoxStats()
+{ int i;
+
+  printf("\n# of Boxes = %d with average work %lld\n",NumBx,SumBx/NumBx);
+  printf("\nMax Work  = %d\n",MaxBxArea);
+  printf("Max Diags = %d\n",MaxBxWidth);
+  printf("Max Waves = %d\n",MaxBxHeight);
+  printf("\nBox extended = %d\n",BxExtend);
+  printf("Gaps removed = %d\n",BxGaps);
+  printf("\nHistogram of box work:\n");
+  for (i = 0; i <= 100; i++)
+    if (BxHist[i] > 0)
+      printf(" %3d00: %10d\n",i,BxHist[i]);
+}
+
+#endif
+
+void Gap_Improver(Alignment *aln, Work_Data *ework)
+{ _Work_Data *work = (_Work_Data *) ework;
+  int        *F, *H;
+  int        *f, *h;
+
+  char  *A, *B;
+  int    x;
+  int    p, q;
+  int    d, m;
+  int   *t, T;
+  int    Fpos, Lpos, Fdag, Hamm, Gaps, Diag;
+  int    passes;
+ 
+  A = aln->aseq-1;
+  B = aln->bseq-1;
+  t = (int *) aln->path->trace;
+  T = aln->path->tlen;
+  F = (int *) work->vector;
+
+  d = aln->path->abpos - aln->path->bbpos;
+  q = t[0];
+  x = 0;
+  while (x < T)
+    { p = q;
+      m = x;
+      Fdag = d;
+      Fpos = p;
+      Hamm = 0;
+      Gaps = 1;
+      while (1)
+        { x += 1;
+          q = 0;
+          if (x >= T || (q = t[x]) != p)
+            { m = x-m;
+              if (p < 0)
+                { d -= m;
+                  if (q >= 0)
+                    break;
+                  if (p-q >= LONG_SNAKE)
+                    break;
+                  Hamm += hamming(A-p,B-(d+p),p-q);
+                }
+              else
+                { d += m;
+                  if (q <= 0)
+                    break;
+                  if (q-p >= LONG_SNAKE)
+                    break;
+                  Hamm += hamming(A+(p+d),B+p,q-p);
+                }
+              Gaps += 1;
+              p = q;
+              m = x;
+            }
+        }
+      if (Gaps == 1)
+        continue;
+      Lpos = p;
+      Diag = abs(Fdag-d)+1;
+
+      // Process box
+
+      p = Diag*(Gaps+Hamm+1)*sizeof(int);
+      if (p > work->vecmax)
+        { if (enlarge_vector(work,p))
+            EXIT (1);
+          F = (int *) work->vector;
+        }
+      H = F + Diag;
+
+#ifdef BOX_STATS
+      { int hgt  = Gaps+Hamm+1;
+        int area = Diag*hgt;
+        if (area > MaxBxArea)
+          MaxBxArea = area;
+        if (Diag > MaxBxWidth)
+          MaxBxWidth = Diag;
+        if (hgt > MaxBxHeight)
+          MaxBxHeight = hgt;
+        NumBx += 1;
+        SumBx += area;
+        if (area >= 10000)
+          BxHist[100] += 1;
+        else
+          BxHist[area/100] += 1;
+      }
+#endif
+#ifdef DEBUG_BOX
+      printf("Box:  %5d :: %4d x %3d (%2d+%2d)  :: %5d .. %5d  %6d .. %6d\n",
+             (Gaps+Hamm+1)*Diag,abs(Fpos-Lpos),Diag,Hamm,Gaps,Fpos,Lpos,Fdag,d);
+      fflush(stdout);
+#endif
+
+      if (Fpos < 0)
+        { Fpos = -Fpos;
+          Lpos = -Lpos;
+
+          while (A[Fpos-1] == B[(Fpos-Fdag)-1] && A[Fpos-1] != 4)
+            { Fpos -= 1;
+#ifdef BOX_STATS
+              BxExtend += 1;
+#endif
+            }
+          while (A[Lpos] == B[Lpos-d] && A[Lpos] != 4)
+            { Lpos += 1;
+#ifdef BOX_STATS
+              BxExtend += 1;
+#endif
+            }
+
+          f = F;
+          *f++ = p = Fpos + snake(A+Fpos,B+(Fpos-Fdag));
+          for (m = Fdag-1; m >= d; m--)
+            *f++ = Fpos-1;
+          passes = 0;
+
+#ifdef DEBUG_DP
+          printf(" %2d:",passes);
+          for (m = Fdag; m >= d; m--)
+            printf(" %d",F[Fdag-m]);
+          printf("\n");
+          fflush(stdout);
+#endif
+
+          h = H;
+          p = Fpos;
+          while (p < Lpos)
+            { int b, c;
+
+              b = Fpos;
+              c = 0;
+              f = F;
+              for (m = Fdag; m >= d; m--)
+                { p = b;
+                  if (*f >= b)
+                    { b = *f;
+                      c = 0;
+                      p = b+1;
+                    }
+                  else
+                    c += 1;
+                  *h++ = c;
+                  *f++ = p += snake(A+p,B+(p-m));
+                }
+              passes += 1;
+
+#ifdef DEBUG_DP
+              printf(" %2d:",passes);
+              for (m = Fdag; m >= d; m--)
+                printf(" %d(%2d)",F[Fdag-m],h[(d-m)-1]);
+              printf("\n");
+              fflush(stdout);
+#endif
+            }
+
+          if (passes < Gaps+Hamm)
+            { int y, k;
+
+              p = Lpos;
+              m = d;
+              y = x;
+#ifdef DEBUG_BACK
+              printf("Short cut %d\n",(Gaps+Hamm)-passes);
+              printf("Path (%d,%d)",p,m);
+#endif
+#ifdef BOX_STATS
+              BxGaps += (Gaps+Hamm)-passes;
+#endif
+              while (h > H)
+                { p -= rsnake(A+p,B+(p-m));
+                  if (p < Fpos)
+                    p = Fpos;
+                  h -= Diag;
+                  k = h[Fdag-m];
+                  if (k == 0)
+                    p -= 1;
+                  else
+                    { m += k;
+                      for (; k > 0; k--)
+                        t[--y] = -p;
+                    }
+#ifdef DEBUG_BACK
+                  printf(" (%d,%d)",p,m);
+#endif
+                }
+#ifdef DEBUG_BACK
+              printf("\n");
+#endif
+            }
+        }
+      else
+        { while (B[Fpos-1] == A[(Fpos+Fdag)-1] && B[Fpos-1] != 4)
+            { Fpos -= 1;
+#ifdef BOX_STATS
+              BxExtend += 1;
+#endif
+            }
+          while (B[Lpos] == A[Lpos+d] && B[Lpos] != 4)
+            { Lpos += 1;
+#ifdef BOX_STATS
+              BxExtend += 1;
+#endif
+            }
+
+          f = F;
+          *f++ = p = Fpos + snake(A+(Fpos+Fdag),B+Fpos);
+          for (m = Fdag+1; m <= d; m++)
+            *f++ = Fpos-1;
+          passes = 0;
+
+#ifdef DEBUG_DP
+          printf(" %2d:",passes);
+          for (m = Fdag; m <= d; m++) 
+            printf(" %d",F[m-Fdag]);
+          printf("\n");
+          fflush(stdout);
+#endif
+
+          h = H;
+          p = Fpos;
+          while (p < Lpos)
+            { int b, c;
+
+              b = Fpos;
+              c = 0;
+              f = F;
+              for (m = Fdag; m <= d; m++) 
+                { p = b;
+                  if (*f >= b)
+                    { b = *f;
+                      c = 0;
+                      p = b+1;
+                    }
+                  else
+                    c += 1;
+                  *h++ = c; 
+                  *f++ = p += snake(A+(m+p),B+p);
+                }
+              passes += 1;
+
+#ifdef DEBUG_DP
+              printf(" %2d:",passes);
+              for (m = Fdag; m <= d; m++) 
+                printf(" %d(%2d)",F[m-Fdag],h[(m-d)-1]);
+              printf("\n");
+              fflush(stdout);
+#endif
+            }
+
+          if (passes < Gaps+Hamm)
+            { int y, k;
+
+              p = Lpos;
+              m = d;
+              y = x;
+#ifdef DEBUG_BACK
+              printf("Short cut %d\n",(Gaps+Hamm)-passes);
+              printf("Path (%d,%d)",p,m);
+#endif
+#ifdef BOX_STATS
+              BxGaps += (Gaps+Hamm)-passes;
+#endif
+              while (h > H)
+                { p -= rsnake(A+(p+m),B+p);
+                  if (p < Fpos)
+                    p = Fpos;
+                  h -= Diag;
+                  k = h[m-Fdag];
+                  if (k == 0)
+                    p -= 1;
+                  else
+                    { m -= k;
+                      for (; k > 0; k--)
+                        t[--y] = p;
+                    }
+#ifdef DEBUG_BACK
+                  printf(" (%d,%d)",p,m);
+#endif
+                }
+#ifdef DEBUG_BACK
+              printf("\n");
+#endif
+            }
+        }
+    }
 }

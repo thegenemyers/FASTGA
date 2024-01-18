@@ -101,6 +101,7 @@ typedef struct
     uint8 *bend;
     int64 *buck;
     int    file;
+    int    inum;
   } IOBuffer;
 
 static IOBuffer *N_Units;  //  NTHREADS^2 IO units for + pair temporary files
@@ -153,13 +154,19 @@ static void More_Post_List(Post_List *P)
 { int    pbyte = P->pbyte;
   uint8 *cache = P->cache;
   int    copn  = P->copn;
+  int    len;
   uint8 *ctop;
 
   if (P->part > P->nthr)
     return;
   while (1)
-    { ctop = cache + read(copn,cache,POST_BLOCK*pbyte);
-      if (ctop > cache)
+    { len  = read(copn,cache,POST_BLOCK*pbyte);
+      if (len < 0)
+        { fprintf(stderr,"%s: Error reading post file %s\n",Prog_Name,P->name);
+          exit (1);
+        }
+      ctop = cache + len;
+      if (len > 0)
         break;
       close(copn);
       P->part += 1;
@@ -169,7 +176,14 @@ static void More_Post_List(Post_List *P)
         }
       sprintf(P->name+P->nlen,"%d",P->part);
       copn = open(P->name,O_RDONLY);
-      lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET);
+      if (copn < 0)
+        { fprintf(stderr,"%s: Cannot open post file %s for reading\n",Prog_Name,P->name);
+          exit (1);
+        }
+      if (lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET) < 0)
+        { fprintf(stderr,"%s: Cannot advance post file %s to data part\n",Prog_Name,P->name);
+          exit (1);
+        }
     }
   P->cptr = cache;
   P->ctop = ctop;
@@ -193,26 +207,26 @@ static Post_List *Open_Post_List(char *name)
     exit (1);
   sprintf(full,"%s/%s.post",dir,root);
   f = open(full,O_RDONLY);
+  if (f < 0)
+    { fprintf(stderr,"\n%s: Cannot open file %s/%s.post\n",Prog_Name,dir,root);
+      exit (1);
+    }
   sprintf(full,"%s/.%s.post.",dir,root);
   flen = strlen(full);
   free(root);
   free(dir);
-  if (f < 0)
-    { free(full);
-      return (NULL);
-    }
 
-  read(f,&pbyte,sizeof(int));
-  read(f,&cbyte,sizeof(int));
+  if (read(f,&pbyte,sizeof(int)) < 0) goto open_io_error;
+  if (read(f,&cbyte,sizeof(int)) < 0) goto open_io_error;
   pbyte += cbyte;
 
-  read(f,&nfile,sizeof(int));
-  read(f,&maxp,sizeof(int64));
-  read(f,&freq,sizeof(int));
+  if (read(f,&nfile,sizeof(int)) < 0) goto open_io_error;
+  if (read(f,&maxp,sizeof(int64)) < 0) goto open_io_error;
+  if (read(f,&freq,sizeof(int)) < 0) goto open_io_error;
   nthreads = nfile;
   nfile    = nfile*nfile;
 
-  read(f,&nctg,sizeof(int));
+  if (read(f,&nctg,sizeof(int)) < 0) goto open_io_error;
 
   P = Malloc(sizeof(Post_List),"Allocating post record");
   if (P == NULL)
@@ -226,7 +240,7 @@ static Post_List *Open_Post_List(char *name)
   if (P->cache == NULL || P->neps == NULL || P->perm == NULL)
     exit (1);
 
-  read(f,P->perm,sizeof(int)*nctg);
+  if (read(f,P->perm,sizeof(int)*nctg) < 0) goto open_io_error;
   close(f);
 
   nels = 0;
@@ -237,10 +251,10 @@ static Post_List *Open_Post_List(char *name)
         { fprintf(stderr,"%s: Table part %s is missing ?\n",Prog_Name,P->name);
           exit (1);
         }
-      read(copn,&pb,sizeof(int));
-      read(copn,&cb,sizeof(int));
+      if (read(copn,&pb,sizeof(int)) < 0) goto part_io_error;
+      if (read(copn,&cb,sizeof(int)) < 0) goto part_io_error;
       pb += cb;
-      read(copn,&n,sizeof(int64));
+      if (read(copn,&n,sizeof(int64))) goto part_io_error;
       nels += n;
       P->neps[p-1] = nels;
       if (pbyte != pb)
@@ -261,7 +275,12 @@ static Post_List *Open_Post_List(char *name)
 
   sprintf(P->name+P->nlen,"%d",1);
   copn = open(P->name,O_RDONLY);
-  lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET);
+  if (copn < 0)
+
+  if (lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET) < 0)
+    { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
+      exit (1);
+    }
 
   P->copn  = copn;
   P->part  = 1;
@@ -270,6 +289,14 @@ static Post_List *Open_Post_List(char *name)
   P->cidx = 0;
 
   return (P);
+
+open_io_error:
+  fprintf(stderr,"\n%s: IO error reading file %s/%s.post\n",Prog_Name,dir,root);
+  exit (1);
+
+part_io_error:
+  fprintf(stderr,"\n%s: IO error reading post part file %s\n",Prog_Name,P->name);
+  exit (1);
 }
 
 static void Free_Post_List(Post_List *P)
@@ -289,10 +316,17 @@ static inline void First_Post_Entry(Post_List *P)
             close(P->copn);
           sprintf(P->name+P->nlen,"%d",1);
           P->copn = open(P->name,O_RDONLY);
+          if (P->copn < 0)
+            { fprintf(stderr,"\n%s: Could not open post part file %s\n",Prog_Name,P->name);
+              exit (1);
+            }
           P->part = 1;
         }
 
-      lseek(P->copn,sizeof(int)+sizeof(int64),SEEK_SET);
+      if (lseek(P->copn,sizeof(int)+sizeof(int64),SEEK_SET) < 0)
+        { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
+          exit (1);
+        }
 
       More_Post_List(P);
       P->cidx = 0;
@@ -335,10 +369,18 @@ static inline void GoTo_Post_Index(Post_List *P, int64 i)
         close(P->copn);
       sprintf(P->name+P->nlen,"%d",p);
       P->copn = open(P->name,O_RDONLY);
+      if (P->copn < 0)
+        { fprintf(stderr,"\n%s: Could not open post part file %s\n",Prog_Name,P->name);
+          exit (1);
+        }
+
       P->part = p;
     }
 
-  lseek(P->copn,2*sizeof(int) + sizeof(int64) + i*P->pbyte,SEEK_SET);
+  if (lseek(P->copn,2*sizeof(int) + sizeof(int64) + i*P->pbyte,SEEK_SET) < 0)
+    { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
+      exit (1);
+    }
 
   More_Post_List(P);
 }
@@ -366,10 +408,17 @@ static inline void JumpTo_Post_Index(Post_List *P, int64 del)
         close(P->copn);
       sprintf(P->name+P->nlen,"%d",p);
       P->copn = open(P->name,O_RDONLY);
+      if (P->copn < 0)
+        { fprintf(stderr,"\n%s: Could not open post part file %s\n",Prog_Name,P->name);
+          exit (1);
+        }
       P->part = p;
     }
 
-  lseek(P->copn,2*sizeof(int) + sizeof(int64) + i*P->pbyte,SEEK_SET);
+  if (lseek(P->copn,2*sizeof(int) + sizeof(int64) + i*P->pbyte,SEEK_SET) < 0)
+    { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
+      exit (1);
+    }
 
   More_Post_List(P);
 }
@@ -795,7 +844,12 @@ static void *merge_thread(void *args)
 #endif
 
                 if (btop >= ou->bend)
-                  { write(ou->file,ou->bufr,btop-ou->bufr);
+                  { if (write(ou->file,ou->bufr,btop-ou->bufr) < 0)
+                      { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
+                                       Prog_Name,SORT_PATH,PAIR_NAME,ou->inum,
+                                       (asign == (jptr[JSIGN] & 0x80)) ? 'N' : 'C');
+                        exit (1);
+                      }
                     ou->btop = ou->bufr;
                   }
                 else
@@ -834,9 +888,17 @@ static void *merge_thread(void *args)
 
     for (j = 0; j < NPARTS; j++)
       { if (nunit[j].btop > nunit[j].bufr)
-          write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr);
+          if (write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr) < 0)
+            { fprintf(stderr,"%s: IO write to file %s/%s.%d.N failed\n",
+                             Prog_Name,SORT_PATH,PAIR_NAME,nunit[j].inum);
+              exit (1);
+            }
         if (cunit[j].btop > cunit[j].bufr)
-          write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr);
+          if (write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr) < 0)
+            { fprintf(stderr,"%s: IO write to file %s/%s.%d.C failed\n",
+                             Prog_Name,SORT_PATH,PAIR_NAME,cunit[j].inum);
+              exit (1);
+            }
       }
   }
 
@@ -1225,7 +1287,12 @@ static void *self_merge_thread(void *args)
                 ou->buck[icont] += 1;
 
                 if (btop >= ou->bend)
-                  { write(ou->file,ou->bufr,btop-ou->bufr);
+                  { if (write(ou->file,ou->bufr,btop-ou->bufr) < 0)
+                      { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
+                                       Prog_Name,SORT_PATH,PAIR_NAME,
+                                       ou->inum,(isign == jsign) ? 'N' : 'C');
+                        exit (1);
+                      }
                     ou->btop = ou->bufr;
                   }
                 else
@@ -1259,9 +1326,17 @@ static void *self_merge_thread(void *args)
 
     for (j = 0; j < NPARTS; j++)
       { if (nunit[j].btop > nunit[j].bufr)
-          write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr);
+          if (write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr) < 0)
+            { fprintf(stderr,"%s: IO write to file %s/%s.%d.N failed\n",
+                             Prog_Name,SORT_PATH,PAIR_NAME,nunit[j].inum);
+              exit (1);
+            }
         if (cunit[j].btop > cunit[j].bufr)
-          write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr);
+          if (write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr) < 0)
+            { fprintf(stderr,"%s: IO write to file %s/%s.%d.C failed\n",
+                             Prog_Name,SORT_PATH,PAIR_NAME,cunit[j].inum);
+              exit (1);
+            }
       }
   }
 
@@ -1439,6 +1514,7 @@ typedef struct
   { int       in;
     int       swide;
     int       comp;
+    int       inum;
     DAZZ_DB  *DB1;
     DAZZ_DB  *DB2;
     int64    *buck;
@@ -1464,6 +1540,7 @@ static void *reimport_thread(void *args)
   uint8 *_band  = (uint8 *) (&band);
   uint8 *_anti  = (uint8 *) (&anti);
 
+  int    iamt;
   uint8 *x;
   int    iolen, iunit, lcp, flip;
   int64  diag, flag, mask;
@@ -1472,7 +1549,13 @@ static void *reimport_thread(void *args)
   iolen = 2*NPARTS*1000000;
   iunit = IBYTE + JBYTE + 1;
 
-  bend = bufr + read(in,bufr,iolen);
+  iamt = read(in,bufr,iolen);
+  if (iamt < 0)
+    { fprintf(stderr,"%s: IO read error for file %s/%s.%d.%c\n",
+                     Prog_Name,SORT_PATH,PAIR_NAME,parm->inum,comp?'C':'N');
+      exit (1);
+    }
+  bend = bufr + iamt;
 
   if (bend-bufr < iolen)
     btop = bend;
@@ -1538,7 +1621,13 @@ static void *reimport_thread(void *args)
         { int ex = bend-b;
           memcpy(bufr,b,ex);
           bend = bufr+ex;
-          bend += read(in,bend,iolen-ex);
+          iamt = read(in,bend,iolen-ex);
+          if (iamt < 0)
+            { fprintf(stderr,"%s: IO read error for file %s/%s.%d.%c\n",
+                             Prog_Name,SORT_PATH,PAIR_NAME,parm->inum,comp?'C':'N');
+              exit (1);
+            }
+          bend += iamt;
           if (bend == bufr)
             break;
           if (bend-bufr < iolen)
@@ -1747,7 +1836,8 @@ static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *
 
 typedef struct
 
-  { DAZZ_DB    *DB1, *DB2;
+  { int         tid;
+    DAZZ_DB    *DB1, *DB2;
     FILE       *ofile;
     FILE       *tfile;
     int64       nhits;
@@ -2042,12 +2132,16 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                             if (path->aepos - path->abpos >= ALIGN_MIN)
                               { Compress_TraceTo8(ovl,0);
                                 if (fwrite(ovl,OVL_SIZE,1,tfile) != 1)
-                                  { fprintf(stderr,"%s: Cannot write output\n",Prog_Name);
+                                  { fprintf(stderr,
+                                           "%s: Cannot write overlap gather file %s/%s.%d.las\n",
+                                           Prog_Name,SORT_PATH,ALGN_PAIR,pair->tid);
                                     exit (1);
                                   }
                                 if (ovl->path.trace != NULL)
                                   if (fwrite(ovl->path.trace,ovl->path.tlen,1,tfile) != 1)
-                                    { fprintf(stderr,"%s: Cannot write output\n",Prog_Name);
+                                    { fprintf(stderr,
+                                             "%s: Cannot write overlap gather file %s/%s.%d.las\n",
+                                             Prog_Name,SORT_PATH,ALGN_PAIR,pair->tid);
                                       exit (1);
                                     }
                                 nlas += 1;
@@ -2190,7 +2284,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
       rewind(tfile);
       if (fread(oblock,nmem,1,tfile) != 1) 
-        { fprintf(stderr,"\n%s: Cannot read overlap block file\n",Prog_Name);
+        { fprintf(stderr,"\n%s: Cannot read overlap gather file %s/%s.%d.las\n",
+                         Prog_Name,SORT_PATH,ALGN_PAIR,pair->tid);
           exit (1);
         }
 
@@ -2299,7 +2394,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
                   //  Fuse here
 
-// printf("FUSE %d %d\n",(wp->abpos-op->abpos)+(wp->aepos-op->aepos),op->aepos-wp->abpos);
+                  // printf("FUSE %d %d\n",(wp->abpos-op->abpos)+(wp->aepos-op->aepos),
+                                       //  op->aepos-wp->abpos);
                   // printf(" %3d: %d-%d vs %d-%d\n            %d-%d vs %d-%d\n",
                          // where,o->path.abpos,o->path.aepos,w->path.abpos,w->path.aepos,
                          // o->path.bbpos,o->path.bepos,w->path.bbpos,w->path.bepos);
@@ -2348,7 +2444,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                 }
               continue;
 
-// printf("OTHER\n");
+              // printf("OTHER\n");
               // printf(" %3d x %3d: %d-%d vs %d-%d\n            %d-%d vs %d-%d\n",
                      // j,k,o->path.abpos,o->path.aepos,w->path.abpos,w->path.aepos,
                      // o->path.bbpos,o->path.bepos,w->path.bbpos,w->path.bepos);
@@ -2414,13 +2510,26 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
             continue;
           hasmem = (o->flags & OWNS_MEMORY);
           o->flags &= RESET_FLAGS;
-          fwrite( ((char *) o)+PTR_SIZE, EXO_SIZE, 1, ofile);
+          if (fwrite( ((char *) o)+PTR_SIZE, EXO_SIZE, 1, ofile) != 1)
+            { fprintf(stderr,"%s: Could not write to overlap block file %s/%s.%d.las\n",
+                             Prog_Name,SORT_PATH,ALGN_UNIQ,pair->tid);
+              exit (1);
+            }
           if (hasmem)
-            { fwrite(o->path.trace, o->path.tlen, 1, ofile);
+            { if (fwrite(o->path.trace, o->path.tlen, 1, ofile) != 1)
+                { fprintf(stderr,"%s: Could not write to overlap block file %s/%s.%d.las\n",
+                                 Prog_Name,SORT_PATH,ALGN_UNIQ,pair->tid);
+                  exit (1);
+                }
               free(o->path.trace);
             }
           else
-            fwrite( (char *) (o+1), o->path.tlen, 1, ofile);
+            { if (fwrite( (char *) (o+1), o->path.tlen, 1, ofile) != 1)
+                { fprintf(stderr,"%s: Could not write to overlap block file %s/%s.%d.las\n",
+                                 Prog_Name,SORT_PATH,ALGN_UNIQ,pair->tid);
+                  exit (1);
+                }
+            }
           nliv += 1;
           ncov += o->path.aepos - o->path.abpos;
           nmem += EXO_SIZE + o->path.tlen;
@@ -2442,7 +2551,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
 
 typedef struct
-  { int       swide;
+  { int       tid;
+    int       swide;
     int       comp;
     int64    *panel;
     uint8    *sarr;
@@ -2483,6 +2593,7 @@ static void *search_seeds(void *args)
 
   jcrnt = 0;
 
+  pair->tid = parm->tid;
   pair->DB1 = DB1;
   pair->DB2 = DB2;
   pair->align.aseq = New_Read_Buffer(DB1);
@@ -2597,7 +2708,8 @@ static void *la_sort(void *args)
   rewind(fid);
 
   if (fread(iblock,size,1,fid) != 1)
-    { fprintf(stderr,"\n%s: Cannot read overlap block file\n",Prog_Name);
+    { fprintf(stderr,"\n%s: Cannot not read overlap block file %s/%s.%d.las\n",
+                     Prog_Name,SORT_PATH,ALGN_UNIQ,parm->tid);
       exit (1);
     }
   
@@ -2614,8 +2726,16 @@ static void *la_sort(void *args)
   for (j = 0; j < novl; j++)
     { Overlap *o = perm[j];
 
-      fwrite( ((void *) o)+PTR_SIZE, EXO_SIZE, 1, fid);
-      fwrite( (void *) (o+1), o->path.tlen, 1, fid);
+      if (fwrite( ((void *) o)+PTR_SIZE, EXO_SIZE, 1, fid) != 1)
+        { fprintf(stderr,"\n%s: Cannot not write sorted overlap block file %s/%s.%d.las\n",
+                         Prog_Name,SORT_PATH,ALGN_UNIQ,parm->tid);
+          exit (1);
+        }
+      if (fwrite( (void *) (o+1), o->path.tlen, 1, fid) != 1)
+        { fprintf(stderr,"\n%s: Cannot not write sorted overlap block file %s/%s.%d.las\n",
+                         Prog_Name,SORT_PATH,ALGN_UNIQ,parm->tid);
+          exit (1);
+        }
     }
 
   rewind(fid);
@@ -2932,6 +3052,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       rarm[p].DB1    = DB1;
       rarm[p].DB2    = DB2;
 
+      tarm[p].tid    = p;
       tarm[p].swide  = swide;
       tarm[p].sarr   = sarray;
       tarm[p].panel  = panel;
@@ -2989,6 +3110,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
           lseek(nu[p].file,0,SEEK_SET);
           rarm[p].buck = nu[p].buck;
           rarm[p].comp = u;
+          rarm[p].inum = nu[p].inum;
         }
 
 #ifdef DEBUG_SORT
@@ -3478,6 +3600,8 @@ int main(int argc, char *argv[])
           C_Units[k].bufr = buffer + (2*k+1) * 1000000; 
           N_Units[k].buck = bucks + (2*i) * NCONTS; 
           C_Units[k].buck = bucks + (2*i+1) * NCONTS; 
+          N_Units[k].inum = k;
+          C_Units[k].inum = k;
           name = Catenate(SORT_PATH,"/",PAIR_NAME,Numbered_Suffix(".",k,".N"));
           N_Units[k].file = open(name,O_RDWR|O_CREAT|O_TRUNC,S_IRWXU);
           if (N_Units[k].file < 0)
@@ -3514,7 +3638,7 @@ int main(int argc, char *argv[])
     else
       adaptamer_merge(argv[1],argv[2],T1,T2,P1,P2);
 
-    //  Effectively transpose N_unit & C_unit matrices
+    //  Transpose N_unit & C_unit matrices
 
     nfile = (int *) buffer;
     cfile = nfile + NPARTS*NTHREADS;
@@ -3528,6 +3652,8 @@ int main(int argc, char *argv[])
           cfile[k] = C_Units[x].file;
           N_Units[k].buck = bucks + (2*i) * NCONTS; 
           C_Units[k].buck = bucks + (2*i+1) * NCONTS; 
+          N_Units[k].inum = x;
+          C_Units[k].inum = x;
           k += 1;
         }
     k = 0;

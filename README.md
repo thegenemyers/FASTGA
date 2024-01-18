@@ -3,7 +3,7 @@
 <font size ="4">**_Author:  Gene Myers_**<br>
 **_First:   May 10, 2023_**<br>
 
-FastGA searches for all local DNA alignments between two high quality genomes.
+**FastGA** searches for all local DNA alignments between two high quality genomes.
 The core assumption is that the genomes are nearly complete involving at most several
 thousand contigs with a sequence quality of Q40 or better.
 Based on a novel adaptive seed finding algorithm and the wave-based local aligner developed for
@@ -15,36 +15,36 @@ Moreover, it uses a trace point concept to record all the found alignments in a 
 The alignments can also be translated into .psl format, .paf format, or 1-code format
 with programs described below.
 
-FastGA uses the Daligner assembler's
+**FastGA** uses the Daligner assembler's
 "genome database" encoding of a genome or assembly.  So in addition to installing this
 repository, you need to download and install the repository
 [DAZZ_DB](https://github.com/thegenemyers/DAZZ_DB).
 No need to panic, simply download and say "make" and that's it.
 You should then place the produced binaries on your execution path so
-that you then have fasta2DAM, DAM2fasta, DBstats, and DBshow available for
+that you then have **fasta2DAM**, **DBstats**, and **DBshow** available for
 creating and viewing a genome database made from the standard fasta
-encoding of an assembly/genome.  In addition, the program fasta2DAM converts a database back
+encoding of an assembly/genome.  In addition, the program **fasta2DAM** converts a database back
 into the original .fasta file from which it was built
 
-FastGA outputs all the local alignments it finds in the Daligner assembler's .las binary
-format which very compactly encode alignments.  If one is comfortable with or wishes to work directly with this format, then one should download and install the repository
+**FastGA** outputs all the local alignments it finds in the Daligner assembler's .las binary
+format which very compactly encodes alignments.  If one is comfortable with or wishes to work directly with this format, then one should download and install the repository
 [DALIGNER](https://github.com/thegenemyers/DALIGNER)
-so that they have the tools LAshow, LAsort, and LAmerge for manipulating and
+so that they have the tools **LAshow**, **LAsort**, and **LAmerge** for manipulating and
 viewing alignments in .las format.  But most user's will likely want to work with a more
-popular, albeit voluminous, format such a .psl or .paf.  To this end we provide here
-LAStoPSL that converts our .las files into .psl, and LAStoPAF that converts
+popular, albeit much less space efficient, format such a .psl or .paf.  To this end we provide here
+**LAStoPSL** that converts our .las files into .psl, and **LAStoPAF** that converts
 them into .paf.
 
-For [ONEcode](https://github.com/thegenemyers/ONEcode) enthusiasts there is a program
-[DB2ONE](https://github.com/thegenemyers/DAZZ_DB) in the Dazzler repository that
+For **[ONEcode](https://github.com/thegenemyers/ONEcode)** enthusiasts there is a program
+**[DB2ONE](https://github.com/thegenemyers/DAZZ_DB)** in the Dazzler repository that
 converts a genome database into a 1-code file, and another
-[LA2ONE](https://github.com/thegenemyers/DALIGNER) in the Daligner repository that
+**[LA2ONE](https://github.com/thegenemyers/DALIGNER)** in the Daligner repository that
 converts a .las file into a 1-code file.  ONEcode is a general data encoding system
 that supports an easy to read and interpret ASCII format coupled with a production-capable
 binary form that includes compression.
 
 The overall workflow for using **FastGA**, assuming you are starting from
-say NCBI fasta files of the target genomes, is to first convert each of them into a Dazzler database with [fasta2DAM](https://github.com/thegenemyers/DAZZ_DB), then build an index of each of them with **Gindex**, and then you are ready to compare pairs of
+say NCBI fasta files of the target genomes, is to first convert each of them into a Dazzler database with **[fasta2DAM](https://github.com/thegenemyers/DAZZ_DB)**, then build an index of each of them with **Gindex**, and then you are ready to compare pairs of
 genomes with **FastGA**.
 While you may at first think it a little inconvenient to have to build
 a Dazzler database, its actually a good thing as (a) the database is
@@ -158,23 +158,25 @@ as Dazzler .dam's, that were compared by FastGA to produce the file.  Given thes
 order shown above, the program outputs .paf encoded records, one alignment per line to the
 standard output.
 
-In addition to the standard .paf fields, LAStoPAF outputs a ```dv:F<fraction>``` SAM-tag that gives the divergences of the query from the target and a ```df:I<diffs>``` SAM-tag that gives the number
+In addition to the standard .paf fields, LAStoPAF outputs a ```dv:F:<fraction>``` SAM-tag that gives the divergences of the query from the target and a ```df:I:<diffs>``` SAM-tag that gives the number
 of differences in an optimal alignment between the two intervals of the query and target.
 
-If the -t option is set then the program also outputs a ```tz:Z<length-list>``` tag and a
-```td:Z<diff-list>``` tag encoding the .las trace information from which an explicit alignment
+If the -t option is set then the program also outputs a ```tz:Z:<length-list>``` tag and a
+```td:Z:<diff-list>``` tag encoding the .las trace information from which an explicit alignment
 can be efficiently
-constructed.  Perhaps more relevant to most users are the -m and -x options that requests LAStoPAF to produce a CIGAR string tag of the form ```cg:Z<cigar-string>``` that explicitly encodes an optimal alignment.  With the -m option, aligned characters regardless of whether they are equal
+constructed.  Perhaps more relevant to most users are the -m and -x options that requests LAStoPAF to produce a CIGAR string tag of the form ```cg:Z:<cigar-string>``` that explicitly encodes an optimal alignment.  With the -m option, aligned characters regardless of whether they are equal
 or not are
 encoded with an 'M'.  With the -x option, aligned *equal* characters are encoded with an '=' and
 aligned *unequal* characters with an 'X'.
 The -t option doubles the time taken and quadruples the size of the .paf file.  Beware, the -m and -x options
-increase the time taken by a factor of 10 and the file size by a factor of almost 100 !  This can
+increase the time taken by a factor of 10 and the file size by a factor of almost 100 !  The time taken can
 be ameliorated somewhat by running LAStoPAF with more threads, controllable with the -T option.
 
-The -g option is an interim flag that allows one to turn on gap reduction when producing the alignments required to effect the -m or -x options.  Alignment computed under simple Levenstein
-tend to smear characters of one sequence across a large insert in the other sequence.  Affine
-gap costs avoid this
+The -g option is an interim flag that allows one to turn on gap reduction when producing the alignments required to effect the -m or -x options.  Alignments computed under the simple Levenstein
+metric tend to smear characters of one sequence across a large insert in the other sequence.  Affine
+gap costs avoid this but at a heavy computational cost.  We instead run a simple heuristic that
+removes these.
+
 
 
 

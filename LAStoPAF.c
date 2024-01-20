@@ -424,7 +424,25 @@ void *gen_paf(void *args)
                 fprintf(out,"%dD",ilen);
               blen = (path->aepos - k)+1;
               if (blen > 0)
-                fprintf(out,"%dM",blen);
+                { elen = xlen = 0;
+                  for (b = 0; b < blen; b++, k++, h++)
+                    if (A[k] == B[h])
+                      { if (xlen > 0)
+                          fprintf(out,"%dX",xlen);
+                        xlen = 0;
+                        elen += 1;
+                      }
+                    else
+                      { if (elen > 0)
+                          fprintf(out,"%d=",elen);
+                        elen = 0;
+                        xlen += 1;
+                      }
+                  if (xlen > 0)
+                    fprintf(out,"%dX",xlen);
+                  if (elen > 0)
+                    fprintf(out,"%d=",elen);
+                }
             }
         }
 

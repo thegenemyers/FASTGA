@@ -35,14 +35,13 @@ typedef struct
     int     copn;       //  File currently open
     int     part;       //  Thread # of file currently open
     int     nthr;       //  # of file parts
-    int     nsqrt;      //  # of threads/slices (= sqrt(nthr))
     int     nlen;       //  length of path name
     char   *name;       //  Path name for table parts (only # missing)
     uint8  *ctop;       //  Ptr top of current table block in buffer
     int64  *neps;       //  Size of each thread part in elements
   } Post_List;
 
-#define POST_BLOCK 1024
+#define POST_BLOCK 0x20000
 
 //  Load up the table buffer with the next STREAM_BLOCK suffixes (if possible)
 
@@ -50,13 +49,19 @@ static void More_Post_List(Post_List *P)
 { int    pbyte = P->pbyte;
   uint8 *cache = P->cache;
   int    copn  = P->copn;
+  int    len;
   uint8 *ctop;
 
   if (P->part > P->nthr)
     return;
   while (1)
-    { ctop = cache + read(copn,cache,POST_BLOCK*pbyte);
-      if (ctop > cache)
+    { len  = read(copn,cache,POST_BLOCK*pbyte);
+      if (len < 0)
+        { fprintf(stderr,"%s: Error reading post file %s\n",Prog_Name,P->name);
+          exit (1);
+        }
+      ctop = cache + len;
+      if (len > 0)
         break;
       close(copn);
       P->part += 1;
@@ -66,7 +71,14 @@ static void More_Post_List(Post_List *P)
         }
       sprintf(P->name+P->nlen,"%d",P->part);
       copn = open(P->name,O_RDONLY);
-      lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET);
+      if (copn < 0)
+        { fprintf(stderr,"%s: Cannot open post file %s for reading\n",Prog_Name,P->name);
+          exit (1);
+        }
+      if (lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET) < 0)
+        { fprintf(stderr,"%s: Cannot advance post file %s to data part\n",Prog_Name,P->name);
+          exit (1);
+        }
     }
   P->cptr = cache;
   P->ctop = ctop;
@@ -90,26 +102,25 @@ static Post_List *Open_Post_List(char *name)
     exit (1);
   sprintf(full,"%s/%s.post",dir,root);
   f = open(full,O_RDONLY);
+  if (f < 0)
+    { fprintf(stderr,"%s: Cannot open post stub file %s/%s.post\n",Prog_Name,dir,root);
+      exit (1);
+    }
   sprintf(full,"%s/.%s.post.",dir,root);
   flen = strlen(full);
   free(root);
   free(dir);
-  if (f < 0)
-    { free(full);
-      return (NULL);
-    }
 
-  read(f,&pbyte,sizeof(int));
-  read(f,&cbyte,sizeof(int));
+  if (read(f,&pbyte,sizeof(int)) < 0) goto open_io_error;
+  if (read(f,&cbyte,sizeof(int)) < 0) goto open_io_error;
   pbyte += cbyte;
 
-  read(f,&nfile,sizeof(int));
-  read(f,&maxp,sizeof(int64));
-  read(f,&freq,sizeof(int));
+  if (read(f,&nfile,sizeof(int)) < 0) goto open_io_error;
+  if (read(f,&maxp,sizeof(int64)) < 0) goto open_io_error;
+  if (read(f,&freq,sizeof(int)) < 0) goto open_io_error;
   nthreads = nfile;
-  nfile    = nfile*nfile;
-  
-  read(f,&nctg,sizeof(int));
+
+  if (read(f,&nctg,sizeof(int)) < 0) goto open_io_error;
 
   P = Malloc(sizeof(Post_List),"Allocating post record");
   if (P == NULL)
@@ -123,7 +134,7 @@ static Post_List *Open_Post_List(char *name)
   if (P->cache == NULL || P->neps == NULL || P->perm == NULL)
     exit (1);
 
-  read(f,P->perm,sizeof(int)*nctg);
+  if (read(f,P->perm,sizeof(int)*nctg) < 0) goto open_io_error;
   close(f);
 
   nels = 0;
@@ -134,10 +145,10 @@ static Post_List *Open_Post_List(char *name)
         { fprintf(stderr,"%s: Table part %s is missing ?\n",Prog_Name,P->name);
           exit (1);
         }
-      read(copn,&pb,sizeof(int));
-      read(copn,&cb,sizeof(int));
+      if (read(copn,&pb,sizeof(int)) < 0) goto part_io_error;
+      if (read(copn,&cb,sizeof(int)) < 0) goto part_io_error;
       pb += cb;
-      read(copn,&n,sizeof(int64));
+      if (read(copn,&n,sizeof(int64)) < 0) goto part_io_error;
       nels += n;
       P->neps[p-1] = nels;
       if (pbyte != pb)
@@ -152,13 +163,17 @@ static Post_List *Open_Post_List(char *name)
   P->cbyte = cbyte;
   P->nels  = nels;
   P->nthr  = nfile;
-  P->nsqrt = nthreads;
   P->freq  = freq;
   P->nctg  = nctg;
 
   sprintf(P->name+P->nlen,"%d",1);
   copn = open(P->name,O_RDONLY);
-  lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET);
+  if (copn < 0) goto part_io_error;
+
+  if (lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET) < 0)
+    { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
+      exit (1);
+    }
 
   P->copn  = copn;
   P->part  = 1;
@@ -167,6 +182,14 @@ static Post_List *Open_Post_List(char *name)
   P->cidx = 0;
 
   return (P);
+
+open_io_error:
+  fprintf(stderr,"\n%s: IO error reading file %s/%s.post\n",Prog_Name,dir,root);
+  exit (1);
+
+part_io_error:
+  fprintf(stderr,"\n%s: IO error reading post part file %s\n",Prog_Name,P->name);
+  exit (1);
 }
 
 static void Free_Post_List(Post_List *P)
@@ -186,10 +209,17 @@ static inline void First_Post_Entry(Post_List *P)
             close(P->copn);
           sprintf(P->name+P->nlen,"%d",1);
           P->copn = open(P->name,O_RDONLY);
+          if (P->copn < 0)
+            { fprintf(stderr,"\n%s: Could not open post part file %s\n",Prog_Name,P->name);
+              exit (1);
+            }
           P->part = 1;
         }
 
-      lseek(P->copn,sizeof(int)+sizeof(int64),SEEK_SET);
+      if (lseek(P->copn,sizeof(int)+sizeof(int64),SEEK_SET) < 0)
+        { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
+          exit (1);
+        }
 
       More_Post_List(P);
       P->cidx = 0;
@@ -252,12 +282,24 @@ static inline void JumpTo_Post_Index(Post_List *P, int64 del)
   if (P->part != p)
     { if (P->part <= P->nthr)
         close(P->copn);
+      if (P->cidx >= P->nels)
+        { P->cptr = NULL;
+          P->part = P->nthr+1;
+          return;
+        }
       sprintf(P->name+P->nlen,"%d",p);
       P->copn = open(P->name,O_RDONLY);
+      if (P->copn < 0)
+        { fprintf(stderr,"\n%s: Could not open post part file %s\n",Prog_Name,P->name);
+          exit (1);
+        }
       P->part = p;
     }
 
-  lseek(P->copn,2*sizeof(int) + sizeof(int64) + i*P->pbyte,SEEK_SET);
+  if (lseek(P->copn,2*sizeof(int) + sizeof(int64) + i*P->pbyte,SEEK_SET) < 0)
+    { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
+      exit (1);
+    }
 
   More_Post_List(P);
 }
@@ -354,7 +396,13 @@ int main(int argc, char *argv[])
   }
 
   T = Open_Kmer_Stream(argv[1]);
+  if (T == NULL)
+    { fprintf(stderr,"%s: Cannot open k-mer table %s\n",Prog_Name,argv[1]);
+      exit (1);
+    }
   P = Open_Post_List(argv[1]);
+  if (P == NULL)
+    exit (1);
 
   Print_Index(T,P); 
 

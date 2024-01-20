@@ -5701,14 +5701,39 @@ void Gap_Improver(Alignment *aln, Work_Data *ework)
         { Fpos = -Fpos;
           Lpos = -Lpos;
 
+          if (x < Diag)
+            p = 0;
+          else
+            { m = t[x-Diag];
+              if (m < 0)
+                p = -m;
+              else
+                p = m+Fdag;
+            }
+
           while (A[Fpos-1] != B[(Fpos-Fdag)-1] && A[Fpos-1] != 4 && B[(Fpos-Fdag)-1] != 4)
-            { Fpos -= 1;
+            { if (Fpos <= p)
+                break;
+              Fpos -= 1;
 #ifdef BOX_STATS
               BxExtend += 1;
 #endif
             }
+
+          if (x >= T)
+            p = aln->alen;
+          else
+            { m = t[x];
+              if (m < 0)
+                p = -m;
+              else
+                p = m+d;
+            }
+
           while (A[Lpos] != B[Lpos-d] && A[Lpos] != 4 && B[Lpos-d] != 4)
-            { Lpos += 1;
+            { if (Lpos >= p)
+                break;
+              Lpos += 1;
 #ifdef BOX_STATS
               BxExtend += 1;
 #endif
@@ -5795,14 +5820,39 @@ void Gap_Improver(Alignment *aln, Work_Data *ework)
             }
         }
       else
-        { while (B[Fpos-1] != A[(Fpos+Fdag)-1] && B[Fpos-1] != 4 && A[(Fpos+Fdag)-1] != 4)
-            { Fpos -= 1;
+        { if (x < Diag)
+            p = 0;
+          else
+            { m = t[x-Diag];
+              if (m < 0)
+                p = -(m+Fdag);
+              else
+                p = m;
+            }
+
+          while (B[Fpos-1] != A[(Fpos+Fdag)-1] && B[Fpos-1] != 4 && A[(Fpos+Fdag)-1] != 4)
+            { if (Fpos <= p)
+                break;
+              Fpos -= 1;
 #ifdef BOX_STATS
               BxExtend += 1;
 #endif
             }
+
+          if (x >= T)
+            p = aln->blen;
+          else
+            { m = t[x];
+              if (m < 0)
+                p = -(m+d);
+              else
+                p = m;
+            }
+
           while (B[Lpos] != A[Lpos+d] && B[Lpos] != 4 && A[Lpos+d] != 4)
-            { Lpos += 1;
+            { if (Lpos >= p)
+                break;
+              Lpos += 1;
 #ifdef BOX_STATS
               BxExtend += 1;
 #endif
@@ -5873,15 +5923,19 @@ void Gap_Improver(Alignment *aln, Work_Data *ework)
                   h -= Diag;
                   k = h[m-Fdag];
                   if (k == 0)
-                    p -= 1;
+                    { p -= 1;
+#ifdef DEBUG_BACK
+                      printf(" (%d,%d,sub)",p,m);
+#endif
+                    }
                   else
                     { m -= k;
+#ifdef DEBUG_BACK
+                      printf(" (%d,%d,%d)",p,m,k);
+#endif
                       for (; k > 0; k--)
                         t[--y] = p;
                     }
-#ifdef DEBUG_BACK
-                  printf(" (%d,%d)",p,m);
-#endif
                 }
 #ifdef DEBUG_BACK
               printf("\n");

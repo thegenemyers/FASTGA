@@ -71,24 +71,28 @@ a .las file into .psl format, and **LAStoPAF** that converts a .las file into .p
 <a name="Gindex"></a>
 
 ```
-1. Gindex [-v] [-T<int(8)>] -f<int> <source>.[dam]
+1. Gindex [-v] [-P<dir(/tmp)>] [-T<int(8)>] [-k<int(40)>] [-f<int(10)>] <source>.[dam]
 ```
 
 Given a Dazzler database, or .dam, for a genome, **Gindex** produces an index of the genome
 consisting of a pair of files \<source>.ktab and \<source>.post.  The .ktab file consists of a
-FastK table of all the 40-mers in the genome that occur -f or few times.  The .post file
-contains successive lists of the genome positions at which the 40-mers in the first table occur
-in order of the 40-mers in the table.  The option -f is designed to remove 40-mers from
-repetitive regions of the genome from consideration.  It must be specified, we suggest a good
-default value is say 10.  With the -v
+FastK table of all the (-k)-mers in the genome that occur -f or few times.  The .post file
+contains successive lists of the genome positions at which the k-mers in the first table occur
+in order of the k-mers in the table.  While you can reset the k-mer size with the -k option we
+strongly suggest you use the default value of 40.  The option -f is designed to remove k-mers from
+repetitive regions of the genome from consideration and by default is set to 10.  With the -v
 option the program prints a progress report to the standard output.
+
+Gindex produces a number of large intermediate files in the directory ```/tmp``` unless an
+alternate directory is given with -P parameter.  When running on an HPC cluster node it is
+very important that this directory be on the disk local to the node.
 
 The program runs with -T threads, 8 by default, for which it typically sees a 6X or more
 speed up in wall clock time.  **Especially note that every index to be compared must be built
 with the same number of threads, and this number of threads will be used by FastGA**.
 
-Both the .ktab and .post files refer to -T<sup>2</sup> hidden files with the names ```.<source>.ktab.#```
-and ```.<source>.post.#``` where # varies from 1 to T<sup>2</sup>.  Altogether these files typically occupy 8-9GB per Gbp of genome for
+Both the .ktab and .post files refer to -T hidden files with the names ```.<source>.ktab.#```
+and ```.<source>.post.#``` where # varies from 1 to T.  Altogether these files typically occupy 8-9GB per Gbp of genome for
 the .ktab and 5-6GB per Gbp for the .post file.  So they are rather large, e.g. ~42GB for
 a human genome.
 
@@ -111,9 +115,11 @@ Once indices have been built for all relevant genomes, any pair \<source1> and \
 number of threads and this is the number of threads that FastGA uses to perform the comparison.**
 The output of the program is a Daligner .las (local alignments) file whose alignments can then
 be viewed with LAshow.  If the -o option is given then the name of the .las file is
-```<out>.las```, otherwise the name is ```<source1>.<source2>.las``` by default.  FastGA
-produces a number of large intermediate files in the directory ```/tmp``` unless an alternate
-directory is given with -P parameter.
+```<out>.las```, otherwise the name is ```<source1>.<source2>.las``` by default.
+
+FastGA produces a number of large intermediate files in the directory ```/tmp``` unless an
+alternate directory is given with -P parameter.  When running on an HPC cluster node it is
+very important that this directory be on the disk local to the node.
 
 You can also call FastGA with a single source in which case it compares the genome/assembly against
 itself, avoiding the finding and reporting of identity matches.  We anticipate that this mode may be usefule for (a) identifying repetitive regions in a genome, and (b) resolving and identifying haplotype correspondences between the various contigs of an assembly. 

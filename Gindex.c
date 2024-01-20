@@ -24,10 +24,11 @@
 #include "libfastk.h"
 #include "DB.h"
 
-static char *Usage = "[-v] [-T<int(8)] [-k<int(40)] -f<int> <source>[.dam]";
+static char *Usage = "[-v] [-P<dir(/tmp)>] [-T<int(8)] [-k<int(40)] [-f<int(10)>] <source>[.dam]";
 
-static int   FREQ;     //  Adaptemer frequence cutoff parameter
-static int   VERBOSE;  //  Verbose output
+static int   FREQ;       //  -f
+static int   VERBOSE;    //  -v
+static char *SORT_PATH;  //  -P
 static char *PATH;
 static char *ROOT;
 static char *POST_NAME;
@@ -39,6 +40,8 @@ static int KBYTES;     //  Bytes for 2-bit compress k-mer (KMER/4)
 #undef  DEBUG_MAP
 #undef  DEBUG_THREADS
 #undef  DEBUG_SORT
+
+#define BUFFER_LEN  1000000
 
 static int   *Perm;        //  Size sorted permutation of contigs
 static int   *InvP;        //  Inverse of Perm
@@ -58,6 +61,9 @@ static int64 **Buckets;    //  NTHREADS x 256 array:
                            //  B[i][j] = # of posts whose canonical k-mer's 1st byte
                            //            is j from block DBsplit[i],DBsplit[i+1]
                            //  Also used as "fingers" for loading initial sort array.
+
+static int *Units;  //  NTHREADS^2 IO units for distribution and import & k-mer table parts
+static int *Pnits;  //  NTHREADS^2 extra IO units for post parts
 
 typedef struct
   { int   beg;
@@ -152,6 +158,7 @@ static void *map_thread(void *args)
 
 typedef struct
   { int    tid;
+    int    inum;
     uint8 *seq;
     int    len;
     int    out;
@@ -210,7 +217,11 @@ static void *distribute_thread(void *args)
                   else
                     *b++ = 0x70;
                   if (b >= bend)
-                    { write(out,buffer,b-buffer);
+                    { if (write(out,buffer,b-buffer) < 0)
+                        { fprintf(stderr,"%s: IO write to file %s%d.idx failed\n",
+                                          Prog_Name,POST_NAME,parm->inum);
+                           exit (1);
+                         }
                       b = buffer;
                     }
                   last -= 0x10000000;
@@ -225,14 +236,22 @@ static void *distribute_thread(void *args)
               *b++ = lust[0];
             }
           if (b >= bend)
-            { write(out,buffer,b-buffer);
+            { if (write(out,buffer,b-buffer) < 0)
+                { fprintf(stderr,"%s: IO write to file %s%d.idx failed\n",
+                                 Prog_Name,POST_NAME,parm->inum);
+                  exit (1);
+                }
               b = buffer;
             }
           last = post;
         }
     }
   if (b > buffer)
-    write(out,buffer,b-buffer);
+    if (write(out,buffer,b-buffer) < 0)
+      { fprintf(stderr,"%s: IO write to file %s%d.idx failed\n",
+                       Prog_Name,POST_NAME,parm->inum);
+        exit (1);
+      }
 
   parm->last = last;
   parm->post = post;
@@ -258,12 +277,12 @@ void distribute(DAZZ_DB *DB)
   neq = (uint8 *) New_Read_Buffer(DB);   //    of the thread records
   ceq = (uint8 *) New_Read_Buffer(DB);
 
-  parm[0].buffer = Malloc(1000000*NTHREADS,"IO Buffer");
+  parm[0].buffer = Malloc(BUFFER_LEN*NTHREADS,"IO Buffer");
   for (i = 0; i < NTHREADS; i++)
     { parm[i].tid    = i;
       parm[i].seq    = seq;
-      parm[i].buffer = parm[0].buffer + 1000000*i;
-      parm[i].bend   = parm[i].buffer +  999996;
+      parm[i].buffer = parm[0].buffer + BUFFER_LEN*i;
+      parm[i].bend   = parm[i].buffer + (BUFFER_LEN-4);
       parm[i].post   = 0;
       parm[i].last   = 0;
     }
@@ -280,13 +299,8 @@ void distribute(DAZZ_DB *DB)
   for (p = 0; p < NTHREADS; p++)
                                      //  Open the NTHREAD files to recieve posts from this segment
     { for (i = 0; i < NTHREADS; i++)
-        { parm[i].out = open(Numbered_Suffix(POST_NAME,i*NTHREADS+p,".idx"),
-                                O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
-          if (parm[p].out < 0)
-            { fprintf(stderr,"%s: Cannot open %s%d.idx for writing\n",
-                             Prog_Name,POST_NAME,i*NTHREADS+p);
-              exit (1);
-            }
+        { parm[i].out = Units[i*NTHREADS+p];
+          parm[i].inum = i*NTHREADS+p;
         }
 
       //  For each contig in the segment ...
@@ -387,8 +401,7 @@ void distribute(DAZZ_DB *DB)
 
         buck = Buckets[p];
         for (i = 0; i < NTHREADS; i++)
-          { close(parm[i].out);
-            for (j = 0; j < 256; j++)
+          { for (j = 0; j < 256; j++)
               buck[j] += barm[i].buck[j];
             parm[i].last = parm[i].post;
           }
@@ -487,6 +500,7 @@ static void print_table(uint8 *array, int swide, int64 nelem)
 typedef struct
   { DAZZ_DB  DB;
     int      tid;
+    int      inum;
     int      in;
     int      swide;
     uint8   *sarr;
@@ -507,6 +521,7 @@ static void *setup_thread(void *args)
   DAZZ_DB *DB   = &(parm->DB);
   int64   *buck = Buckets[tid];
 
+  int    iamt;
   uint8 *seq;
   int    len;
   uint8 *neq, *ceq, *keq;
@@ -527,8 +542,20 @@ static void *setup_thread(void *args)
 
   flag = (0x1ll << (8*ContBytes-1));
 
-  bend = buffer + read(in,buffer,1000000);
-  if (bend-buffer < 1000000)
+  if (lseek(in,0,SEEK_SET) < 0)
+    { fprintf(stderr,"%s: Rewind of file %s%d.idx failed\n",
+                     Prog_Name,POST_NAME,parm->inum);
+      exit (1);
+    }
+
+  iamt = read(in,buffer,BUFFER_LEN);
+  if (iamt < 0)
+    { fprintf(stderr,"%s: IO read to file %s%d.idx failed\n",
+                     Prog_Name,POST_NAME,parm->inum);
+      exit (1);
+    }
+  bend = buffer + iamt;
+  if (bend-buffer < BUFFER_LEN)
     btop = bend;
   else
     btop = bend-4;
@@ -634,10 +661,16 @@ static void *setup_thread(void *args)
         { int ex = bend-b;
           memcpy(buffer,b,ex); 
           bend = buffer+ex;
-          bend += read(in,bend,1000000-ex);
+          iamt = read(in,bend,BUFFER_LEN-ex);
+          if (iamt < 0)
+            { fprintf(stderr,"%s: IO read to file %s%d.idx failed\n",
+                             Prog_Name,POST_NAME,parm->inum);
+              exit (1);
+            }
+          bend += iamt;
           if (bend == buffer)
             break;
-          if (bend-buffer < 1000000)
+          if (bend-buffer < BUFFER_LEN)
             btop = bend;
           else
             btop = bend-4;
@@ -654,7 +687,8 @@ static void *setup_thread(void *args)
 }
 
 typedef struct
-  { int      swide;
+  { int      inum;
+    int      swide;
     int64   *panel;
     uint8   *sarr;
     uint8   *buff;
@@ -665,6 +699,7 @@ typedef struct
     int64    nelim;
     int64    nbase;
     int64    nkmer;
+    int64    npost;
   } RP;
 
 //  for 1st k-mer byte range [beg,end), find each group of equal k-mers and if < FREQ, then
@@ -697,11 +732,6 @@ static void *output_thread(void *args)
 
   nelim = nkmer = nbase = 0;
   o = KMER;
-  write(tout,&o,sizeof(int));       // Skip prolog of each part file
-  write(tout,&nkmer,sizeof(int64));
-  write(pout,&o,sizeof(int));
-  write(pout,&o,sizeof(int));
-  write(pout,&nkmer,sizeof(int64));
 
   b = buf1;
   c = buf2;
@@ -741,7 +771,11 @@ static void *output_thread(void *args)
         *b++ = _w[0];
         *b++ = lcp;
         if (b >= bed1)
-          { write(tout,buf1,b-buf1);
+          { if (write(tout,buf1,b-buf1) < 0)
+              { fprintf(stderr,"%s: IO write to file %s%d.ktb failed\n",
+                               Prog_Name,POST_NAME,parm->inum);
+                exit (1);
+              }
             b = buf1;
           }
         nkmer += 1;
@@ -750,7 +784,11 @@ static void *output_thread(void *args)
           { for (k = KBYTES; k < swide; k++)
               *c++ = sarray[x+k];
             if (c >= bed2)
-              { write(pout,buf2,c-buf2);
+              { if (write(pout,buf2,c-buf2) < 0)
+                  { fprintf(stderr,"%s: IO write to file %s%d.pst failed\n",
+                                   Prog_Name,POST_NAME,parm->inum);
+                    exit (1);
+                  }
                 c = buf2;
               }
             x += swide;
@@ -762,33 +800,104 @@ static void *output_thread(void *args)
       lcp = sarray[e] = 0;
    }
   if (b > buf1)
-    write(tout,buf1,b-buf1);
+    if (write(tout,buf1,b-buf1) < 0)
+      { fprintf(stderr,"%s: IO write to file %s%d.ktb failed\n",
+                       Prog_Name,POST_NAME,parm->inum);
+        exit (1);
+      }
   if (c > buf2)
-    write(pout,buf2,c-buf2);
+    if (write(pout,buf2,c-buf2) < 0)
+      { fprintf(stderr,"%s: IO write to file %s%d.pst failed\n",
+                       Prog_Name,POST_NAME,parm->inum);
+        exit (1);
+      }
 
-  lseek(tout,0,SEEK_SET);        //  Write prologs of each part file
-  o = KMER;
-  write(tout,&o,sizeof(int));
-  write(tout,&nkmer,sizeof(int64));
-
-  lseek(pout,0,SEEK_SET);
-  o = PostBytes;
-  write(pout,&o,sizeof(int));
-  o = ContBytes;
-  write(pout,&o,sizeof(int));
-  e = (x-range->off)/swide - nbase;
-  write(pout,&e,sizeof(int64));
-
-  close(tout);
-  close(pout);
-
+  parm->npost = (x-range->off)/swide - nbase;
   parm->nelim = nelim;
   parm->nbase = nbase;
   parm->nkmer = nkmer;
   return (NULL);
 }
 
-//  PLEASE DOCUMENT ME
+typedef struct
+  { int      tid;
+    uint8   *bufr;
+    int64    nkmer;
+    int64    npost;
+    int      fail;
+    int      tout, pout;
+  } CP;
+
+static void *catenate_thread(void *args)
+{ CP     *parm = (CP *) args;
+  uint8  *bufr = parm->bufr;
+  int     tid  = parm->tid;
+  int     tout = parm->tout;
+  int     pout = parm->pout;
+
+  int tin, pin;
+  int p, x;
+
+  parm->fail = 1;
+
+  if (write(tout,&KMER,sizeof(int)) < 0) goto tout_write_fail;
+  if (write(tout,&parm->nkmer,sizeof(int64)) < 0) goto tout_write_fail;
+
+  for (p = tid*NTHREADS; p < (tid+1)*NTHREADS; p++)
+    { tin = Units[p];
+      if (lseek(tin,0,SEEK_SET) < 0)
+        { fprintf(stderr,"%s: Rewind of file %s%d.ktb failed\n",Prog_Name,POST_NAME,p);
+          return (NULL);
+        }
+      while (1)
+        { x = read(tin,bufr,BUFFER_LEN);
+          if (x < 0)
+            { fprintf(stderr,"%s: IO read from file %s%d.ktb failed\n",Prog_Name,POST_NAME,p);
+              return (NULL);
+            }
+          if (x == 0)
+            break;
+          if (write(tout,bufr,x) < 0) goto tout_write_fail;
+        }
+      close(tin);
+    }
+  close(tout);
+
+  if (write(pout,&PostBytes,sizeof(int)) < 0) goto pout_write_fail;
+  if (write(pout,&ContBytes,sizeof(int)) < 0) goto pout_write_fail;
+  if (write(pout,&parm->npost,sizeof(int64)) < 0) goto pout_write_fail;
+
+  for (p = tid*NTHREADS; p < (tid+1)*NTHREADS; p++)
+    { pin = Pnits[p];
+      if (lseek(pin,0,SEEK_SET) < 0)
+        { fprintf(stderr,"%s: Rewind of file %s%d.pst failed\n",Prog_Name,POST_NAME,p);
+          return (NULL);
+        }
+      while (1)
+        { x = read(pin,bufr,BUFFER_LEN);
+          if (x < 0)
+            { fprintf(stderr,"%s: IO read from file %s%d.pst failed\n",Prog_Name,POST_NAME,p);
+              return (NULL);
+            }
+          if (x == 0)
+            break;
+          if (write(pout,bufr,x) < 0) goto pout_write_fail;
+        }
+      close(pin);
+    }
+  close(pout);
+
+  parm->fail = 0;
+  return (NULL);
+
+tout_write_fail:
+  fprintf(stderr,"%s: IO error writing to part file %s/.%s.ktab.%d\n",Prog_Name,PATH,ROOT,tid+1);
+  return (NULL);
+
+pout_write_fail:
+  fprintf(stderr,"%s: IO error writing to part file %s/.%s.post.%d\n",Prog_Name,PATH,ROOT,tid+1);
+  return (NULL);
+}
 
 void k_sort(DAZZ_DB *DB)
 { uint8 *sarray;
@@ -798,6 +907,7 @@ void k_sort(DAZZ_DB *DB)
   Range  range[NTHREADS];
   SP     sarm[NTHREADS];
   RP     rarm[NTHREADS];
+  CP     carm[NTHREADS];
   int64  nelim, nbase, nkmer;
   int64 *prefix;
 #ifndef DEBUG_THREADS
@@ -813,11 +923,10 @@ void k_sort(DAZZ_DB *DB)
           nelmax = x;
       }
 
-
     swide  = KBYTES + PostBytes + ContBytes;
     prefix = Malloc(sizeof(int64)*0x1000000,"Prefix array");
     sarray = Malloc(nelmax*swide+1,"Sort Array");
-    buffer = Malloc(NTHREADS*1000000,"Input Buffers");
+    buffer = Malloc(NTHREADS*BUFFER_LEN,"Input Buffers");
     if (prefix == NULL || sarray == NULL || buffer == NULL)
       exit (1);
     bzero(prefix,sizeof(int64)*0x1000000);
@@ -841,7 +950,7 @@ void k_sort(DAZZ_DB *DB)
     { sarm[p].tid   = p;
       sarm[p].swide = swide;
       sarm[p].sarr  = sarray;
-      sarm[p].buff  = buffer + p*1000000;
+      sarm[p].buff  = buffer + p*BUFFER_LEN;
       sarm[p].DB    = *DB;
       if (p > 0)
         { sarm[p].DB.bases = fopen(Catenate(DB->path,"","",".bps"),"r");
@@ -855,10 +964,17 @@ void k_sort(DAZZ_DB *DB)
   for (p = 0; p < NTHREADS; p++)
     { rarm[p].swide  = swide;
       rarm[p].sarr   = sarray;
-      rarm[p].buff   = buffer + p*1000000;
+      rarm[p].buff   = buffer + p*BUFFER_LEN;
       rarm[p].range  = range + p;
       rarm[p].panel  = panel;
       rarm[p].prefix = prefix;
+    }
+
+  for (p = 0; p < NTHREADS; p++)
+    { carm[p].tid   = p;
+      carm[p].bufr  = buffer + p*BUFFER_LEN;
+      carm[p].nkmer = 0;
+      carm[p].npost = 0;
     }
 
   nelim = nbase = nkmer = 0;
@@ -866,12 +982,8 @@ void k_sort(DAZZ_DB *DB)
   for (part = 0; part < NTHREADS; part++)
 
     { for (p = 0; p < NTHREADS; p++)
-        { sarm[p].in = open(Numbered_Suffix(POST_NAME,part*NTHREADS+p,".idx"),O_RDONLY);
-          if (sarm[p].in < 0)
-            { fprintf(stderr,"%s: Cannot open %s%d.idx for reading\n",
-                             Prog_Name,POST_NAME,part*NTHREADS+p);
-              exit (1);
-            }
+        { sarm[p].in = Units[part*NTHREADS+p];
+          sarm[p].inum = part*NTHREADS+p;
         }
 
 #ifdef DEBUG_THREADS
@@ -884,9 +996,6 @@ void k_sort(DAZZ_DB *DB)
       for (p = 1; p < NTHREADS; p++)
         pthread_join(threads[p],NULL);
 #endif
-
-      for (p = 0; p < NTHREADS; p++)
-        unlink(Numbered_Suffix(POST_NAME,part*NTHREADS+p,".idx"));
 
       { int64 prev, next;
 
@@ -917,23 +1026,28 @@ void k_sort(DAZZ_DB *DB)
           }
       }
 
-      for (p = 0; p < NTHREADS; p++)
-        { rarm[p].tout = open(Catenate(PATH,"/.",ROOT,
-                                    Numbered_Suffix(".ktab.",part*NTHREADS+p+1,"")),
-                                O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+      for (p = 0; p < NTHREADS; p++)   //  open units for T^2 index parts
+        { char *name;
+          int   inum;
+
+          inum = part*NTHREADS+p;
+          name = Numbered_Suffix(POST_NAME,inum,".ktb");
+          rarm[p].tout = Units[inum] = open(name,O_RDWR|O_CREAT|O_TRUNC,S_IRWXU);
           if (rarm[p].tout < 0)
-            { fprintf(stderr,"%s: Cannot open %s/.%s.ktab.%d for writing\n",
-                             Prog_Name,PATH,ROOT,part*NTHREADS+p+1);
+            { fprintf(stderr,"%s: Cannot open %s for reading & writing\n",Prog_Name,name);
               exit (1);
             }
-          rarm[p].pout = open(Catenate(PATH,"/.",ROOT,
-                                    Numbered_Suffix(".post.",part*NTHREADS+p+1,"")),
-                                O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+          unlink(name);
+
+          name = Numbered_Suffix(POST_NAME,inum,".pst");
+          rarm[p].pout = Pnits[inum] = open(name,O_RDWR|O_CREAT|O_TRUNC,S_IRWXU);
           if (rarm[p].pout < 0)
-            { fprintf(stderr,"%s: Cannot open %s/.%s.post.%d for writing\n",
-                             Prog_Name,PATH,ROOT,part*NTHREADS+p+1);
+            { fprintf(stderr,"%s: Cannot open %s for reading & writing\n",Prog_Name,name);
               exit (1);
             }
+          unlink(name);
+
+          rarm[p].inum = inum;
         }
 
       if (VERBOSE)
@@ -956,11 +1070,50 @@ void k_sort(DAZZ_DB *DB)
         { nelim += rarm[p].nelim;
           nbase += rarm[p].nbase;
           nkmer += rarm[p].nkmer;
+          carm[part].nkmer += rarm[p].nkmer;
+          carm[part].npost += rarm[p].npost;
         }
     }
 
+  if (VERBOSE)
+    fprintf(stdout,"\n    Concat'ing parts\n");
+
   for (p = 1; p < NTHREADS; p++)
     fclose(sarm[p].DB.bases);
+
+  for (p = 0; p < NTHREADS; p++)
+    { carm[p].tout = open(Catenate(PATH,"/.",ROOT,
+                          Numbered_Suffix(".ktab.",p+1,"")),
+                          O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+      if (carm[p].tout < 0)
+        { fprintf(stderr,"%s: Cannot open part file %s/.%s.ktab.%d for writing\n",
+                         Prog_Name,PATH,ROOT,p+1);
+          goto remove_parts;
+        }
+      carm[p].pout = open(Catenate(PATH,"/.",ROOT,
+                          Numbered_Suffix(".post.",p+1,"")),
+                          O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+      if (carm[p].pout < 0)
+        { fprintf(stderr,"%s: Cannot open part file %s/.%s.post.%d for writing\n",
+                         Prog_Name,PATH,ROOT,p+1);
+          goto remove_parts;
+        }
+    }
+
+#ifdef DEBUG_THREADS
+  for (p = 0; p < NTHREADS; p++)
+    catenate_thread(carm+p);
+#else
+  for (p = 1; p < NTHREADS; p++)
+    pthread_create(threads+p,NULL,catenate_thread,carm+p);
+  catenate_thread(carm);
+  for (p = 1; p < NTHREADS; p++)
+    pthread_join(threads[p],NULL);
+#endif
+
+  for (p = 0; p < NTHREADS; p++)
+    if (carm[p].fail)
+      goto remove_parts;
 
   if (VERBOSE)
     { int64 npost = DB->totlen - DB->treads*(KMER-1);
@@ -973,23 +1126,21 @@ void k_sort(DAZZ_DB *DB)
       fflush(stdout);
     }
 
-  { FILE *tab, *idx;
+  { int   tab, idx;
     int   x;
     int64 maxpre;
 
-    tab = fopen(Catenate(PATH,"/",ROOT,".ktab"),"w");
-    if (tab == NULL)
+    tab = open(Catenate(PATH,"/",ROOT,".ktab"),O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+    if (tab < 0)
       { fprintf(stderr,"%s: Cannot open %s/%s.ktab for writing\n",Prog_Name,PATH,ROOT);
-        exit (1);
+        goto remove_parts;
       }
-    x = KMER;
-    fwrite(&x,sizeof(int),1,tab);
-    x = NTHREADS*NTHREADS;
-    fwrite(&x,sizeof(int),1,tab);
+    if (write(tab,&KMER,sizeof(int)) < 0) goto ktab_error;
+    if (write(tab,&NTHREADS,sizeof(int)) < 0) goto ktab_error;
     x = 1;
-    fwrite(&x,sizeof(int),1,tab);
+    if (write(tab,&x,sizeof(int)) < 0) goto ktab_error;
     x = 3;
-    fwrite(&x,sizeof(int),1,tab);
+    if (write(tab,&x,sizeof(int)) < 0) goto ktab_error;
 
     maxpre = prefix[0];
     for (x = 1; x < 0x1000000; x++)
@@ -997,30 +1148,46 @@ void k_sort(DAZZ_DB *DB)
           maxpre = prefix[x];
         prefix[x] += prefix[x-1];
       }
-    fwrite(prefix,sizeof(int64),0x1000000,tab);
-    fclose(tab);
+    if (write(tab,prefix,sizeof(int64)*0x1000000) < 0) goto ktab_error;
+    close(tab);
 
-    idx = fopen(Catenate(PATH,"/",ROOT,".post"),"w");
-    if (idx == NULL)
+    idx = open(Catenate(PATH,"/",ROOT,".post"),O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU);
+    if (idx < 0)
       { fprintf(stderr,"%s: Cannot open %s/%s.post for writing\n",Prog_Name,PATH,ROOT);
-        exit (1);
+        unlink(Catenate(PATH,"/",ROOT,".ktab"));
+        goto remove_parts;
       }
-    x = PostBytes;
-    fwrite(&x,sizeof(int),1,idx);
-    x = ContBytes;
-    fwrite(&x,sizeof(int),1,idx);
-    x = NTHREADS;                       //  # of files = square, but would like # of threads too
-    fwrite(&x,sizeof(int),1,idx);
-    fwrite(&maxpre,sizeof(int64),1,idx);
-    fwrite(&FREQ,sizeof(int),1,idx);
-    fwrite(&(DB->treads),sizeof(int),1,idx);
-    fwrite(Perm,sizeof(int),DB->treads,idx);
-    fclose(idx);
+    if (write(idx,&PostBytes,sizeof(int)) < 0) goto post_error;
+    if (write(idx,&ContBytes,sizeof(int)) < 0) goto post_error;
+    if (write(idx,&NTHREADS,sizeof(int)) < 0) goto post_error;
+    if (write(idx,&maxpre,sizeof(int64)) < 0) goto post_error;
+    if (write(idx,&FREQ,sizeof(int)) < 0) goto post_error;
+    if (write(idx,&(DB->treads),sizeof(int)) < 0) goto post_error;
+    if (write(idx,Perm,sizeof(int)*DB->treads) < 0) goto post_error;
+    close(idx);
   }
  
   free(buffer);
   free(sarray);
   free(prefix);
+  return;
+
+ktab_error:
+  unlink(Catenate(PATH,"/",ROOT,".ktab"));
+  fprintf(stderr,"%s: IO error while writing %s/%s.ktab\n",Prog_Name,PATH,ROOT);
+  goto remove_parts;
+
+post_error:
+  unlink(Catenate(PATH,"/",ROOT,".post"));
+  unlink(Catenate(PATH,"/",ROOT,".ktab"));
+  fprintf(stderr,"%s: IO error while writing %s/%s.post\n",Prog_Name,PATH,ROOT);
+
+remove_parts:
+  for (p = 1; p <= NTHREADS; p++)
+    { unlink(Catenate(PATH,"/.",ROOT,Numbered_Suffix(".ktab.",p,"")));
+      unlink(Catenate(PATH,"/.",ROOT,Numbered_Suffix(".post.",p,"")));
+    }
+  exit (1);
 }
 
 
@@ -1074,9 +1241,10 @@ int main(int argc, char *argv[])
 
     ARG_INIT("Gindex");
 
-    FREQ = -1;
+    FREQ = 10;
     KMER = 40;
     NTHREADS = 8;
+    SORT_PATH = "/tmp";
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -1091,6 +1259,9 @@ int main(int argc, char *argv[])
           case 'k':
             ARG_NON_NEGATIVE(KMER,"maximum seed frequency");
             break;
+          case 'P':
+            SORT_PATH = argv[i]+2;
+            break;
           case 'T':
             ARG_NON_NEGATIVE(NTHREADS,"maximum seed frequency");
             break;
@@ -1102,8 +1273,12 @@ int main(int argc, char *argv[])
     VERBOSE = flags['v'];
 
     KBYTES  = (KMER>>2);
-    if (argc != 2 || FREQ < 0)
+    if (argc != 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
+        fprintf(stderr,"      -P: Directory to use for temporary files.\n");
+        fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         exit (1);
       }
 
@@ -1117,11 +1292,44 @@ int main(int argc, char *argv[])
       }
   }
 
+  //  Get full path string for sorting subdirectory (in variable SORT_PATH)
+
+  { char  *cpath, *spath;
+    DIR   *dirp;
+
+    if (SORT_PATH[0] != '/')
+      { cpath = getcwd(NULL,0);
+        if (SORT_PATH[0] == '.')
+          { if (SORT_PATH[1] == '/')
+              spath = Catenate(cpath,SORT_PATH+1,"","");
+            else if (SORT_PATH[1] == '\0')
+              spath = cpath;
+            else
+              { fprintf(stderr,"\n%s: -P option: . not followed by /\n",Prog_Name);
+                exit (1);
+              }
+          }
+        else
+          spath = Catenate(cpath,"/",SORT_PATH,"");
+        SORT_PATH = Strdup(spath,"Allocating path");
+        free(cpath);
+      }
+    else
+      SORT_PATH = Strdup(SORT_PATH,"Allocating path");
+
+    if ((dirp = opendir(SORT_PATH)) == NULL)
+      { fprintf(stderr,"\n%s: -P option: cannot open directory %s\n",Prog_Name,SORT_PATH);
+        exit (1);
+      }
+    closedir(dirp);
+  }
+
   //  Open and trim DB
 
   PATH  = PathTo(argv[1]);
   ROOT  = Root(argv[1],".dam");
-  POST_NAME = Strdup(Numbered_Suffix("._post.",getpid(),"."),"Allocating temp name");
+  POST_NAME = Strdup(Catenate(SORT_PATH,"/.",Numbered_Suffix("post.",getpid(),"."),""),
+                     "Allocating temp name");
 
   if (Open_DB(argv[1],DB) < 0)
     { fprintf(stderr,"%s: Cannot open Dazzler DB %s\n",Prog_Name,argv[1]);
@@ -1129,6 +1337,27 @@ int main(int argc, char *argv[])
     }
   Trim_DB(DB);
   short_DB_fix(DB);
+
+  //  Make sure you can open (2 * NTHREADS + 4) * NTHREADS + tid files at one time.
+  //    tid is typically 3 unless using valgrind or other instrumentation.
+
+  { struct rlimit rlp;
+    int           tid;
+    uint64        nfiles;
+
+    tid = open(".xxx",O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+    close(tid);
+    unlink(".xxx");
+
+    nfiles = (2*NTHREADS+4)*NTHREADS + tid;
+    getrlimit(RLIMIT_NOFILE,&rlp);
+    if (nfiles > rlp.rlim_max)
+      { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);
+        exit (1);
+      } 
+    rlp.rlim_cur = nfiles;
+    setrlimit(RLIMIT_NOFILE,&rlp);
+  } 
 
   { int i, l0, l1, l2, l3;   //  Compute byte complement table
 
@@ -1244,6 +1473,28 @@ int main(int argc, char *argv[])
       Buckets[p] = Buckets[p-1] + 256;
   }
 
+  { int   p, i, k;         //  Open IO units for distribution and reimport
+    char *name;
+
+    Units = Malloc(2*NTHREADS*NTHREADS*sizeof(int),"IO Units");
+    if (Units == NULL)
+      exit (1);
+    Pnits = Units + NTHREADS*NTHREADS;
+
+    k = 0;
+    for (p = 0; p < NTHREADS; p++)
+      for (i = 0; i < NTHREADS; i++)
+        { name = Numbered_Suffix(POST_NAME,k,".idx");
+          Units[k] = open(name,O_RDWR|O_CREAT|O_TRUNC,S_IRWXU);
+          if (Units[k] < 0)
+            { fprintf(stderr,"%s: Cannot open %s for reading & writing\n",Prog_Name,name);
+              exit (1);
+            }
+          unlink(name);
+          k += 1;
+        }
+  }
+
   distribute(DB);   //  Distribute k-mers to 1st byte partitions, encoded as compressed
                     //    relative positions of the given k-mers
 
@@ -1254,6 +1505,8 @@ int main(int argc, char *argv[])
 
   k_sort(DB);       //  Reimport the post listings, recreating the k-mers and sorting
                     //    them with their posts to produce final genome index.
+
+  free(Units);
 
   free(Buckets[0]);
   free(Buckets);

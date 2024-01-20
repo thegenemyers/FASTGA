@@ -45,7 +45,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BUCK_WIDTH    64  //  2^BUCK_SHIFT
 #define    BUCK_ANTI    128  //  2*BUCK_WIDTH
 
-static char *Usage[] = { "[-v] [-P<dir(/tmp)>] [-o<out:name>] -f<int>",
+static char *Usage[] = { "[-v] [-P<dir(/tmp)>] [-o<out:name>] [-f<int(10)>]",
                          "[-c<int(100)> [-s<int(500)>] [-a<int(100)>] [-e<float(.7)]",
                          "<source1>[.dam] [<source2>[.dam]]"
                        };
@@ -139,7 +139,6 @@ typedef struct
     int     copn;       //  File currently open
     int     part;       //  Thread # of file currently open
     int     nthr;       //  # of file parts
-    int     nsqrt;      //  # of threads/slices (= sqrt(nthr))
     int     nlen;       //  length of path name
     char   *name;       //  Path name for table parts (only # missing)
     uint8  *ctop;       //  Ptr top of current table block in buffer
@@ -208,7 +207,7 @@ static Post_List *Open_Post_List(char *name)
   sprintf(full,"%s/%s.post",dir,root);
   f = open(full,O_RDONLY);
   if (f < 0)
-    { fprintf(stderr,"\n%s: Cannot open file %s/%s.post\n",Prog_Name,dir,root);
+    { fprintf(stderr,"%s: Cannot open post stub file %s/%s.post\n",Prog_Name,dir,root);
       exit (1);
     }
   sprintf(full,"%s/.%s.post.",dir,root);
@@ -224,7 +223,6 @@ static Post_List *Open_Post_List(char *name)
   if (read(f,&maxp,sizeof(int64)) < 0) goto open_io_error;
   if (read(f,&freq,sizeof(int)) < 0) goto open_io_error;
   nthreads = nfile;
-  nfile    = nfile*nfile;
 
   if (read(f,&nctg,sizeof(int)) < 0) goto open_io_error;
 
@@ -254,7 +252,7 @@ static Post_List *Open_Post_List(char *name)
       if (read(copn,&pb,sizeof(int)) < 0) goto part_io_error;
       if (read(copn,&cb,sizeof(int)) < 0) goto part_io_error;
       pb += cb;
-      if (read(copn,&n,sizeof(int64))) goto part_io_error;
+      if (read(copn,&n,sizeof(int64)) < 0) goto part_io_error;
       nels += n;
       P->neps[p-1] = nels;
       if (pbyte != pb)
@@ -269,13 +267,12 @@ static Post_List *Open_Post_List(char *name)
   P->cbyte = cbyte;
   P->nels  = nels;
   P->nthr  = nfile;
-  P->nsqrt = nthreads;
   P->freq  = freq;
   P->nctg  = nctg;
 
   sprintf(P->name+P->nlen,"%d",1);
   copn = open(P->name,O_RDONLY);
-  if (copn < 0)
+  if (copn < 0) goto part_io_error;
 
   if (lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET) < 0)
     { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
@@ -367,6 +364,11 @@ static inline void GoTo_Post_Index(Post_List *P, int64 i)
   if (P->part != p)
     { if (P->part <= P->nthr)
         close(P->copn);
+      if (P->cidx >= P->nels)
+        { P->cptr = NULL;
+          P->part = P->nthr+1;
+          return;
+        }
       sprintf(P->name+P->nlen,"%d",p);
       P->copn = open(P->name,O_RDONLY);
       if (P->copn < 0)
@@ -406,6 +408,11 @@ static inline void JumpTo_Post_Index(Post_List *P, int64 del)
   if (P->part != p)
     { if (P->part <= P->nthr)
         close(P->copn);
+      if (P->cidx >= P->nels)
+        { P->cptr = NULL;
+          P->part = P->nthr+1;
+          return;
+        }
       sprintf(P->name+P->nlen,"%d",p);
       P->copn = open(P->name,O_RDONLY);
       if (P->copn < 0)
@@ -557,7 +564,7 @@ static void *merge_thread(void *args)
   tseed = 0;
   apost = 0;
 
-  spart = P1->nsqrt * tid - 1;
+  spart = tid - 1;
   First_Post_Entry(P1);
   First_Post_Entry(P2);
   First_Kmer_Entry(T1);
@@ -571,7 +578,7 @@ static void *merge_thread(void *args)
     }
 
   qcnt = -1;
-  tend = ((_Kmer_Stream *) T1)->neps[spart+P1->nsqrt];
+  tend = ((_Kmer_Stream *) T1)->neps[spart+1];
   tbeg = T1->cidx;
   while (T1->cidx < tend)
     { suf1 = T1->csuf;
@@ -1035,7 +1042,7 @@ static void *self_merge_thread(void *args)
   g1len = 0;
   tseed = 0;
 
-  spart = P2->nsqrt * tid - 1;
+  spart = tid - 1;
   First_Post_Entry(P2);
   First_Kmer_Entry(T1);
 
@@ -1045,7 +1052,7 @@ static void *self_merge_thread(void *args)
     }
 
   qcnt = -1;
-  tend = ((_Kmer_Stream *) T1)->neps[spart+P2->nsqrt];
+  tend = ((_Kmer_Stream *) T1)->neps[spart+1];
   tbeg = T1->cidx;
   for (suf1 = ctop; 1; suf1 += KBYTE)
     { if (suf1 >= ctop)
@@ -3273,7 +3280,7 @@ int main(int argc, char *argv[])
 
     ARG_INIT("FastGA");
 
-    FREQ = -1;
+    FREQ = 10;
     OUTP = NULL;
     CHAIN_BREAK = 1000;   //  2x in anti-diagonal space
     CHAIN_MIN   =  200;
@@ -3323,7 +3330,7 @@ int main(int argc, char *argv[])
 
     VERBOSE = flags['v'];
 
-    if ((argc != 3 && argc != 2) || FREQ < 0)
+    if (argc != 3 && argc != 2)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
@@ -3331,8 +3338,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
         fprintf(stderr,"      -o: Use as root name for output .las file.\n");
-        fprintf(stderr,"\n");
-        fprintf(stderr,"      -f: adaptive seed count cutoff (mandatory)\n");
+        fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -c: minimum seed chain coverage in both genomes\n");
         fprintf(stderr,"      -s: threshold for starting a new seed chain\n");
@@ -3409,7 +3415,7 @@ int main(int argc, char *argv[])
   Perm2  = P2->perm;
 
   KMER      = T1->kmer;
-  NTHREADS  = P1->nsqrt;
+  NTHREADS  = P1->nthr;
 
   if (Open_DB(argv[1],DB1) < 0)
     exit (1);
@@ -3425,7 +3431,7 @@ int main(int argc, char *argv[])
       short_DB_fix(DB2);
     }
 
-  if (P2->nsqrt != NTHREADS)
+  if (P2->nthr != NTHREADS)
     { fprintf(stderr,"%s: Genome indices %s & %s built with different # of threads\n",
                       Prog_Name,argv[1],argv[2]);
       exit (1);

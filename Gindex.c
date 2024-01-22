@@ -24,7 +24,7 @@
 #include "libfastk.h"
 #include "DB.h"
 
-static char *Usage = "[-v] [-P<dir(/tmp)>] [-T<int(8)] [-k<int(40)] [-f<int(10)>] <source>[.dam]";
+static char *Usage = "[-v] [-T<int(8)>] [-P<dir(/tmp)>] [-k<int(40)] [-f<int(10)>] <source>[.dam]";
 
 static int   FREQ;       //  -f
 static int   VERBOSE;    //  -v
@@ -418,8 +418,8 @@ void distribute(DAZZ_DB *DB)
   { int   i, j; 
     int64 cum;
 
-    cum = Buckets[NTHREADS-1][0];
-    for (i = 1; i < 256; i++)
+    cum = 0;
+    for (i = 0; i < 256; i++)
       { for (j = 0; j < NTHREADS; j++)
           Buckets[j][i] += cum;
         if (i < 255 && Select[i] == Select[i+1])
@@ -561,7 +561,9 @@ static void *setup_thread(void *args)
     btop = bend-4;
   b = buffer;
   if (btop <= buffer)   //  Nothing to do
-    return (NULL);
+    { close(in);
+      return (NULL);
+    }
 
   ncntg = DBsplit[tid];
   post  = DBpost[tid];
@@ -696,6 +698,7 @@ typedef struct
     int      tout;
     int      pout;
     int64   *prefix;
+    int64   *posfix;
     int64    nelim;
     int64    nbase;
     int64    nkmer;
@@ -718,6 +721,7 @@ static void *output_thread(void *args)
   int     tout   = parm->tout;
   int     pout   = parm->pout;
   int64  *prefix = parm->prefix;
+  int64  *posfix = parm->posfix;
 
   uint8 *buf1 = parm->buff;
   uint8 *buf2 = buf1 + 500000;
@@ -726,7 +730,7 @@ static void *output_thread(void *args)
 
   int64   nelim, nkmer, nbase;
   int64   x, e, y;
-  int     o, w, k, z, lcp;
+  int     o, w, k, z, lcp, idx;
   uint8 *_w = (uint8 *) &w;
   uint8  *b, *c;
 
@@ -738,7 +742,8 @@ static void *output_thread(void *args)
   x = range->off;
   lcp = sarray[x];
   prefix += (beg << 16);
-  for (o = beg; o < end; o++, prefix += 0x10000)
+  posfix += (beg << 8);
+  for (o = beg; o < end; o++, prefix += 0x10000, posfix += 0x100)
    { e = x + panel[o];
      z = (sarray[e] == 0);   //  Caution: end of panel can have 0 lcp
      if (z)
@@ -764,7 +769,10 @@ static void *output_thread(void *args)
 
         //  if < FREQ then output to k-mer table and post list
 
-        prefix[(sarray[x+1] << 8) | sarray[x+2]] += 1;
+        idx = sarray[x+1];
+        posfix[idx] += (y-x)/swide;
+        idx = ((idx << 8) | sarray[x+2]);
+        prefix[idx] += 1;
 
         for (k = 3; k < KBYTES; k++)
           *b++ = sarray[x+k];
@@ -910,6 +918,7 @@ void k_sort(DAZZ_DB *DB)
   CP     carm[NTHREADS];
   int64  nelim, nbase, nkmer;
   int64 *prefix;
+  int64 *posfix;
 #ifndef DEBUG_THREADS
   pthread_t threads[NTHREADS];
 #endif
@@ -925,11 +934,13 @@ void k_sort(DAZZ_DB *DB)
 
     swide  = KBYTES + PostBytes + ContBytes;
     prefix = Malloc(sizeof(int64)*0x1000000,"Prefix array");
+    posfix = Malloc(sizeof(int64)*0x10000,"Postfix array");
     sarray = Malloc(nelmax*swide+1,"Sort Array");
     buffer = Malloc(NTHREADS*BUFFER_LEN,"Input Buffers");
-    if (prefix == NULL || sarray == NULL || buffer == NULL)
+    if (prefix == NULL || posfix == NULL || sarray == NULL || buffer == NULL)
       exit (1);
     bzero(prefix,sizeof(int64)*0x1000000);
+    bzero(posfix,sizeof(int64)*0x10000);
   }
 
   { int i, j;
@@ -968,6 +979,7 @@ void k_sort(DAZZ_DB *DB)
       rarm[p].range  = range + p;
       rarm[p].panel  = panel;
       rarm[p].prefix = prefix;
+      rarm[p].posfix = posfix;
     }
 
   for (p = 0; p < NTHREADS; p++)
@@ -1164,11 +1176,16 @@ void k_sort(DAZZ_DB *DB)
     if (write(idx,&FREQ,sizeof(int)) < 0) goto post_error;
     if (write(idx,&(DB->treads),sizeof(int)) < 0) goto post_error;
     if (write(idx,Perm,sizeof(int)*DB->treads) < 0) goto post_error;
+
+    for (x = 1; x < 0x10000; x++)
+      posfix[x] += posfix[x-1];
+    if (write(tab,posfix,sizeof(int64)*0x10000) < 0) goto ktab_error;
     close(idx);
   }
  
   free(buffer);
   free(sarray);
+  free(posfix);
   free(prefix);
   return;
 
@@ -1263,7 +1280,7 @@ int main(int argc, char *argv[])
             SORT_PATH = argv[i]+2;
             break;
           case 'T':
-            ARG_NON_NEGATIVE(NTHREADS,"maximum seed frequency");
+            ARG_NON_NEGATIVE(NTHREADS,"number of threads to use");
             break;
         }
       else
@@ -1277,7 +1294,10 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
+        fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -k: index k-mer size\n");
         fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         exit (1);
       }
@@ -1324,6 +1344,31 @@ int main(int argc, char *argv[])
     closedir(dirp);
   }
 
+  //  Make sure you can open (2 * NTHREADS + 2) * NTHREADS + 1 + tid files at one time.
+  //    tid is typically 3 unless using valgrind or other instrumentation.
+
+  { struct rlimit rlp;
+    int           tid;
+    uint64        nfiles;
+
+    tid = open(".xxx",O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+    close(tid);
+    unlink(".xxx");
+
+    nfiles = (2*NTHREADS+2)*NTHREADS + 1 + tid;
+    getrlimit(RLIMIT_NOFILE,&rlp);
+    if (nfiles > rlp.rlim_max)
+      { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);
+        exit (1);
+      } 
+    rlp.rlim_cur = nfiles;
+    if (setrlimit(RLIMIT_NOFILE,&rlp) < 0)
+      { fprintf(stderr,"%s: Could not increase IO unit resourc to %d\n",
+                       Prog_Name,(2*NTHREADS+4)*NTHREADS);
+        exit (1);
+      }
+  } 
+
   //  Open and trim DB
 
   PATH  = PathTo(argv[1]);
@@ -1337,27 +1382,6 @@ int main(int argc, char *argv[])
     }
   Trim_DB(DB);
   short_DB_fix(DB);
-
-  //  Make sure you can open (2 * NTHREADS + 4) * NTHREADS + tid files at one time.
-  //    tid is typically 3 unless using valgrind or other instrumentation.
-
-  { struct rlimit rlp;
-    int           tid;
-    uint64        nfiles;
-
-    tid = open(".xxx",O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
-    close(tid);
-    unlink(".xxx");
-
-    nfiles = (2*NTHREADS+4)*NTHREADS + tid;
-    getrlimit(RLIMIT_NOFILE,&rlp);
-    if (nfiles > rlp.rlim_max)
-      { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);
-        exit (1);
-      } 
-    rlp.rlim_cur = nfiles;
-    setrlimit(RLIMIT_NOFILE,&rlp);
-  } 
 
   { int i, l0, l1, l2, l3;   //  Compute byte complement table
 

@@ -31,6 +31,7 @@ typedef struct
     int64   cidx;
     uint8  *cache;
     uint8  *cptr;
+    int64  *index;
 
     int     copn;       //  File currently open
     int     part;       //  Thread # of file currently open
@@ -131,10 +132,12 @@ static Post_List *Open_Post_List(char *name)
   P->cache  = Malloc(POST_BLOCK*pbyte,"Allocating post list buffer\n");
   P->neps   = Malloc(nfile*sizeof(int64),"Allocating parts table of Post_List");
   P->perm   = Malloc(nctg*sizeof(int),"Allocating sort permutation");
-  if (P->cache == NULL || P->neps == NULL || P->perm == NULL)
+  P->index  = Malloc(0x10000*sizeof(int64),"Allocating index array");
+  if (P->cache == NULL || P->neps == NULL || P->perm == NULL || P->index == NULL)
     exit (1);
 
   if (read(f,P->perm,sizeof(int)*nctg) < 0) goto open_io_error;
+  if (read(f,P->index,sizeof(int64)*0x10000) < 0) goto open_io_error;
   close(f);
 
   nels = 0;
@@ -193,9 +196,10 @@ part_io_error:
 }
 
 static void Free_Post_List(Post_List *P)
-{ free(P->neps);
-  free(P->cache);
+{ free(P->index);
   free(P->perm);
+  free(P->neps);
+  free(P->cache);
   if (P->copn >= 0)
     close(P->copn);
   free(P->name);

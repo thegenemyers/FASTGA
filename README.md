@@ -71,7 +71,7 @@ a .las file into .psl format, and **LAStoPAF** that converts a .las file into .p
 <a name="Gindex"></a>
 
 ```
-1. Gindex [-v] [-P<dir(/tmp)>] [-T<int(8)>] [-k<int(40)>] [-f<int(10)>] <source>.[dam]
+1. Gindex [-v] [-T<int(8)>] [-P<dir(/tmp)>] [-k<int(40)>] [-f<int(10)>] <source>.[dam]
 ```
 
 Given a Dazzler database, or .dam, for a genome, **Gindex** produces an index of the genome
@@ -79,8 +79,11 @@ consisting of a pair of files \<source>.ktab and \<source>.post.  The .ktab file
 FastK table of all the (-k)-mers in the genome that occur -f or few times.  The .post file
 contains successive lists of the genome positions at which the k-mers in the first table occur
 in order of the k-mers in the table.  While you can reset the k-mer size with the -k option we
-strongly suggest you use the default value of 40.  The option -f is designed to remove k-mers from
-repetitive regions of the genome from consideration and by default is set to 10.  With the -v
+strongly suggest you use the default value of 40 (or more).  The option -f is designed to
+remove k-mers from repetitive regions of the genome: only k-mers that occur -f or fewer times
+are kept in the index.  The default value of -f is 10 and again we strongly suggest you use
+this default.  Increasing it will improve sensitivity at the expense of more time and space,
+decreasing it the opposit. With the -v
 option the program prints a progress report to the standard output.
 
 Gindex produces a number of large intermediate files in the directory ```/tmp``` unless an
@@ -106,23 +109,24 @@ Simply print to stdout a representation of the index produced by **Gindex**.  Mo
 debug and illustrative purposes.
 
 ```
-3. FastGA [-v] [-P<dir(/tmp)] [-o<out:name>] -f<int>
+3. FastGA [-v] [-T<int(8)>] [-P<dir(/tmp)] [-o<out:name>] [-f<int(10)>]
           [-c<int(100)>] [-s<int(500)>] [-a<int(100)>] [-e<float(.7)>]
           <source1>[.dam] [<source2>[.dam]]
 ```
 
-Once indices have been built for all relevant genomes, any pair \<source1> and \<source2> can be compared with **FastGA**.  **The indices for the genomes must have been built with the same
-number of threads and this is the number of threads that FastGA uses to perform the comparison.**
+Once indices have been built for all relevant genomes, any pair \<source1> and \<source2> can be compared with **FastGA**.
+You can also call FastGA with a single source in which case it compares the genome/assembly against
+itself, avoiding the finding and reporting of identity matches.  We anticipate that this mode may be usefule for (a) identifying repetitive regions in a genome, and (b) resolving and identifying 
+haplotype correspondences between the various contigs of a haplotype-phased assembly. 
+
 The output of the program is a Daligner .las (local alignments) file whose alignments can then
 be viewed with LAshow.  If the -o option is given then the name of the .las file is
 ```<out>.las```, otherwise the name is ```<source1>.<source2>.las``` by default.
 
 FastGA produces a number of large intermediate files in the directory ```/tmp``` unless an
 alternate directory is given with -P parameter.  When running on an HPC cluster node it is
-very important that this directory be on the disk local to the node.
-
-You can also call FastGA with a single source in which case it compares the genome/assembly against
-itself, avoiding the finding and reporting of identity matches.  We anticipate that this mode may be usefule for (a) identifying repetitive regions in a genome, and (b) resolving and identifying haplotype correspondences between the various contigs of an assembly. 
+very important that this directory be on the disk local to the node.  The default number of
+threads used by FastGA is 8, but can be changed with the -T option.  
 
 The traditional definition of the *adaptive seed* at a given position p of source1, is the longest string beginning at that position that is also somewhere in source2.  If the number of
 occurences of this string in source2 is greater than -f, then the adaptamer is deemed repetitive and is not considered.  Otherwise an adpatamer seed hit occurs at p and the positions of source2

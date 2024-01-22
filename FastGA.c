@@ -45,7 +45,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BUCK_WIDTH    64  //  2^BUCK_SHIFT
 #define    BUCK_ANTI    128  //  2*BUCK_WIDTH
 
-static char *Usage[] = { "[-v] [-P<dir(/tmp)>] [-o<out:name>] [-f<int(10)>]",
+static char *Usage[] = { "[-v] [-T<int(8)>] [-P<dir(/tmp)>] [-o<out:name>] [-f<int(10)>]",
                          "[-c<int(100)> [-s<int(500)>] [-a<int(100)>] [-e<float(.7)]",
                          "<source1>[.dam] [<source2>[.dam]]"
                        };
@@ -56,12 +56,12 @@ static int    CHAIN_BREAK; //  -s
 static int    CHAIN_MIN;   //  -c
 static int    ALIGN_MIN;   //  -a
 static double ALIGN_RATE;  //  -e
+static int    NTHREADS;    //  -T
 static char  *SORT_PATH;   //  -P
 static char  *ALGN_NAME;   //  -o
 static int    SELF;        //  Comparing A to A, or A to B?
 
 static int   KMER;         //  K-mer length and # of threads from genome indices
-static int   NTHREADS;
 
 static char *PAIR_NAME;    //  Prefixes for temporary files
 static char *ALGN_UNIQ;
@@ -135,6 +135,7 @@ typedef struct
     int64   cidx;
     uint8  *cache;
     uint8  *cptr;
+    int64  *index;
 
     int     copn;       //  File currently open
     int     part;       //  Thread # of file currently open
@@ -235,10 +236,12 @@ static Post_List *Open_Post_List(char *name)
   P->cache  = Malloc(POST_BLOCK*pbyte,"Allocating post list buffer\n");
   P->neps   = Malloc(nfile*sizeof(int64),"Allocating parts table of Post_List");
   P->perm   = Malloc(nctg*sizeof(int),"Allocating sort permutation");
-  if (P->cache == NULL || P->neps == NULL || P->perm == NULL)
+  P->index  = Malloc(0x10000*sizeof(int64),"Allocating index array");
+  if (P->cache == NULL || P->neps == NULL || P->perm == NULL || P->index == NULL)
     exit (1);
 
   if (read(f,P->perm,sizeof(int)*nctg) < 0) goto open_io_error;
+  if (read(f,P->index,sizeof(int64)*0x10000) < 0) goto open_io_error;
   close(f);
 
   nels = 0;
@@ -297,9 +300,10 @@ part_io_error:
 }
 
 static void Free_Post_List(Post_List *P)
-{ free(P->neps);
-  free(P->cache);
+{ free(P->index);
   free(P->perm);
+  free(P->neps);
+  free(P->cache);
   if (P->copn >= 0)
     close(P->copn);
   free(P->name);
@@ -498,6 +502,7 @@ typedef struct
     Post_List   *P1;
     Post_List   *P2;
     int          tid;
+    int          pbeg, pend;
     uint8       *cache;
     IOBuffer    *nunit;
     IOBuffer    *cunit;
@@ -517,7 +522,6 @@ static void *merge_thread(void *args)
   Kmer_Stream *T2  = parm->T2;
   Post_List   *P2  = parm->P2;
 
-  int     spart;
   int64   tbeg, tend;
 
   int     cpre;
@@ -564,21 +568,20 @@ static void *merge_thread(void *args)
   tseed = 0;
   apost = 0;
 
-  spart = tid - 1;
   First_Post_Entry(P1);
   First_Post_Entry(P2);
   First_Kmer_Entry(T1);
   First_Kmer_Entry(T2);
 
   if (tid != 0)
-    { GoTo_Post_Index(P1,P1->neps[spart]);
-      GoTo_Post_Index(P2,P2->neps[spart]);
-      GoTo_Kmer_Index(T1,((_Kmer_Stream *) T1)->neps[spart]);
-      GoTo_Kmer_Index(T2,((_Kmer_Stream *) T2)->neps[spart]);
+    { GoTo_Post_Index(P1,P1->index[parm->pbeg]);
+      GoTo_Post_Index(P2,P2->index[parm->pbeg]);
+      GoTo_Kmer_Index(T1,((_Kmer_Stream *) T1)->index[(parm->pbeg << 8) | 0xff]);
+      GoTo_Kmer_Index(T2,((_Kmer_Stream *) T2)->index[(parm->pbeg << 8) | 0xff]);
     }
+  tend = ((_Kmer_Stream *) T1)->index[(parm->pend << 8) | 0xff];
 
   qcnt = -1;
-  tend = ((_Kmer_Stream *) T1)->neps[spart+1];
   tbeg = T1->cidx;
   while (T1->cidx < tend)
     { suf1 = T1->csuf;
@@ -998,7 +1001,6 @@ static void *self_merge_thread(void *args)
   Kmer_Stream *T1  = parm->T1;
   Post_List   *P2  = parm->P1;
 
-  int     spart;
   int64   tbeg, tend;
 
   int     cpre;
@@ -1042,17 +1044,16 @@ static void *self_merge_thread(void *args)
   g1len = 0;
   tseed = 0;
 
-  spart = tid - 1;
   First_Post_Entry(P2);
   First_Kmer_Entry(T1);
 
   if (tid != 0)
-    { GoTo_Post_Index(P2,P2->neps[spart]);
-      GoTo_Kmer_Index(T1,((_Kmer_Stream *) T1)->neps[spart]);
+    { GoTo_Post_Index(P2,P2->index[parm->pbeg]);
+      GoTo_Kmer_Index(T1,((_Kmer_Stream *) T1)->index[(parm->pbeg>>8) | 0xff]);
     }
 
   qcnt = -1;
-  tend = ((_Kmer_Stream *) T1)->neps[spart+1];
+  tend = ((_Kmer_Stream *) T1)->index[(parm->pend>>8) | 0xff];
   tbeg = T1->cidx;
   for (suf1 = ctop; 1; suf1 += KBYTE)
     { if (suf1 >= ctop)
@@ -1370,6 +1371,38 @@ static void adaptamer_merge(char *g1,        char *g2,
       fflush(stdout);
     }
 
+  { Kmer_Stream *tp;
+    uint8       *ent;
+#ifdef DEBUG_SPLIT
+    char        *seq;
+#endif
+    int   t;
+    int64 p;
+
+    if (T1->nels > T2->nels)
+      tp = T1;
+    else
+      tp = T2;
+    ent = Current_Entry(tp,NULL);
+#ifdef DEBUG_SPLIT
+    seq = Current_Kmer(tp,NULL);
+#endif
+    parm[0].pbeg = 0;
+    for (t = 1; t < NTHREADS; t++)
+      { p = (tp->nels * t) / NTHREADS;
+        GoTo_Kmer_Index(tp,p);
+        if (p >= tp->nels)
+          parm[t].pbeg = 0xffff;
+        else
+          { ent = Current_Entry(tp,ent);
+            parm[t].pbeg = (tp->cpre >> 8);
+          }
+      }
+    for (t = 0; t < NTHREADS-1; t++)
+      parm[t].pend = parm[t+1].pbeg;
+    parm[NTHREADS-1].pend = 0xffff;
+  }
+
   parm[0].T1 = T1;
   parm[0].T2 = T2;
   parm[0].P1 = P1;
@@ -1450,6 +1483,33 @@ static void self_adaptamer_merge(char *g1, Kmer_Stream *T1, Post_List *P1)
     { fprintf(stdout,"  Starting adaptive seed merge\n");
       fflush(stdout);
     }
+
+  { uint8       *ent;
+#ifdef DEBUG_SPLIT
+    char        *seq;
+#endif
+    int   t;
+    int64 p;
+
+    ent = Current_Entry(T1,NULL);
+#ifdef DEBUG_SPLIT
+    seq = Current_Kmer(T1,NULL);
+#endif
+    parm[0].pbeg = 0;
+    for (t = 1; t < NTHREADS; t++)
+      { p = (T1->nels * t) / NTHREADS;
+        GoTo_Kmer_Index(T1,p);
+        if (p >= T1->nels)
+          parm[t].pbeg = 0xffff;
+        else
+          { ent = Current_Entry(T1,ent);
+            parm[t].pbeg = (T1->cpre >> 8);
+          }
+      }
+    for (t = 0; t < NTHREADS-1; t++)
+      parm[t].pend = parm[t+1].pbeg;
+    parm[NTHREADS-1].pend = 0xffff;
+  }
 
   parm[0].T1 = T1;
   parm[0].P1 = P1;
@@ -3287,6 +3347,7 @@ int main(int argc, char *argv[])
     ALIGN_MIN   =  100;
     ALIGN_RATE  = .7;
     SORT_PATH   = "/tmp";
+    NTHREADS    = 8;
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -3323,6 +3384,9 @@ int main(int argc, char *argv[])
           case 'P':
             SORT_PATH = argv[i]+2;
             break;
+          case 'T':
+            ARG_NON_NEGATIVE(NTHREADS,"number of threads to use");
+            break;
         }
       else
         argv[j++] = argv[i];
@@ -3336,10 +3400,11 @@ int main(int argc, char *argv[])
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
+        fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
         fprintf(stderr,"      -o: Use as root name for output .las file.\n");
-        fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         fprintf(stderr,"\n");
+        fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         fprintf(stderr,"      -c: minimum seed chain coverage in both genomes\n");
         fprintf(stderr,"      -s: threshold for starting a new seed chain\n");
         fprintf(stderr,"      -a: minimum alignment length\n");
@@ -3413,9 +3478,7 @@ int main(int argc, char *argv[])
 
   Perm1  = P1->perm;
   Perm2  = P2->perm;
-
-  KMER      = T1->kmer;
-  NTHREADS  = P1->nthr;
+  KMER   = T1->kmer;
 
   if (Open_DB(argv[1],DB1) < 0)
     exit (1);
@@ -3429,12 +3492,6 @@ int main(int argc, char *argv[])
         exit (1);
       Trim_DB(DB2);
       short_DB_fix(DB2);
-    }
-
-  if (P2->nthr != NTHREADS)
-    { fprintf(stderr,"%s: Genome indices %s & %s built with different # of threads\n",
-                      Prog_Name,argv[1],argv[2]);
-      exit (1);
     }
 
   { char *r1, *r2;

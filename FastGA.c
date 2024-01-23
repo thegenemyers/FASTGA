@@ -1049,11 +1049,11 @@ static void *self_merge_thread(void *args)
 
   if (tid != 0)
     { GoTo_Post_Index(P2,P2->index[parm->pbeg]);
-      GoTo_Kmer_Index(T1,((_Kmer_Stream *) T1)->index[(parm->pbeg>>8) | 0xff]);
+      GoTo_Kmer_Index(T1,((_Kmer_Stream *) T1)->index[(parm->pbeg<<8) | 0xff]);
     }
 
   qcnt = -1;
-  tend = ((_Kmer_Stream *) T1)->index[(parm->pend>>8) | 0xff];
+  tend = ((_Kmer_Stream *) T1)->index[(parm->pend<<8) | 0xff];
   tbeg = T1->cidx;
   for (suf1 = ctop; 1; suf1 += KBYTE)
     { if (suf1 >= ctop)
@@ -3277,11 +3277,11 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       if (nliv == 0)
         fprintf(stdout,
            "\n  Total hits over %d = %lld, %lld la's, 0 non-redundant la's of ave len 0\n",
-                       CHAIN_MIN,nhit,nlas);
+                       CHAIN_MIN/2,nhit,nlas);
       else
         fprintf(stdout,
            "\n  Total hits over %d = %lld, %lld la's, %lld non-redundant la's of ave len %lld\n",
-                       CHAIN_MIN,nhit,nlas,nliv,ncov/nliv);
+                       CHAIN_MIN/2,nhit,nlas,nliv,ncov/nliv);
     }
 
   if (VERBOSE)

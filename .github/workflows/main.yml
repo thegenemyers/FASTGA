@@ -27,7 +27,7 @@ jobs:
       if: matrix.os == 'windows-latest'
       run: |
         choco install make
-        choco install zlib
+        choco install zlib -y --source=https//chocolatey.org/api/v2
 
     - name: Build
       run: make

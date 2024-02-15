@@ -67,7 +67,7 @@ Work_Data *New_Work_Data()
   
   work = (_Work_Data *) Malloc(sizeof(_Work_Data),"Allocating work data block");
   if (work == NULL)
-    EXIT(NULL);
+    return (NULL);
   work->vecmax = 0;
   work->vector = NULL;
   work->pntmax = 0;
@@ -88,7 +88,7 @@ static int enlarge_vector(_Work_Data *work, int newmax)
   max = ((int) (newmax*1.2)) + 10000;
   vec = Realloc(work->vector,max,"Enlarging DP vector");
   if (vec == NULL)
-    EXIT(1);
+    return(1);
   work->vecmax = max;
   work->vector = vec;
   return (0);
@@ -101,7 +101,7 @@ static int enlarge_points(_Work_Data *work, int newmax)
   max = ((int) (newmax*1.2)) + 10000;
   vec = Realloc(work->points,max,"Enlarging point vector");
   if (vec == NULL)
-    EXIT(1);
+    return(1);
   work->pntmax = max;
   work->points = vec;
   return (0);
@@ -114,7 +114,7 @@ static int enlarge_alnpts(_Work_Data *work, int newmax)
   max = ((int) (newmax*1.2)) + 10000;
   vec = Realloc(work->alnpts,max,"Enlarging point vector");
   if (vec == NULL)
-    EXIT(1);
+    return(1);
   work->alnmax = max;
   work->alnpts = vec;
   return (0);
@@ -127,7 +127,7 @@ static int enlarge_trace(_Work_Data *work, int newmax)
   max = ((int) (newmax*1.2)) + 10000;
   vec = Realloc(work->trace,max,"Enlarging trace vector");
   if (vec == NULL)
-    EXIT(1);
+    return(1);
   work->tramax = max;
   work->trace  = vec;
   return (0);
@@ -227,7 +227,7 @@ Align_Spec *New_Align_Spec(double ave_corr, int trace_space, float *freq, int re
 
   spec = (_Align_Spec *) Malloc(sizeof(_Align_Spec),"Allocating alignment specification");
   if (spec == NULL)
-    EXIT(NULL);
+    return(NULL);
 
   spec->ave_corr    = ave_corr;
   spec->trace_space = trace_space;
@@ -256,7 +256,7 @@ Align_Spec *New_Align_Spec(double ave_corr, int trace_space, float *freq, int re
   parms.score = (int16 *) Malloc(sizeof(int16)*(TRIM_MASK+1)*2,"Allocating trim table");
   if (parms.score == NULL)
     { free(spec);
-      EXIT(NULL);
+      return(NULL);
     }
   parms.table = parms.score + (TRIM_MASK+1);
 
@@ -446,7 +446,7 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           { cmax  = ((int) (avail*1.2)) + 10000;
             cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
             if (cells == NULL)
-              EXIT(1);
+              return(1);
             work->celmax = cmax;
             work->cells  = (void *) cells;
           }
@@ -500,7 +500,7 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
                 if (cells == NULL)
-                  EXIT(1);
+                  return(1);
                 work->celmax = cmax;
                 work->cells  = (void *) cells;
               }
@@ -520,7 +520,7 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
                 if (cells == NULL)
-                  EXIT(1);
+                  return(1);
                 work->celmax = cmax;
                 work->cells  = (void *) cells;
               }
@@ -607,7 +607,7 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           span = (hgh-low)+1;
           if (.8*vlen < span)
             { if (enlarge_vector(work,vlen*VectorEl))
-                EXIT(1);
+                return(1);
 
               move = ((void *) _V) - work->vector;
               vlen = work->vecmax/VectorEl;
@@ -775,7 +775,7 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                       cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
                                                        "Reallocating trace cells");
                       if (cells == NULL)
-                        EXIT(1);
+                        return(1);
                       work->celmax = cmax;
                       work->cells  = (void *) cells;
                     }
@@ -799,7 +799,7 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                       cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
                                                        "Reallocating trace cells");
                       if (cells == NULL)
-                        EXIT(1);
+                        return(1);
                       work->celmax = cmax;
                       work->cells  = (void *) cells;
                     }
@@ -1106,7 +1106,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           { cmax  = ((int) (avail*1.2)) + 10000;
             cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
             if (cells == NULL)
-              EXIT(1);
+              return(1);
             work->celmax = cmax;
             work->cells  = (void *) cells;
           }
@@ -1158,7 +1158,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
                 if (cells == NULL)
-                  EXIT(1);
+                  return(1);
                 work->celmax = cmax;
                 work->cells  = (void *) cells;
               }
@@ -1178,7 +1178,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
                 if (cells == NULL)
-                  EXIT(1);
+                  return(1);
                 work->celmax = cmax;
                 work->cells  = (void *) cells;
               }
@@ -1262,7 +1262,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           span = (hgh-low)+1;
           if (.8*vlen < span)
             { if (enlarge_vector(work,vlen*VectorEl))
-                EXIT(1);
+                return(1);
 
               move = ((void *) _V) - work->vector;
               vlen = work->vecmax/VectorEl;
@@ -1430,7 +1430,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                       cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
                                                        "Reallocating trace cells");
                       if (cells == NULL)
-                        EXIT(1);
+                        return(1);
                       work->celmax = cmax;
                       work->cells  = (void *) cells;
                     }
@@ -1453,7 +1453,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                       cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
                                                        "Reallocating trace cells");
                       if (cells == NULL)
-                        EXIT(1);
+                        return(1);
                       work->celmax = cmax;
                       work->cells  = (void *) cells;
                     }
@@ -1747,7 +1747,7 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
       wsize = VectorEl*10000;
     if (wsize >= work->vecmax)
       if (enlarge_vector(work,wsize))
-        EXIT(NULL);
+        return (NULL);
 
     if (alen < blen)
       maxtp = 2*(blen/spec->trace_space+2);
@@ -1756,7 +1756,7 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
     wsize = 4*maxtp*sizeof(uint16) + sizeof(Path);
     if (wsize > work->pntmax)
       if (enlarge_points(work,wsize))
-        EXIT(NULL);
+        return (NULL);
 
     apath = align->path;
     bpath = (Path *) work->points;
@@ -1805,7 +1805,7 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
     }
 
   if (forward_wave(work,spec,align,bpath,&low,hgh,anti,minp,maxp,aoff,boff))
-    EXIT(NULL);
+    return (NULL);
 
   fshort = ((apath->aepos + apath->bepos) - anti < DUB_TRIM);
 
@@ -1816,7 +1816,7 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
 #endif
 
   if (reverse_wave(work,spec,align,bpath,low,low,anti,minp,maxp,aoff,boff))
-    EXIT(NULL);
+    return (NULL);
 
 #ifdef DEBUG_PASSES
   printf("R1 (%d,%d) => (%d,%d) %d\n",
@@ -1839,7 +1839,7 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
           anti = apath->abpos + apath->bbpos;
           apath->tlen = bpath->tlen = 0;
           if (forward_wave(work,spec,align,bpath,&low,low,anti,minp,maxp,aoff,boff))
-            EXIT(NULL);
+            return (NULL);
         }
     }
   else
@@ -1849,7 +1849,7 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
           apath->tlen = bpath->tlen = 0;
           apath->diffs = 0;
           if (reverse_wave(work,spec,align,bpath,low,low,anti,minp,maxp,aoff,boff))
-            EXIT(NULL);
+            return (NULL);
         }
     }
         
@@ -2041,7 +2041,7 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           { cmax  = ((int) (avail*1.2)) + 10000;
             cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
             if (cells == NULL)
-              EXIT(1);
+              return (1);
             work->celmax = cmax;
             work->cells  = (void *) cells;
           }
@@ -2083,7 +2083,7 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
                 if (cells == NULL)
-                  EXIT(1);
+                  return (1);
                 work->celmax = cmax;
                 work->cells  = (void *) cells;
               }
@@ -2162,7 +2162,7 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           span = (hgh-low)+1;
           if (.8*vlen < span)
             { if (enlarge_vector(work,vlen*VectorEn))
-                EXIT(1);
+                return (1);
 
               move = ((void *) _V) - work->vector;
               vlen = work->vecmax/VectorEn;
@@ -2308,7 +2308,7 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                       cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
                                                        "Reallocating trace cells");
                       if (cells == NULL)
-                        EXIT(1);
+                        return (1);
                       work->celmax = cmax;
                       work->cells  = (void *) cells;
                     }
@@ -2553,7 +2553,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           { cmax  = ((int) (avail*1.2)) + 10000;
             cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
             if (cells == NULL)
-              EXIT(1);
+              return (1);
             work->celmax = cmax;
             work->cells  = (void *) cells;
           }
@@ -2594,7 +2594,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
                 if (cells == NULL)
-                  EXIT(1);
+                  return (1);
                 work->celmax = cmax;
                 work->cells  = (void *) cells;
               }
@@ -2670,7 +2670,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           span = (hgh-low)+1;
           if (.8*vlen < span)
             { if (enlarge_vector(work,vlen*VectorEn))
-                EXIT(1);
+                return (1);
 
               move = ((void *) _V) - work->vector;
               vlen = work->vecmax/VectorEn;
@@ -2816,7 +2816,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                       cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
                                                        "Reallocating trace cells");
                       if (cells == NULL)
-                        EXIT(1);
+                        return (1);
                       work->celmax = cmax;
                       work->cells  = (void *) cells;
                     }
@@ -3020,7 +3020,7 @@ int Find_Extension(Alignment *align, Work_Data *ework, Align_Spec *espec,
     wsize = VectorEn*10000;
     if (wsize >= work->vecmax)
       if (enlarge_vector(work,wsize))
-        EXIT(1);
+        return (1);
 
     if (alen < blen)
       maxtp = 2*(blen/spec->trace_space+2);
@@ -3029,7 +3029,7 @@ int Find_Extension(Alignment *align, Work_Data *ework, Align_Spec *espec,
     wsize = 2*maxtp*sizeof(uint16);
     if (wsize > work->pntmax)
       if (enlarge_points(work,wsize))
-        EXIT(1);
+        return (1);
 
     apath = align->path;
     apath->trace = ((uint16 *) work->points) + maxtp;
@@ -3050,7 +3050,7 @@ int Find_Extension(Alignment *align, Work_Data *ework, Align_Spec *espec,
 
   if (prefix)
     { if (reverse_extend(work,spec,align,diag,anti,minp,maxp))
-        EXIT(1);
+        return (1);
       apath->aepos = (anti+diag)/2;
       apath->bepos = (anti-diag)/2;
 #ifdef DEBUG_PASSES
@@ -3060,7 +3060,7 @@ int Find_Extension(Alignment *align, Work_Data *ework, Align_Spec *espec,
     }
   else
     { if (forward_extend(work,spec,align,diag,anti,minp,maxp))
-        EXIT(1);
+        return (1);
       apath->abpos = (anti+diag)/2;
       apath->bbpos = (anti-diag)/2;
 #ifdef DEBUG_PASSES
@@ -3131,7 +3131,7 @@ int Compress_TraceTo8(Overlap *ovl, int check)
       { x = t16[j];
         if (x > 255)
           { fprintf(stderr,"%s: Compression of trace to bytes fails, value too big\n",Prog_Name);
-            EXIT(1);
+            return (1);
           }
         t8[j] = (uint8) x;
       }
@@ -3197,7 +3197,7 @@ int Check_Trace_Points(Overlap *ovl, int tspace, int verbose, char *fname)
   if (tspace != 0)
     { if (((ovl->path.aepos-1)/tspace - ovl->path.abpos/tspace)*2 != ovl->path.tlen-2)
         { if (verbose) 
-            EPRINTF(EPLACE,"  %s: Wrong number of trace points\n",fname);
+            fprintf(stderr,"  %s: Wrong number of trace points\n",fname);
           return (1);
         }         
       p = ovl->path.bbpos;
@@ -3213,7 +3213,7 @@ int Check_Trace_Points(Overlap *ovl, int tspace, int verbose, char *fname)
         }
       if (p != ovl->path.bepos)
         { if (verbose)
-            EPRINTF(EPLACE,"  %s: Trace point sum != aligned interval\n",fname);
+            fprintf(stderr,"  %s: Trace point sum != aligned interval\n",fname);
           return (1); 
         }         
     }
@@ -3228,7 +3228,7 @@ int Check_Trace_Points(Overlap *ovl, int tspace, int verbose, char *fname)
         }
       if (p != ovl->path.bepos || q != ovl->path.aepos)
         { if (verbose)
-            EPRINTF(EPLACE,"  %s: Trace point sum != aligned interval\n",fname);
+            fprintf(stderr,"  %s: Trace point sum != aligned interval\n",fname);
           return (1); 
         }         
     }
@@ -3361,7 +3361,7 @@ int Print_Alignment(FILE *file, Alignment *align, Work_Data *ework,
   o = sizeof(char)*3*(width+1);
   if (o > work->vecmax)
     if (enlarge_vector(work,o))
-      EXIT(1);
+      return (1);
 
   if (upper)
     N2A = ToU;
@@ -3614,7 +3614,7 @@ int Print_Reference(FILE *file, Alignment *align, Work_Data *ework,
   o = sizeof(char)*6*(block+1);
   if (o > vmax)
     { if (enlarge_vector(work,3*o))
-        EXIT(1);
+        return (1);
       vmax = work->vecmax/3;
     }
 
@@ -3679,7 +3679,7 @@ int Print_Reference(FILE *file, Alignment *align, Work_Data *ework,
   o += 1;								\
   if (o >= vmax)							\
     { if (enlarge_vector(work,3*o))					\
-        EXIT(1);							\
+        return (1);							\
       vmax = work->vecmax/3;						\
       memmove(work->vector+2*vmax,Dbuf,o);				\
       memmove(work->vector+vmax,Bbuf,o);				\
@@ -4397,7 +4397,7 @@ int Compute_Alignment(Alignment *align, Work_Data *ework, int task, int tspace)
         L = asub*sizeof(int);
       if (L > work->alnmax)
         if (enlarge_alnpts(work,L))
-          EXIT(1);
+          return (1);
     }
 
   trace  = ((int *) work->alnpts);
@@ -4409,7 +4409,7 @@ int Compute_Alignment(Alignment *align, Work_Data *ework, int task, int tspace)
     D = (4*bsub+6)*sizeof(int);
   if (D > work->vecmax)
     if (enlarge_vector(work,D))
-      EXIT(1);
+      return (1);
   
   if (asub > bsub)
     { wave.VF = ((int *) work->vector) + (asub+1);
@@ -4564,8 +4564,8 @@ static int iter_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode, 
     posh =  dmax;
     if (wave->Aabs == wave->Babs)
       { if (B == A)
-          { EPRINTF(EPLACE,"%s: self comparison starts on diagonal 0 (Compute_Trace)\n",Prog_Name);
-            EXIT(-1);
+          { fprintf(stderr,"%s: self comparison starts on diagonal 0 (Compute_Trace)\n",Prog_Name);
+            return (-1);
           }
         else if (B < A)
           { if ((B-A)+1 > posl)
@@ -4593,8 +4593,8 @@ static int iter_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode, 
         char *a;
 
         if (D > dmax)
-          { EPRINTF(EPLACE,"%s: %s\n",Prog_Name,TP_Align);
-            EXIT(-1);
+          { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Align);
+            return (-1);
           }
 
         F2 = F1;
@@ -4902,8 +4902,8 @@ static int middle_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode
     posh =  dmax;
     if (wave->Aabs == wave->Babs)
       { if (B == A)
-          { EPRINTF(EPLACE,"%s: self comparison starts on diagonal 0 (Compute_Trace)\n",Prog_Name);
-            EXIT(1);
+          { fprintf(stderr,"%s: self comparison starts on diagonal 0 (Compute_Trace)\n",Prog_Name);
+            return (1);
           }
         else if (B < A)
           { if ((B-A)+1 > posl)
@@ -4931,8 +4931,8 @@ static int middle_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode
         char *a;
 
         if (D > dmax)
-          { EPRINTF(EPLACE,"%s: %s\n",Prog_Name,TP_Align);
-            EXIT(-1);
+          { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Align);
+            return (-1);
           }
 
         F2 = F1;
@@ -5184,7 +5184,7 @@ int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int
       s = M*sizeof(int);
     if (s > work->tramax)
       if (enlarge_trace(work,s))
-        EXIT(1);
+        return (1);
 
     nmax = 0;
     dmax = 0;
@@ -5203,7 +5203,7 @@ int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int
 
     if (s > work->vecmax)
       if (enlarge_vector(work,s))
-        EXIT(1);
+        return (1);
 
     wave.PVF = PVF = ((int **) (work->vector)) + 2;
     wave.PHF = PHF = PVF + (dmax+3);
@@ -5232,12 +5232,12 @@ int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int
       { ae = ae + trace_spacing;
         be = bb + points[i];
         if (ae > alen || be > blen)
-          { EPRINTF(EPLACE,"%s: %s\n",Prog_Name,TP_Error);
-            EXIT(1);
+          { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
+            return (1);
           }
         d  = iter_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax);
         if (d < 0)
-          EXIT(1);
+          return (1);
         diffs += d;
         ab = ae;
         bb = be;
@@ -5245,12 +5245,12 @@ int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int
     ae = path->aepos;
     be = path->bepos;
     if (ae > alen || be > blen)
-      { EPRINTF(EPLACE,"%s: %s\n",Prog_Name,TP_Error);
-        EXIT(1);
+      { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
+        return (1);
       }
     d  = iter_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax);
     if (d < 0)
-      EXIT(1);
+      return (1);
     diffs += d;
   }
 
@@ -5296,7 +5296,7 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
       s = M*sizeof(int);
     if (s > work->tramax)
       if (enlarge_trace(work,s))
-        EXIT(1);
+        return (1);
 
     nmax = 0;
     dmax = 0;
@@ -5315,7 +5315,7 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
 
     if (s > work->vecmax)
       if (enlarge_vector(work,s))
-        EXIT(1);
+        return (1);
 
     wave.PVF = PVF = ((int **) (work->vector)) + 2;
     wave.PHF = PHF = PVF + (dmax+3);
@@ -5346,16 +5346,16 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
       { ae = ae + trace_spacing;
         be = bb + points[i];
         if (ae > alen || be > blen)
-          { EPRINTF(EPLACE,"%s: %s\n",Prog_Name,TP_Error);
-            EXIT(1);
+          { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
+            return (1);
           }
         if (middle_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax))
-          EXIT(1);
+          return (1);
         af = wave.mida;
         bf = wave.midb;
         d  = iter_np(aseq+as,af-as,bseq+bs,bf-bs,&wave,mode,dmax);
         if (d < 0)
-          EXIT(1);
+          return (1);
         diffs += d;
         ab = ae;
         bb = be;
@@ -5367,23 +5367,23 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
     be = path->bepos;
 
     if (ae > alen || be > blen)
-      { EPRINTF(EPLACE,"%s: %s\n",Prog_Name,TP_Error);
-        EXIT(1);
+      { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
+        return (1);
       }
     if (middle_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax))
-      EXIT(1);
+      return (1);
     af = wave.mida;
     bf = wave.midb;
     d  = iter_np(aseq+as,af-as,bseq+bs,bf-bs,&wave,mode,dmax);
     if (d < 0)
-      EXIT(1);
+      return (1);
     diffs += d;
     as = af;
     bs = bf;
     
     d += iter_np(aseq+af,ae-as,bseq+bf,be-bs,&wave,mode,dmax);
     if (d < 0)
-      EXIT(1);
+      return (1);
     diffs += d;
   }
 
@@ -5429,7 +5429,7 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
       s = M*sizeof(int);
     if (s > work->tramax)
       if (enlarge_trace(work,s))
-        EXIT(1);
+        return (1);
 
     nmax = mmax = 0;
     for (d = 0; d < tlen; d += 2)
@@ -5451,7 +5451,7 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
 
     if (s > work->vecmax)
       if (enlarge_vector(work,s))
-        EXIT(1);
+        return (1);
 
     wave.PVF = PVF = ((int **) (work->vector)) + 2;
     wave.PHF = PHF = PVF + (dmax+3);
@@ -5478,12 +5478,12 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
       { ae = ab + points[i];
         be = bb + points[i+1];
         if (ae > alen || be > blen)
-          { EPRINTF(EPLACE,"%s: %s\n",Prog_Name,TP_Error);
-            EXIT(1);
+          { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
+            return (1);
           }
         d = iter_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax);
         if (d < 0)
-          EXIT(1);
+          return (1);
         diffs += d;
         ab = ae;
         bb = be;
@@ -5604,7 +5604,7 @@ void EndBoxStats()
 
 #endif
 
-void Gap_Improver(Alignment *aln, Work_Data *ework)
+int Gap_Improver(Alignment *aln, Work_Data *ework)
 { _Work_Data *work = (_Work_Data *) ework;
   int        *F, *H;
   int        *f, *h;
@@ -5669,7 +5669,7 @@ void Gap_Improver(Alignment *aln, Work_Data *ework)
       p = Diag*(Gaps+Hamm+1)*sizeof(int);
       if (p > work->vecmax)
         { if (enlarge_vector(work,p))
-            EXIT (1);
+            return  (1);
           F = (int *) work->vector;
         }
       H = F + Diag;
@@ -5943,4 +5943,5 @@ void Gap_Improver(Alignment *aln, Work_Data *ework)
             }
         }
     }
+  return (0);
 }

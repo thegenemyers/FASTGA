@@ -66,18 +66,30 @@ typedef struct
   { int    kmer;       //  Kmer length
     int    minval;     //  The minimum count of a k-mer in the stream
     int64  nels;       //  # of elements in entire table
-                    // Current position
+                   //  Current position (visible part)
     int64  cidx;       //  current element index
     uint8 *csuf;       //  current element suffix
     int    cpre;       //  current element prefix
-                    // Other useful parameters
+                   //  Other useful parameters
     int    ibyte;      //  # of bytes in prefix
     int    kbyte;      //  Kmer encoding in bytes
     int    tbyte;      //  Kmer+count entry in bytes
     int    hbyte;      //  Kmer suffix in bytes (= kbyte - ibyte)
     int    pbyte;      //  Kmer,count suffix in bytes (= tbyte - ibyte)
-
-    void  *private[10]; //  Private fields
+                   //  Hidden parts
+    int    ixlen;      //  length of prefix index (= 4^(4*ibyte))
+    int    shift;      //  shift for inverse mapping
+    uint8 *table;      //  The (huge) table in memory
+    int64 *index;      //  Prefix compression index
+    int   *inver;      //  inverse prefix index
+    int    copn;       //  File currently open
+    int    part;       //  Thread # of file currently open
+    int    nthr;       //  # of thread parts
+    int    nlen;       //  length of path name
+    char  *name;       //  Path name for table parts (only # missing)
+    uint8 *ctop;       //  Ptr top of current table block in buffer
+    int64 *neps;       //  Size of each thread part in elements
+    int    clone;      //  Is this a clone?
   } Kmer_Stream;
 
 Kmer_Stream *Open_Kmer_Stream(char *name);

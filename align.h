@@ -381,6 +381,6 @@ typedef struct {
      length as the input alignment.
   */
 
-  void Gap_Improver(Alignment *align, Work_Data *work);
+  int Gap_Improver(Alignment *align, Work_Data *work);
 
 #endif // _A_MODULE

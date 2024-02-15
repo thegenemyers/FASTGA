@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/uio.h>
 #include <unistd.h>
 #include <math.h>
 #include <pthread.h>
@@ -30,7 +31,7 @@
 #undef    DEBUG_TUBE
 #define   CALL_ALIGNER
 #undef    DEBUG_ALIGN
-#define    DEBUG_ENTWINE
+#undef    DEBUG_ENTWINE
 
 #define   MAX_INT64    0x7fffffffffffffffll
 
@@ -44,9 +45,9 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BUCK_WIDTH    64  //  2^BUCK_SHIFT
 #define    BUCK_ANTI    128  //  2*BUCK_WIDTH
 
-static char *Usage[] = { "[-v] [-T<int(8)>] [-P<dir(/tmp)>] [-o<out:name>] [-f<int(10)>]",
-                         "[-c<int(100)> [-s<int(500)>] [-a<int(100)>] [-e<float(.7)]",
-                         "<source1>[.dam] [<source2>[.dam]]"
+static char *Usage[] = { "[-vk] [-T<int(8)>] [-P<dir(/tmp)>] [<format(-paf)>]",
+                         "[-f<int(10)>] [-c<int(100)> [-s<int(500)>] [-a<int(100)>] [-e<float(.7)]",
+                         "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
                        };
 
 static int    FREQ;        //  -f: Adaptemer frequence cutoff parameter
@@ -57,14 +58,24 @@ static int    ALIGN_MIN;   //  -a
 static double ALIGN_RATE;  //  -e
 static int    NTHREADS;    //  -T
 static char  *SORT_PATH;   //  -P
-static char  *ALGN_NAME;   //  -o
+static int    KEEP;        //  -k
 static int    SELF;        //  Comparing A to A, or A to B?
+static int    OUT_TYPE;    //  -paf = 0; -psl = 1; -las = 2; -one = 3
+static int    OUT_OPT;     //  -pafm = 1; -pafx = 2; all others = 0
+
+static char *SPATH1, *SPATH2;   //  Sources are at SPATH/SROOT.suffix[SEXTN]
+static char *SROOT1, *SROOT2;
+static int   SEXTN1,  SEXTN2;
+static char   *suffix[10] = { "", ".fa", ".fna", ".fasta",
+                              ".gz", ".fa.gz", ".fna.gz", ".fasta.gz", ".gdb", ".gix" };
+static int     suflen[10] = { 0, 3, 4, 6, 3, 6, 7, 9, 4, 4 };
 
 static int   KMER;         //  K-mer length and # of threads from genome indices
 
 static char *PAIR_NAME;    //  Prefixes for temporary files
 static char *ALGN_UNIQ;
 static char *ALGN_PAIR;
+static char *ALGN_OUTP;
 
 static int IBYTE;         // # of bytes for an entry in P1
 static int IPOST;         // # of bytes in post of a P1 entry
@@ -115,6 +126,50 @@ typedef struct
 extern int rmsd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
                      int nparts, int64 *part, int nthreads, Range *range);
 
+static void Clean_Exit(int status)
+{ char *command;
+  int   fail;
+
+  if (status == 0 && KEEP)
+    exit (0);
+
+  fail = 0;
+  if (SEXTN2 < 9)
+    command = Malloc(strlen(SPATH1)+strlen(SROOT1)+
+                     strlen(SPATH2)+strlen(SPATH2)+100,"Allocating command string");
+  else
+    command = Malloc(strlen(SPATH1)+strlen(SROOT1)+100,"Allocating command string");
+
+  if (command == NULL)
+    fail = 1;
+  else
+    { if (SEXTN1 < 9)
+        { if (SEXTN1 < 8)
+            sprintf(command,"GIXrm -fg %s/%s.gdb",SPATH1,SROOT1);
+          else
+            sprintf(command,"GIXrm -f %s/%s.gix",SPATH1,SROOT1);
+          if (system(command) != 0)
+            fail = 1;
+        }
+
+      if (SEXTN2 < 9)
+        { if (SEXTN2 < 8)
+            sprintf(command,"GIXrm -fg %s/%s.gdb",SPATH2,SROOT2);
+          else
+            sprintf(command,"GIXrm -f %s/%s.gix",SPATH2,SROOT2);
+          if (system(command) != 0)
+            fail = 1;
+        }
+
+      free(command);
+    }
+
+  if (fail)
+    fprintf(stderr,"\n%s: Warning: Could not successfully remove .gdb/.gix\n",Prog_Name);
+
+  exit (status);
+}
+
 
 /***********************************************************************************************
  *
@@ -143,6 +198,7 @@ typedef struct
     char   *name;       //  Path name for table parts (only # missing)
     uint8  *ctop;       //  Ptr top of current table block in buffer
     int64  *neps;       //  Size of each thread part in elements
+    int     clone;      //  Is this a clone?
   } Post_List;
 
 #define POST_BLOCK 0x20000
@@ -162,7 +218,7 @@ static void More_Post_List(Post_List *P)
     { len  = read(copn,cache,POST_BLOCK*pbyte);
       if (len < 0)
         { fprintf(stderr,"%s: Error reading post file %s\n",Prog_Name,P->name);
-          exit (1);
+          Clean_Exit(1);
         }
       ctop = cache + len;
       if (len > 0)
@@ -177,11 +233,11 @@ static void More_Post_List(Post_List *P)
       copn = open(P->name,O_RDONLY);
       if (copn < 0)
         { fprintf(stderr,"%s: Cannot open post file %s for reading\n",Prog_Name,P->name);
-          exit (1);
+          Clean_Exit(1);
         }
       if (lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET) < 0)
         { fprintf(stderr,"%s: Cannot advance post file %s to data part\n",Prog_Name,P->name);
-          exit (1);
+          Clean_Exit(1);
         }
     }
   P->cptr = cache;
@@ -200,20 +256,25 @@ static Post_List *Open_Post_List(char *name)
   int    pb, cb, nfile, nthreads, freq;
 
   dir  = PathTo(name);
-  root = Root(name,".ktab");
+  root = Root(name,".gix");
   full = Malloc(strlen(dir)+strlen(root)+20,"Post list name allocation");
   if (full == NULL)
-    exit (1);
-  sprintf(full,"%s/%s.post",dir,root);
+    { Clean_Exit(1);
+      exit (1);
+    }
+  sprintf(full,"%s/%s.gix",dir,root);
   f = open(full,O_RDONLY);
   if (f < 0)
     { fprintf(stderr,"%s: Cannot open post stub file %s/%s.post\n",Prog_Name,dir,root);
+      Clean_Exit(1);
       exit (1);
     }
   sprintf(full,"%s/.%s.post.",dir,root);
   flen = strlen(full);
   free(root);
   free(dir);
+
+  if (lseek(f,4*sizeof(int)+0x1000000*sizeof(int64),SEEK_SET) < 0) goto open_io_error;
 
   if (read(f,&pbyte,sizeof(int)) < 0) goto open_io_error;
   if (read(f,&cbyte,sizeof(int)) < 0) goto open_io_error;
@@ -228,7 +289,7 @@ static Post_List *Open_Post_List(char *name)
 
   P = Malloc(sizeof(Post_List),"Allocating post record");
   if (P == NULL)
-    exit (1);
+    Clean_Exit(1);
   P->name   = full;
   P->nlen   = strlen(full);
   P->maxp   = maxp;
@@ -237,7 +298,9 @@ static Post_List *Open_Post_List(char *name)
   P->perm   = Malloc(nctg*sizeof(int),"Allocating sort permutation");
   P->index  = Malloc(0x10000*sizeof(int64),"Allocating index array");
   if (P->cache == NULL || P->neps == NULL || P->perm == NULL || P->index == NULL)
-    exit (1);
+    { Clean_Exit(1);
+      exit (1);
+    }
 
   if (read(f,P->perm,sizeof(int)*nctg) < 0) goto open_io_error;
   if (read(f,P->index,sizeof(int64)*0x10000) < 0) goto open_io_error;
@@ -249,6 +312,7 @@ static Post_List *Open_Post_List(char *name)
       copn = open(P->name,O_RDONLY);
       if (copn < 0)
         { fprintf(stderr,"%s: Table part %s is missing ?\n",Prog_Name,P->name);
+          Clean_Exit(1);
           exit (1);
         }
       if (read(copn,&pb,sizeof(int)) < 0) goto part_io_error;
@@ -260,6 +324,7 @@ static Post_List *Open_Post_List(char *name)
       if (pbyte != pb)
         { fprintf(stderr,"%s: Post list part %s does not have post size matching stub ?\n",
                          Prog_Name,P->name);
+          Clean_Exit(1);
           exit (1);
         }
       close(copn);
@@ -271,6 +336,7 @@ static Post_List *Open_Post_List(char *name)
   P->nthr  = nfile;
   P->freq  = freq;
   P->nctg  = nctg;
+  P->clone = 0;
 
   sprintf(P->name+P->nlen,"%d",1);
   copn = open(P->name,O_RDONLY);
@@ -278,6 +344,7 @@ static Post_List *Open_Post_List(char *name)
 
   if (lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET) < 0)
     { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
+      Clean_Exit(1);
       exit (1);
     }
 
@@ -291,21 +358,55 @@ static Post_List *Open_Post_List(char *name)
 
 open_io_error:
   fprintf(stderr,"\n%s: IO error reading file %s/%s.post\n",Prog_Name,dir,root);
+  Clean_Exit(1);
   exit (1);
 
 part_io_error:
   fprintf(stderr,"\n%s: IO error reading post part file %s\n",Prog_Name,P->name);
+  Clean_Exit(1);
   exit (1);
 }
 
+Post_List *Clone_Post_List(Post_List *O)
+{ Post_List *P;
+  int copn;
+
+  P = Malloc(sizeof(Post_List),"Allocating post record");
+  if (P == NULL)
+    Clean_Exit(1);
+
+  *P = *O;
+  P->clone = 1;
+
+  P->cache = Malloc(POST_BLOCK*O->pbyte,"Allocating post list buffer\n");
+  P->name  = Malloc(P->nlen+20,"Allocating post list buffer\n");
+  if (P->cache == NULL || P->name == NULL)
+    Clean_Exit(1);
+  strncpy(P->name,O->name,P->nlen);
+
+  sprintf(P->name+P->nlen,"%d",1);
+  copn = open(P->name,O_RDONLY);
+  lseek(copn,2*sizeof(int)+sizeof(int64),SEEK_SET);
+
+  P->copn  = copn;
+  P->part  = 1;
+
+  More_Post_List(P);
+  P->cidx = 0;
+
+  return (P);
+}
+
 static void Free_Post_List(Post_List *P)
-{ free(P->index);
-  free(P->perm);
-  free(P->neps);
+{ if (!P->clone)
+    { free(P->index);
+      free(P->perm);
+      free(P->neps);
+    }
+  free(P->name);
   free(P->cache);
   if (P->copn >= 0)
     close(P->copn);
-  free(P->name);
   free(P);
 }
 
@@ -318,14 +419,14 @@ static inline void First_Post_Entry(Post_List *P)
           P->copn = open(P->name,O_RDONLY);
           if (P->copn < 0)
             { fprintf(stderr,"\n%s: Could not open post part file %s\n",Prog_Name,P->name);
-              exit (1);
+              Clean_Exit(1);
             }
           P->part = 1;
         }
 
       if (lseek(P->copn,sizeof(int)+sizeof(int64),SEEK_SET) < 0)
         { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
-          exit (1);
+          Clean_Exit(1);
         }
 
       More_Post_List(P);
@@ -376,7 +477,7 @@ static inline void GoTo_Post_Index(Post_List *P, int64 i)
       P->copn = open(P->name,O_RDONLY);
       if (P->copn < 0)
         { fprintf(stderr,"\n%s: Could not open post part file %s\n",Prog_Name,P->name);
-          exit (1);
+          Clean_Exit(1);
         }
 
       P->part = p;
@@ -384,7 +485,7 @@ static inline void GoTo_Post_Index(Post_List *P, int64 i)
 
   if (lseek(P->copn,2*sizeof(int) + sizeof(int64) + i*P->pbyte,SEEK_SET) < 0)
     { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
-      exit (1);
+      Clean_Exit(1);
     }
 
   More_Post_List(P);
@@ -420,57 +521,18 @@ static inline void JumpTo_Post_Index(Post_List *P, int64 del)
       P->copn = open(P->name,O_RDONLY);
       if (P->copn < 0)
         { fprintf(stderr,"\n%s: Could not open post part file %s\n",Prog_Name,P->name);
-          exit (1);
+          Clean_Exit(1);
         }
       P->part = p;
     }
 
   if (lseek(P->copn,2*sizeof(int) + sizeof(int64) + i*P->pbyte,SEEK_SET) < 0)
     { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
-      exit (1);
+      Clean_Exit(1);
     }
 
   More_Post_List(P);
 }
-
-
-/***********************************************************************************************
- *
- *   The internal data structure for a table (taken from libfastk.c) needs to be visible so
- *     that the "neps" array can be accessed in order to synchronize thread starts.
- *
- **********************************************************************************************/
-
-typedef struct
-  { int    kmer;       //  Kmer length
-    int    minval;     //  The minimum count of a k-mer in the stream
-    int64  nels;       //  # of elements in entire table
-                   //  Current position (visible part)
-    int64  cidx;       //  current element index
-    uint8 *csuf;       //  current element suffix
-    int    cpre;       //  current element prefix
-                   //  Other useful parameters
-    int    ibyte;      //  # of bytes in prefix
-    int    kbyte;      //  Kmer encoding in bytes
-    int    tbyte;      //  Kmer+count entry in bytes
-    int    hbyte;      //  Kmer suffix in bytes (= kbyte - ibyte)
-    int    pbyte;      //  Kmer,count suffix in bytes (= tbyte - ibyte)
-                   //  Hidden parts
-    int    ixlen;      //  length of prefix index (= 4^(4*ibyte))
-    int    shift;      //  shift for inverse mapping
-    uint8 *table;      //  The (huge) table in memory
-    int64 *index;      //  Prefix compression index
-    int   *inver;      //  inverse prefix index
-    int    copn;       //  File currently open
-    int    part;       //  Thread # of file currently open
-    int    nthr;       //  # of thread parts
-    int    nlen;       //  length of path name
-    char  *name;       //  Path name for table parts (only # missing)
-    uint8 *ctop;       //  Ptr top of current table block in buffer
-    int64 *neps;       //  Size of each thread part in elements
-    int    clone;      //  Is this a clone?
-  } _Kmer_Stream;
-
 
 /***********************************************************************************************
  *
@@ -575,10 +637,10 @@ static void *merge_thread(void *args)
   if (tid != 0)
     { GoTo_Post_Index(P1,P1->index[parm->pbeg]);
       GoTo_Post_Index(P2,P2->index[parm->pbeg]);
-      GoTo_Kmer_Index(T1,((_Kmer_Stream *) T1)->index[(parm->pbeg << 8) | 0xff]);
-      GoTo_Kmer_Index(T2,((_Kmer_Stream *) T2)->index[(parm->pbeg << 8) | 0xff]);
+      GoTo_Kmer_Index(T1,T1->index[(parm->pbeg << 8) | 0xff]);
+      GoTo_Kmer_Index(T2,T2->index[(parm->pbeg << 8) | 0xff]);
     }
-  tend = ((_Kmer_Stream *) T1)->index[(parm->pend << 8) | 0xff];
+  tend = T1->index[(parm->pend << 8) | 0xff];
 
   qcnt = -1;
   tbeg = T1->cidx;
@@ -598,8 +660,8 @@ static void *merge_thread(void *args)
               else
                 pcnt = ((T1->cidx - tbeg) * 100) / (tend-tbeg); 
               if (pcnt > qcnt)
-                { printf("\r    Completed %3d%%",pcnt);
-                  fflush(stdout);
+                { fprintf(stderr,"\r    Completed %3d%%",pcnt);
+                  fflush(stderr);
                 }
               qcnt = pcnt;
             }
@@ -857,7 +919,7 @@ static void *merge_thread(void *args)
                       { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
                                        Prog_Name,SORT_PATH,PAIR_NAME,ou->inum,
                                        (asign == (jptr[JSIGN] & 0x80)) ? 'N' : 'C');
-                        exit (1);
+                        Clean_Exit(1);
                       }
                     ou->btop = ou->bufr;
                   }
@@ -900,13 +962,13 @@ static void *merge_thread(void *args)
           if (write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr) < 0)
             { fprintf(stderr,"%s: IO write to file %s/%s.%d.N failed\n",
                              Prog_Name,SORT_PATH,PAIR_NAME,nunit[j].inum);
-              exit (1);
+              Clean_Exit(1);
             }
         if (cunit[j].btop > cunit[j].bufr)
           if (write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr) < 0)
             { fprintf(stderr,"%s: IO write to file %s/%s.%d.C failed\n",
                              Prog_Name,SORT_PATH,PAIR_NAME,cunit[j].inum);
-              exit (1);
+              Clean_Exit(1);
             }
       }
   }
@@ -1048,11 +1110,11 @@ static void *self_merge_thread(void *args)
 
   if (tid != 0)
     { GoTo_Post_Index(P2,P2->index[parm->pbeg]);
-      GoTo_Kmer_Index(T1,((_Kmer_Stream *) T1)->index[(parm->pbeg<<8) | 0xff]);
+      GoTo_Kmer_Index(T1,T1->index[(parm->pbeg<<8) | 0xff]);
     }
 
   qcnt = -1;
-  tend = ((_Kmer_Stream *) T1)->index[(parm->pend<<8) | 0xff];
+  tend = T1->index[(parm->pend<<8) | 0xff];
   tbeg = T1->cidx;
   for (suf1 = ctop; 1; suf1 += KBYTE)
     { if (suf1 >= ctop)
@@ -1065,8 +1127,8 @@ static void *self_merge_thread(void *args)
               else
                 pcnt = ((T1->cidx - tbeg) * 100) / (tend-tbeg); 
               if (pcnt > qcnt)
-                { printf("\r    Completed %3d%%",pcnt);
-                  fflush(stdout);
+                { fprintf(stderr,"\r    Completed %3d%%",pcnt);
+                  fflush(stderr);
                 }
               qcnt = pcnt;
             }
@@ -1298,7 +1360,7 @@ static void *self_merge_thread(void *args)
                       { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
                                        Prog_Name,SORT_PATH,PAIR_NAME,
                                        ou->inum,(isign == jsign) ? 'N' : 'C');
-                        exit (1);
+                        Clean_Exit(1);
                       }
                     ou->btop = ou->bufr;
                   }
@@ -1336,13 +1398,13 @@ static void *self_merge_thread(void *args)
           if (write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr) < 0)
             { fprintf(stderr,"%s: IO write to file %s/%s.%d.N failed\n",
                              Prog_Name,SORT_PATH,PAIR_NAME,nunit[j].inum);
-              exit (1);
+              Clean_Exit(1);
             }
         if (cunit[j].btop > cunit[j].bufr)
           if (write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr) < 0)
             { fprintf(stderr,"%s: IO write to file %s/%s.%d.C failed\n",
                              Prog_Name,SORT_PATH,PAIR_NAME,cunit[j].inum);
-              exit (1);
+              Clean_Exit(1);
             }
       }
   }
@@ -1354,8 +1416,7 @@ static void *self_merge_thread(void *args)
 }
 
 
-static void adaptamer_merge(char *g1,        char *g2,
-                            Kmer_Stream *T1, Kmer_Stream *T2,
+static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
                             Post_List *P1,   Post_List *P2)
 { SP         parm[NTHREADS];
 #ifndef DEBUG_MERGE
@@ -1366,8 +1427,8 @@ static void adaptamer_merge(char *g1,        char *g2,
   int        i;
 
   if (VERBOSE)
-    { fprintf(stdout,"  Starting adaptive seed merge\n");
-      fflush(stdout);
+    { fprintf(stderr,"  Starting adaptive seed merge\n");
+      fflush(stderr);
     }
 
   { Kmer_Stream *tp;
@@ -1409,13 +1470,13 @@ static void adaptamer_merge(char *g1,        char *g2,
   for (i = 1; i < NTHREADS; i++)
     { parm[i].T1 = Clone_Kmer_Stream(T1);
       parm[i].T2 = Clone_Kmer_Stream(T2);
-      parm[i].P1 = Open_Post_List(g1);
-      parm[i].P2 = Open_Post_List(g2);
+      parm[i].P1 = Clone_Post_List(P1);
+      parm[i].P2 = Clone_Post_List(P2);
     }
 
   cache = Malloc(NTHREADS*(P2->maxp+1)*KBYTE,"Allocating cache");
   if (cache == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   for (i = 0; i < NTHREADS; i++)
     { IOBuffer *nu, *cu;
@@ -1441,8 +1502,8 @@ static void adaptamer_merge(char *g1,        char *g2,
 #endif
 
   if (VERBOSE)
-    { printf("\r    Completed 100%%\n");
-      fflush(stdout);
+    { fprintf(stderr,"\r    Completed 100%%\n");
+      fflush(stderr);
     }
    
   free(cache);
@@ -1464,12 +1525,14 @@ static void adaptamer_merge(char *g1,        char *g2,
     }
 
   if (VERBOSE)
-    printf("\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n\n",
-           nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
+    { fprintf(stderr,"\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n\n",
+                     nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
+      fflush(stderr);
+    }
 }
 
 
-static void self_adaptamer_merge(char *g1, Kmer_Stream *T1, Post_List *P1)
+static void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1)
 { SP         parm[NTHREADS];
 #ifndef DEBUG_MERGE
   pthread_t  threads[NTHREADS];
@@ -1479,8 +1542,8 @@ static void self_adaptamer_merge(char *g1, Kmer_Stream *T1, Post_List *P1)
   int        i;
 
   if (VERBOSE)
-    { fprintf(stdout,"  Starting adaptive seed merge\n");
-      fflush(stdout);
+    { fprintf(stderr,"  Starting adaptive seed merge\n");
+      fflush(stderr);
     }
 
   { uint8       *ent;
@@ -1514,12 +1577,12 @@ static void self_adaptamer_merge(char *g1, Kmer_Stream *T1, Post_List *P1)
   parm[0].P1 = P1;
   for (i = 1; i < NTHREADS; i++)
     { parm[i].T1 = Clone_Kmer_Stream(T1);
-      parm[i].P1 = Open_Post_List(g1);
+      parm[i].P1 = Clone_Post_List(P1);
     }
 
   cache = Malloc(NTHREADS*(P1->maxp+1)*KBYTE,"Allocating cache");
   if (cache == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   for (i = 0; i < NTHREADS; i++)
     { IOBuffer *nu, *cu;
@@ -1545,8 +1608,8 @@ static void self_adaptamer_merge(char *g1, Kmer_Stream *T1, Post_List *P1)
 #endif
 
   if (VERBOSE)
-    { printf("\r    Completed 100%%\n");
-      fflush(stdout);
+    { fprintf(stderr,"\r    Completed 100%%\n");
+      fflush(stderr);
     }
    
   free(cache);
@@ -1565,8 +1628,10 @@ static void self_adaptamer_merge(char *g1, Kmer_Stream *T1, Post_List *P1)
     }
 
   if (VERBOSE)
-    printf("\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n\n",
-           nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
+    { fprintf(stderr,"\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n\n",
+                     nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
+      fflush(stderr);
+    }
 }
 
 
@@ -1619,7 +1684,7 @@ static void *reimport_thread(void *args)
   if (iamt < 0)
     { fprintf(stderr,"%s: IO read error for file %s/%s.%d.%c\n",
                      Prog_Name,SORT_PATH,PAIR_NAME,parm->inum,comp?'C':'N');
-      exit (1);
+      Clean_Exit(1);
     }
   bend = bufr + iamt;
 
@@ -1691,7 +1756,7 @@ static void *reimport_thread(void *args)
           if (iamt < 0)
             { fprintf(stderr,"%s: IO read error for file %s/%s.%d.%c\n",
                              Prog_Name,SORT_PATH,PAIR_NAME,parm->inum,comp?'C':'N');
-              exit (1);
+              Clean_Exit(1);
             }
           bend += iamt;
           if (bend == bufr)
@@ -1930,7 +1995,8 @@ static int ALIGN_SORT(const void *l, const void *r)
 //    the contigs in the parameter pair.  Look for seed chains in each pair of diagaonl buckets
 //    of sufficient score, and when found search for an alignment, outputing it if found.
 
-void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig_Bundle *pair)
+static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
+                          Contig_Bundle *pair)
 { Overlap    *ovl   = &(pair->ovl);
   int         comp  = (ovl->flags != 0);
 #ifdef CALL_ALIGNER
@@ -2003,7 +2069,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
     }
 
 #if defined(DEBUG_SEARCH) || defined(DEBUG_HIT)
-  repgo = (ctg1 == -1) && (ctg2 == -1);
+  repgo = (ctg1 == 53) && (ctg2 == 11);
   if (repgo)
     printf("\n  Contig %d vs Contig %d\n",ctg1,ctg2);
 #endif
@@ -2123,7 +2189,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
                       //  Fetch contig sequences if not already loaded
 #ifdef CALL_ALIGNER
                       if (ctg1 != ovl->aread)
-                        { Load_Read(pair->DB1,ctg1,align->aseq,0);
+                        { if (Load_Read(pair->DB1,ctg1,align->aseq,0))
+                            Clean_Exit(1);
                           align->alen = alen;
                           ovl->aread = ctg1;
                           if (comp)
@@ -2135,7 +2202,8 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 #endif
                         }
                       if (ctg2 != ovl->bread)
-                        { Load_Read(pair->DB2,ctg2,align->bseq,0);
+                        { if (Load_Read(pair->DB2,ctg2,align->bseq,0))
+                            Clean_Exit(1);
                           align->blen = blen;
                           ovl->bread = ctg2;
 #ifdef DEBUG_HIT
@@ -2186,30 +2254,40 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
                             if (self)
                               { if (dgmin > 0)
-                                  Local_Alignment(align,work,spec,dgmin,dgmax,amid,dgmin-1,-1);
+                                  { if (Local_Alignment(align,work,spec,
+                                                        dgmin,dgmax,amid,dgmin-1,-1) == NULL)
+                                      Clean_Exit(1);
+                                  }
                                 else if (dgmax < 0)
-                                  Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-(dgmax+1));
+                                  { if (Local_Alignment(align,work,spec,
+                                                        dgmin,dgmax,amid,-1,-(dgmax+1)) == NULL)
+                                      Clean_Exit(1);
+                                  }
                                 else
                                   path->abpos = path->aepos = 0;
                               }
                             else
-                              Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-1);
+                              { if (Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-1) == NULL)
+                                  Clean_Exit(1);
+                              }
 
                             if (path->aepos - path->abpos >= ALIGN_MIN)
                               { Compress_TraceTo8(ovl,0);
+// if (ovl->aread == 53 && ovl->bread == 11)
+  // fprintf(stderr," self = %d\n",self);
+  // fprintf(stderr," diff = %d %x\n",ovl->path.diffs,ovl->flags);
                                 if (fwrite(ovl,OVL_SIZE,1,tfile) != 1)
                                   { fprintf(stderr,
                                            "%s: Cannot write overlap gather file %s/%s.%d.las\n",
                                            Prog_Name,SORT_PATH,ALGN_PAIR,pair->tid);
-                                    exit (1);
+                                    Clean_Exit(1);
                                   }
-                                if (ovl->path.trace != NULL)
-                                  if (fwrite(ovl->path.trace,ovl->path.tlen,1,tfile) != 1)
-                                    { fprintf(stderr,
-                                             "%s: Cannot write overlap gather file %s/%s.%d.las\n",
-                                             Prog_Name,SORT_PATH,ALGN_PAIR,pair->tid);
-                                      exit (1);
-                                    }
+                                if (fwrite(ovl->path.trace,ovl->path.tlen,1,tfile) != 1)
+                                  { fprintf(stderr,
+                                            "%s: Cannot write overlap gather file %s/%s.%d.las\n",
+                                            Prog_Name,SORT_PATH,ALGN_PAIR,pair->tid);
+                                    Clean_Exit(1);
+                                  }
                                 nlas += 1;
                                 nmem += path->tlen + OVL_SIZE;
                               }
@@ -2248,18 +2326,20 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 #ifdef DEBUG_TUBE
                             { int64 bant;
 
-                              if (comp)
-                                bant = mlen-(path->aepos+path->bepos);
-                              else
-                                bant = path->abpos+path->bbpos;
-                              if (eant < ahgh)
-                                printf("Did not reach top %lld %lld %lld\n",
-                                       ahgh-eant,eant-bant,ahgh-alow);
-                              else if (bant > alow)
-                                printf("Did not reach bottom %lld %lld %lld\n",
-                                       bant-alow,eant-bant,ahgh-alow);
-                              else
-                                printf("Good\n");
+                              if (repgo)
+                                { if (comp)
+                                    bant = mlen-(path->aepos+path->bepos);
+                                  else
+                                    bant = path->abpos+path->bbpos;
+                                  if (eant < ahgh)
+                                    printf("Did not reach top %lld %lld %lld\n",
+                                           ahgh-eant,eant-bant,ahgh-alow);
+                                  else if (bant > alow)
+                                    printf("Did not reach bottom %lld %lld %lld\n",
+                                           bant-alow,eant-bant,ahgh-alow);
+                                  else
+                                    printf("Good\n");
+                                }
                             }
 #endif
 
@@ -2346,13 +2426,13 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
       oblock = Malloc(nmem,"Allocating overlap block");
       perm   = Malloc(nlas*sizeof(Overlap *),"Allocating permutation array");
       if (oblock == NULL || perm == NULL)
-        exit (1);
+        Clean_Exit(1);
 
       rewind(tfile);
       if (fread(oblock,nmem,1,tfile) != 1) 
         { fprintf(stderr,"\n%s: Cannot read overlap gather file %s/%s.%d.las\n",
                          Prog_Name,SORT_PATH,ALGN_PAIR,pair->tid);
-          exit (1);
+          Clean_Exit(1);
         }
 
       { void *off;
@@ -2473,7 +2553,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
 
                   ntrace = (uint8 *) Malloc(op->tlen,"Allocating new trace");
                   if (ntrace == NULL)
-                    exit (1);
+                    Clean_Exit(1);
 
                   d = 0;
                   h = 0;
@@ -2579,13 +2659,13 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
           if (fwrite( ((char *) o)+PTR_SIZE, EXO_SIZE, 1, ofile) != 1)
             { fprintf(stderr,"%s: Could not write to overlap block file %s/%s.%d.las\n",
                              Prog_Name,SORT_PATH,ALGN_UNIQ,pair->tid);
-              exit (1);
+              Clean_Exit(1);
             }
           if (hasmem)
             { if (fwrite(o->path.trace, o->path.tlen, 1, ofile) != 1)
                 { fprintf(stderr,"%s: Could not write to overlap block file %s/%s.%d.las\n",
                                  Prog_Name,SORT_PATH,ALGN_UNIQ,pair->tid);
-                  exit (1);
+                  Clean_Exit(1);
                 }
               free(o->path.trace);
             }
@@ -2593,7 +2673,7 @@ void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2, Contig
             { if (fwrite( (char *) (o+1), o->path.tlen, 1, ofile) != 1)
                 { fprintf(stderr,"%s: Could not write to overlap block file %s/%s.%d.las\n",
                                  Prog_Name,SORT_PATH,ALGN_UNIQ,pair->tid);
-                  exit (1);
+                  Clean_Exit(1);
                 }
             }
           nliv += 1;
@@ -2664,6 +2744,8 @@ static void *search_seeds(void *args)
   pair->DB2 = DB2;
   pair->align.aseq = New_Read_Buffer(DB1);
   pair->align.bseq = New_Read_Buffer(DB2);
+  if (pair->align.bseq == NULL || pair->align.bseq == NULL)
+    Clean_Exit(1);
   pair->align.path = &(pair->ovl.path);
   if (comp)
     { pair->ovl.flags   = COMP_FLAG;
@@ -2677,6 +2759,8 @@ static void *search_seeds(void *args)
   pair->ovl.bread = -1;
   pair->work = New_Work_Data();
   pair->spec = New_Align_Spec(ALIGN_RATE,100,DB1->freq,0);
+  if (pair->work == NULL || pair->spec == NULL)
+    Clean_Exit(1);
   pair->ofile = ofile;
   pair->tfile = tfile;
   pair->nhits = 0;
@@ -2768,7 +2852,7 @@ static void *la_sort(void *args)
   iblock = Malloc(size+PTR_SIZE,"Allocating overlap block");
   perm   = Malloc(sizeof(Overlap *)*novl,"Allocating permutation array");
   if (iblock == NULL || perm == NULL)
-    exit (1);
+    Clean_Exit(1);
   iblock += PTR_SIZE;
 
   rewind(fid);
@@ -2776,7 +2860,7 @@ static void *la_sort(void *args)
   if (fread(iblock,size,1,fid) != 1)
     { fprintf(stderr,"\n%s: Cannot not read overlap block file %s/%s.%d.las\n",
                      Prog_Name,SORT_PATH,ALGN_UNIQ,parm->tid);
-      exit (1);
+      Clean_Exit(1);
     }
   
   rewind(fid);
@@ -2795,12 +2879,12 @@ static void *la_sort(void *args)
       if (fwrite( ((void *) o)+PTR_SIZE, EXO_SIZE, 1, fid) != 1)
         { fprintf(stderr,"\n%s: Cannot not write sorted overlap block file %s/%s.%d.las\n",
                          Prog_Name,SORT_PATH,ALGN_UNIQ,parm->tid);
-          exit (1);
+          Clean_Exit(1);
         }
       if (fwrite( (void *) (o+1), o->path.tlen, 1, fid) != 1)
         { fprintf(stderr,"\n%s: Cannot not write sorted overlap block file %s/%s.%d.las\n",
                          Prog_Name,SORT_PATH,ALGN_UNIQ,parm->tid);
-          exit (1);
+          Clean_Exit(1);
         }
     }
 
@@ -2901,18 +2985,16 @@ static void ovl_reload(IO_block *in, int64 bsize)
   in->top += fread(in->top,1,bsize-remains,in->stream);
 }
 
-static void la_merge(TP *parm)
+static int la_merge(TP *parm, FILE *output)
 { IO_block *in;
-  char     *oname;
   int64     bsize;
   char     *block, *oblock;
-  int       i, c;
+  int       i, c, nlen;
   Overlap **heap;
   int       hsize;
   Overlap  *ovls;
   int64     totl;
-  FILE     *output;
-  char     *optr, *otop;
+  char     *optr, *otop, *name;
 
   //  Base level merge: Open all the input files and initialize their buffers
 
@@ -2920,7 +3002,7 @@ static void la_merge(TP *parm)
   block  = (char *) Malloc(bsize*(NTHREADS+1)+PTR_SIZE,"Allocating LAmerge blocks");
   in     = (IO_block *) Malloc(sizeof(IO_block)*NTHREADS,"Allocating LAmerge IO-reacords");
   if (block == NULL || in == NULL)
-    exit (1);
+    return (1);
   block += PTR_SIZE;
 
   totl = 0;
@@ -2940,7 +3022,7 @@ static void la_merge(TP *parm)
   heap = (Overlap **) Malloc(sizeof(Overlap *)*(NTHREADS+1),"Allocating heap");
   ovls = (Overlap *) Malloc(sizeof(Overlap)*NTHREADS,"Allocating heap");
   if (heap == NULL || ovls == NULL)
-    exit (1);
+    return (1);
 
   hsize = 0;
   for (i = 0; i < NTHREADS; i++)
@@ -2958,22 +3040,40 @@ static void la_merge(TP *parm)
 
   //  Open the output file buffer and write (novl,tspace) header
 
-  oname  = Catenate(ALGN_NAME,".las","","");
-  output = Fopen(oname,"w");
-  if (output == NULL)
-    exit (1);
-
   if (fwrite(&totl,sizeof(int64),1,output) != 1)
-    { fprintf(stderr,"%s: Could not write to %s\n",Prog_Name,oname);
-      unlink(oname);
-      exit (1);
+    goto output_error;
+  nlen = TSPACE;
+  if (fwrite(&nlen,sizeof(int),1,output) != 1)
+    goto output_error;
+
+  name = Catenate(SPATH1,"/",SROOT1,".gdb");
+  nlen = strlen(name);
+  if (fwrite(&nlen,sizeof(int),1,output) != 1)
+    goto output_error;
+  if (fwrite(name,nlen,1,output) != 1)
+    goto output_error;
+
+  if (SPATH2 == NULL)
+    { nlen = 0;
+      if (fwrite(&nlen,sizeof(int),1,output) != 1)
+        goto output_error;
     }
-  i = TSPACE;
-  if (fwrite(&i,sizeof(int),1,output) != 1)
-    { fprintf(stderr,"%s: Could not write to %s\n",Prog_Name,oname);
-      unlink(oname);
-      exit (1);
+  else
+    { name = Catenate(SPATH2,"/",SROOT2,".gdb");
+      nlen = strlen(name);
+      if (fwrite(&nlen,sizeof(int),1,output) != 1)
+        goto output_error;
+      if (fwrite(name,nlen,1,output) != 1)
+        goto output_error;
     }
+
+  name = getcwd(NULL,0);
+  nlen = strlen(name);
+  if (fwrite(&nlen,sizeof(int),1,output) != 1)
+    goto output_error;
+  if (fwrite(name,nlen,1,output) != 1)
+    goto output_error;
+  free(name);
 
   oblock = block+NTHREADS*bsize;
   optr   = oblock;
@@ -2999,10 +3099,7 @@ static void la_merge(TP *parm)
         ovl_reload(src,bsize);
       if (optr + span > otop)
         { if (fwrite(oblock,1,optr-oblock,output) != (size_t) (optr-oblock))
-            { fprintf(stderr,"%s: Could not write to %s\n",Prog_Name,oname);
-              unlink(oname);
-              exit (1);
-            }
+            goto output_error;
           optr = oblock;
         }
 
@@ -3025,12 +3122,8 @@ static void la_merge(TP *parm)
 
   if (optr > oblock)
     { if (fwrite(oblock,1,optr-oblock,output) != (size_t) (optr-oblock))
-        { fprintf(stderr,"%s: Could not write to %s\n",Prog_Name,oname);
-          unlink(oname);
-          exit (1);
-        }
+        goto output_error;
     }
-  fclose(output);
 
   for (i = 0; i < NTHREADS; i++)
     fclose(parm[i].ofile);
@@ -3038,21 +3131,28 @@ static void la_merge(TP *parm)
   for (i = 0; i < NTHREADS; i++)
     totl -= in[i].count;
   if (totl != 0)
-    { fprintf(stderr,"%s: Did not write all records to %s (%lld)\n",Prog_Name,oname,totl);
-      unlink(oname);
-      exit (1);
+    { fprintf(stderr,"%s: Did not write all records to %s/%s.las (%lld)\n",
+                     Prog_Name,SORT_PATH,ALGN_OUTP,totl);
+      return (1);
     }
 
   free(ovls);
   free(heap);
   free(in);
   free(block-PTR_SIZE);
+
+  return (0);
+
+output_error:
+  fprintf(stderr,"%s: Could not write to %s/%s.las\n",Prog_Name,SORT_PATH,ALGN_OUTP);
+  return (1);
 }
 
 static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
 { uint8 *sarray;
   int    swide;
   int64  nels;
+  FILE  *output;
 
   RP     rarm[NTHREADS];
   TP     tarm[NTHREADS];
@@ -3067,8 +3167,8 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
   int       i, p, j, u;
 
   if (VERBOSE)
-    { fprintf(stdout,"  Starting seed sort and alignment search, %d parts\n",2*NPARTS);
-      fflush(stdout);
+    { fprintf(stderr,"  Starting seed sort and alignment search, %d parts\n",2*NPARTS);
+      fflush(stderr);
     }
 
   unit[0] = N_Units;
@@ -3107,7 +3207,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
     sarray = Malloc((nelmax+1)*swide,"Sort Array");
     panel  = Malloc(NCONTS*sizeof(int64),"Bucket Array");
     if (sarray == NULL || panel == NULL)
-      exit (1);
+      Clean_Exit(1);
   }
 
   for (p = 0; p < NTHREADS; p++)
@@ -3130,12 +3230,12 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
         { tarm[p].DB1.bases = fopen(Catenate(DB1->path,"","",".bps"),"r");
           if (tarm[p].DB1.bases == NULL)
             { fprintf(stderr,"%s: Cannot open another copy of DB\n",Prog_Name);
-              exit (1);
+              Clean_Exit(1);
             }
           tarm[p].DB2.bases = fopen(Catenate(DB2->path,"","",".bps"),"r");
           if (tarm[p].DB2.bases == NULL)
             { fprintf(stderr,"%s: Cannot open another copy of DB\n",Prog_Name);
-              exit (1);
+              Clean_Exit(1);
             }
         }
 
@@ -3149,7 +3249,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       if (tarm[p].ofile == NULL)
         { fprintf(stderr,"%s: Cannot open %s/%s.%d.las for writing\n",
                          Prog_Name,SORT_PATH,ALGN_UNIQ,p);
-          exit (1);
+          Clean_Exit(1);
         }
       unlink(Catenate(SORT_PATH,"/",ALGN_UNIQ,Numbered_Suffix(".",p,".las")));
 
@@ -3157,7 +3257,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       if (tarm[p].tfile == NULL)
         { fprintf(stderr,"%s: Cannot open %s/%s.%d.las for reading & writing\n",
                          Prog_Name,SORT_PATH,ALGN_PAIR,p);
-          exit (1);
+          Clean_Exit(1);
         }
       unlink(Catenate(SORT_PATH,"/",ALGN_PAIR,Numbered_Suffix(".",p,".las")));
     }
@@ -3167,8 +3267,8 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
     { nu = unit[u] + i*NTHREADS;
 
       if (VERBOSE)
-        { fprintf(stdout,"\r    Loading seeds for part %d  ",u*NPARTS+i+1);
-          fflush(stdout);
+        { fprintf(stderr,"\r    Loading seeds for part %d  ",u*NPARTS+i+1);
+          fflush(stderr);
         }
 
       for (p = 0; p < NTHREADS; p++)
@@ -3221,8 +3321,8 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
 #endif
 
         if (VERBOSE)
-          { fprintf(stdout,"\r    Sorting seeds for part %d  ",u*NPARTS+i+1);
-            fflush(stdout);
+          { fprintf(stderr,"\r    Sorting seeds for part %d  ",u*NPARTS+i+1);
+            fflush(stderr);
           }
 
         nused = rmsd_sort(sarray,nels,swide,swide-2,NCONTS,panel,NTHREADS,range);
@@ -3233,8 +3333,8 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       }
 
       if (VERBOSE)
-        { fprintf(stdout,"\r    Searching seeds for part %d",u*NPARTS+i+1);
-          fflush(stdout);
+        { fprintf(stderr,"\r    Searching seeds for part %d",u*NPARTS+i+1);
+          fflush(stderr);
         }
 
       for (p = 0; p < nused; p++)
@@ -3264,7 +3364,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
   if (VERBOSE)
     { int64 nhit, nlas, nliv, ncov;
 
-      fprintf(stdout,"\r    Done                        \n");
+      fprintf(stderr,"\r    Done                        \n");
 
       nhit = nlas = nliv = ncov = 0;
       for (p = 0; p < NTHREADS; p++)
@@ -3274,17 +3374,20 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
           ncov += tarm[p].nlcov;
         }
       if (nliv == 0)
-        fprintf(stdout,
+        fprintf(stderr,
            "\n  Total hits over %d = %lld, %lld la's, 0 non-redundant la's of ave len 0\n",
                        CHAIN_MIN/2,nhit,nlas);
       else
-        fprintf(stdout,
+        fprintf(stderr,
            "\n  Total hits over %d = %lld, %lld la's, %lld non-redundant la's of ave len %lld\n",
                        CHAIN_MIN/2,nhit,nlas,nliv,ncov/nliv);
+      fflush(stderr);
     }
 
   if (VERBOSE)
-    fprintf(stdout,"\n  Sorting and merging local alignments\n");
+    { fprintf(stderr,"\n  Sorting and merging local alignments\n");
+      fflush(stderr);
+    }
 
 #ifdef DEBUG_LASORT
   for (p = 0; p < NTHREADS; p++)
@@ -3297,7 +3400,16 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
     pthread_join(threads[p],NULL);
 #endif
 
-  la_merge(tarm);
+  output = Fopen(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"),"w");
+  if (output == NULL)
+    Clean_Exit(1);
+
+  if (la_merge(tarm,output))
+    { fclose(output);
+      unlink(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"));
+      Clean_Exit(1);
+    }
+  fclose(output);
 }
 
 
@@ -3329,7 +3441,7 @@ int main(int argc, char *argv[])
   Post_List   *P1, *P2;
   DAZZ_DB _DB1, *DB1 = &_DB1;
   DAZZ_DB _DB2, *DB2 = &_DB2;
-  char    *OUTP;
+
 
   //  Process options
 
@@ -3340,7 +3452,6 @@ int main(int argc, char *argv[])
     ARG_INIT("FastGA");
 
     FREQ = 10;
-    OUTP = NULL;
     CHAIN_BREAK = 1000;   //  2x in anti-diagonal space
     CHAIN_MIN   =  200;
     ALIGN_MIN   =  100;
@@ -3348,12 +3459,15 @@ int main(int argc, char *argv[])
     SORT_PATH   = "/tmp";
     NTHREADS    = 8;
 
+    OUT_TYPE    = 0;
+    OUT_OPT     = 0;
+
     j = 1;
     for (i = 1; i < argc; i++)
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("v")
+            ARG_FLAGS("vk")
             break;
           case 'a':
             ARG_NON_NEGATIVE(ALIGN_MIN,"minimum alignment length");
@@ -3373,9 +3487,42 @@ int main(int argc, char *argv[])
           case 'f':
             ARG_NON_NEGATIVE(FREQ,"maximum seed frequency");
             break;
+          case 'l':
+            if (strncmp(argv[i]+1,"las",3) == 0)
+              { OUT_TYPE = 2;
+                break;
+              }
+            fprintf(stderr,"%s: Do not recognize option %s\n",Prog_Name,argv[i]);
+            exit (1);
           case 'o':
-            OUTP = argv[i]+2;
-            break;
+            if (strncmp(argv[i]+1,"one",3) == 0)
+              { OUT_TYPE = 3;
+                break;
+              }
+            fprintf(stderr,"%s: Do not recognize option %s\n",Prog_Name,argv[i]);
+            exit (1);
+          case 'p':
+            if (strncmp(argv[i]+1,"paf",3) == 0)
+              { OUT_TYPE = 0;
+                if (argv[1][4] == '\0')
+                  { OUT_OPT = 0;
+                    break;
+                  }
+                else if (strcmp(argv[i]+4,"m") == 0)
+                  { OUT_OPT = 1;
+                    break;
+                  }
+                else if (strcmp(argv[i]+4,"x") == 0)
+                  { OUT_OPT = 2;
+                    break;
+                  }
+              }
+            else if (strcmp(argv[i]+1,"psl") == 0)
+              { OUT_TYPE = 1;
+                break;
+              }
+            fprintf(stderr,"%s: Do not recognize option %s\n",Prog_Name,argv[i]);
+            exit (1);
           case 's':
             ARG_NON_NEGATIVE(CHAIN_BREAK,"seed chain break threshold");
             CHAIN_BREAK <<= 1;
@@ -3392,16 +3539,22 @@ int main(int argc, char *argv[])
     argc = j;
 
     VERBOSE = flags['v'];
+    KEEP    = flags['k'];
 
     if (argc != 3 && argc != 2)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
         fprintf(stderr,"\n");
+        fprintf(stderr,"         <format> = -paf[mx] | -psl | -one | -las\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"         <precursor> = .gix | .gdb | <fa_extn>\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"             <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
+        fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
-        fprintf(stderr,"      -o: Use as root name for output .las file.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         fprintf(stderr,"      -c: minimum seed chain coverage in both genomes\n");
@@ -3410,6 +3563,214 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -e: minimum alignment similarity\n");
         fprintf(stderr,"\n");
         exit (1);
+      }
+
+    if (FREQ > 255)
+      { fprintf(stderr,"%s: The maximum allowable frequency cutoff is 255\n",Prog_Name);
+        exit (1);
+      }
+  }
+
+  //  Parse source names and make precursors if necessary
+
+  { char *p, *e;
+    int   i;
+    FILE *input;
+
+    SEXTN1 = 0;
+    SPATH1 = argv[1];
+    p = rindex(SPATH1,'/');
+    if (p == NULL)
+      { SROOT1 = SPATH1;
+        SPATH1 = ".";
+      }
+    else
+      { *p++ = '\0';
+        SROOT1 = p;
+      }
+
+    input = fopen(Catenate(SPATH1,"/",SROOT1,".gix"),"r");
+    if (input != NULL)
+      { fclose(input);
+        SEXTN1 = 9;
+      }
+    else if (strcmp(SROOT1+(strlen(SROOT1)-4),".gix") == 0)
+      { SEXTN1 = 9;
+        SROOT1[strlen(SROOT1)-4] = '\0';
+      }
+
+    if (SEXTN1 == 0)
+      { input = fopen(Catenate(SPATH1,"/",SROOT1,".gdb"),"r");
+        if (input != NULL)
+          { fclose(input);
+            SEXTN1 = 8;
+          }
+        else if (strcmp(SROOT1+(strlen(SROOT1)-4),".gdb") == 0)
+          { SEXTN1 = 8;
+            SROOT1[strlen(SROOT1)-4] = '\0';
+          }
+      }
+ 
+    if (SEXTN1 == 0)
+      { for (i = 7; i >= 0; i--)
+          { input = fopen(Catenate(SPATH1,"/",SROOT1,suffix[i]),"r");
+            if (input != NULL)
+              break;
+          }
+        if (i < 0)
+          { fprintf(stderr,"%s: Could not find a FASTA or GDB with base name %s\n",
+                           Prog_Name,SROOT1);
+            exit (1);
+          }
+        fclose(input);
+        SEXTN1 = i;
+        if (i%4 == 0)
+          { e = SROOT1 + strlen(SROOT1);
+            for (i = 1; i < 8; i++)
+              if (strcmp(e-suflen[i],suffix[i]) == 0 && i != 4)
+                break;
+            SEXTN1 += i;
+            if (SEXTN1 >= 8)
+              { fprintf(stderr,"%s: Could not find a valid extension for %s\n",Prog_Name,SROOT1);
+                exit (1);
+              }
+            e[-suflen[i]] = '\0';
+          }
+      }
+
+    input = fopen(Catenate(SPATH1,"/",SROOT1,".gix"),"r");
+    if (input)
+      { SEXTN1 = 9;
+        fclose(input);
+      }
+    else
+      { input = fopen(Catenate(SPATH1,"/",SROOT1,".gdb"),"r");
+        if (input)
+          { SEXTN1 = 8;
+            fclose(input);
+          }
+      }
+
+    SEXTN2 = 9;
+    if (argc == 3)
+      { SEXTN2 = 0;
+        SPATH2 = argv[2];
+        p = rindex(SPATH2,'/');
+        if (p == NULL)
+          { SROOT2 = SPATH2;
+            SPATH2 = ".";
+          }
+        else
+          { *p++ = '\0';
+            SROOT2 = p;
+          }
+
+        input = fopen(Catenate(SPATH2,"/",SROOT2,".gix"),"r");
+        if (input != NULL)
+          { fclose(input);
+            SEXTN2 = 9;
+          }
+        else if (strcmp(SROOT2+(strlen(SROOT2)-4),".gix") == 0)
+          { SEXTN2 = 9;
+            SROOT2[strlen(SROOT2)-4] = '\0';
+          }
+    
+        if (SEXTN2 == 0)
+          { input = fopen(Catenate(SPATH2,"/",SROOT2,".gdb"),"r");
+            if (input != NULL)
+              { fclose(input);
+                SEXTN2 = 8;
+              }
+            else if (strcmp(SROOT2+(strlen(SROOT2)-4),".gdb") == 0)
+              { SEXTN2 = 8;
+                SROOT2[strlen(SROOT2)-4] = '\0';
+              }
+          }
+     
+        if (SEXTN2 == 0)
+          { for (i = 7; i >= 0; i--)
+              { input = fopen(Catenate(SPATH2,"/",SROOT2,suffix[i]),"r");
+                if (input != NULL)
+                  break;
+              }
+            if (i < 0)
+              { fprintf(stderr,"%s: Could not find a FASTA or GDB with base name %s\n",
+                               Prog_Name,SROOT2);
+                exit (1);
+              }
+            fclose(input);
+            SEXTN2 = i;
+            if (i%4 == 0)
+              { e = SROOT2 + strlen(SROOT2);
+                for (i = 1; i < 8; i++)
+                  if (strcmp(e-suflen[i],suffix[i]) == 0 && i != 4)
+                    break;
+                SEXTN2 += i;
+                if (SEXTN2 >= 8)
+                  { fprintf(stderr,"%s: Could not find a valid extension for %s\n",
+                                   Prog_Name,SROOT2);
+                    exit (1);
+                  }
+                e[-suflen[i]] = '\0';
+              }
+          }
+
+        input = fopen(Catenate(SPATH2,"/",SROOT2,".gix"),"r");
+        if (input)
+          { SEXTN2 = 9;
+            fclose(input);
+          }
+        else
+          { input = fopen(Catenate(SPATH2,"/",SROOT2,".gdb"),"r");
+            if (input)
+              { SEXTN2 = 8;
+                fclose(input);
+              }
+          }
+      }
+    else
+      SPATH2 = NULL;
+
+    if (SEXTN1 < 9)
+      { char *command;
+
+        command = Malloc(strlen(SPATH1)+strlen(SROOT1)+100,"Allocating command string");
+        if (command == NULL)
+          exit (1);
+        if (SEXTN1 < 8)
+          { sprintf(command,"FAtoGDB%s %s/%s%s",VERBOSE?" -v":"",SPATH1,SROOT1,suffix[SEXTN1]);
+            if (system(command) != 0)
+              { fprintf(stderr,"\n%s: Call to FAtoGDB failed\n",Prog_Name);
+                exit (1);
+              }
+          }
+        sprintf(command,"GIXmake%s -f%d %s/%s.gdb",VERBOSE?" -v":"",FREQ,SPATH1,SROOT1);
+        if (system(command) != 0)
+          { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
+            Clean_Exit(1);
+          }
+        free(command);
+      }
+
+    if (SEXTN2 < 9)
+      { char *command;
+
+        command = Malloc(strlen(SPATH2)+strlen(SROOT2)+100,"Allocating command string");
+        if (command == NULL)
+          Clean_Exit(1);
+        if (SEXTN2 < 8)
+          { sprintf(command,"FAtoGDB%s %s/%s%s",VERBOSE?" -v":"",SPATH2,SROOT2,suffix[SEXTN2]);
+            if (system(command) != 0)
+              { fprintf(stderr,"\n%s: Call to FAtoGDB failed\n",Prog_Name);
+                Clean_Exit(1);
+              }
+          }
+        sprintf(command,"GIXmake%s -f%d %s/%s.gdb",VERBOSE?" -v":"",FREQ,SPATH2,SROOT2);
+        if (system(command) != 0)
+          { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
+            Clean_Exit(1);
+          }
+        free(command);
       }
   }
 
@@ -3427,6 +3788,7 @@ int main(int argc, char *argv[])
               spath = cpath;
             else
               { fprintf(stderr,"\n%s: -P option: . not followed by /\n",Prog_Name);
+                Clean_Exit(1);
                 exit (1);
               }
           }
@@ -3440,94 +3802,78 @@ int main(int argc, char *argv[])
 
     if ((dirp = opendir(SORT_PATH)) == NULL)
       { fprintf(stderr,"\n%s: -P option: cannot open directory %s\n",Prog_Name,SORT_PATH);
-        exit (1);
+        Clean_Exit(1);
       }
     closedir(dirp);
   }
 
   SELF = (argc == 2);
 
-  T1 = Open_Kmer_Stream(argv[1]);
+  T1 = Open_Kmer_Stream(Catenate(SPATH1,"/",SROOT1,".gix"));
   if (SELF)
     T2 = T1;
   else
-    T2 = Open_Kmer_Stream(argv[2]);
+    T2 = Open_Kmer_Stream(Catenate(SPATH2,"/",SROOT2,".gix"));
   if (T1 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[1]);
-      exit (1);
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,SPATH1,SROOT1);
+      Clean_Exit(1);
     }
   if (T2 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[2]);
-      exit (1);
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,SPATH2,SROOT2);
+      Clean_Exit(1);
     }
   
-  P1 = Open_Post_List(argv[1]);
+  P1 = Open_Post_List(Catenate(SPATH1,"/",SROOT1,".gix"));
   if (SELF)
     P2 = P1;
   else
-    P2 = Open_Post_List(argv[2]);
+    P2 = Open_Post_List(Catenate(SPATH2,"/",SROOT2,".gix"));
   if (P1 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[1]);
-      exit (1);
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,SPATH1,SROOT1);
+      Clean_Exit(1);
     }
   if (P2 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s\n",Prog_Name,argv[2]);
-      exit (1);
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,SPATH2,SROOT2);
+      Clean_Exit(1);
     }
 
   Perm1  = P1->perm;
   Perm2  = P2->perm;
   KMER   = T1->kmer;
 
-  if (Open_DB(argv[1],DB1) < 0)
-    exit (1);
-  Trim_DB(DB1);
+  if (Open_DB(Catenate(SPATH1,"/",SROOT1,".gdb"),DB1) < 0)
+    Clean_Exit(1);
   short_DB_fix(DB1);
 
   if (SELF)
     DB2 = DB1;
   else
-    { if (Open_DB(argv[2],DB2) < 0)
-        exit (1);
-      Trim_DB(DB2);
+    { if (Open_DB(Catenate(SPATH2,"/",SROOT2,".gdb"),DB2) < 0)
+        Clean_Exit(1);
       short_DB_fix(DB2);
     }
 
-  { char *r1, *r2;
-
-    if (OUTP == NULL)
-      { r1 = Root(argv[1],".dam");
-        if (SELF)
-          r2 = Root(argv[1],".dam");
-        else
-          r2 = Root(argv[2],".dam");
-        ALGN_NAME = Strdup(Catenate(r1,".",r2,""),"Allocating alignment name");
-        free(r2);
-        free(r1);
-      }
-    else
-      ALGN_NAME = Strdup(OUTP,"Allocating alignment name");
-    ALGN_UNIQ = Strdup(Numbered_Suffix("_uniq.",getpid(),""),"Allocating temp name");
-    PAIR_NAME = Strdup(Numbered_Suffix("_pair.",getpid(),""),"Allocating temp name");
-    ALGN_PAIR = Strdup(Numbered_Suffix("_algn.",getpid(),""),"Allocating temp name");
-    if (ALGN_NAME == NULL || ALGN_UNIQ == NULL || PAIR_NAME == NULL || ALGN_PAIR == NULL)
-      exit (1);
-  }
+  ALGN_OUTP = Strdup(Numbered_Suffix("_olas.",getpid(),""),"Allocating temp name");
+  ALGN_UNIQ = Strdup(Numbered_Suffix("_uniq.",getpid(),""),"Allocating temp name");
+  PAIR_NAME = Strdup(Numbered_Suffix("_pair.",getpid(),""),"Allocating temp name");
+  ALGN_PAIR = Strdup(Numbered_Suffix("_algn.",getpid(),""),"Allocating temp name");
+  if (ALGN_OUTP == NULL || ALGN_UNIQ == NULL || PAIR_NAME == NULL || ALGN_PAIR == NULL)
+    Clean_Exit(1);
 
   if (P1->freq < FREQ)
-    { fprintf(stderr,"%s: Genome index for %s cutoff %d < requested cutoff\n",
-                     Prog_Name,argv[1],P1->freq);
-      exit (1);
+    { fprintf(stderr,"%s: Genome index %s/%s.gix cutoff of %d < requested cutoff\n",
+                     Prog_Name,SPATH1,SROOT1,P1->freq);
+      Clean_Exit(1);
     }
   if (P2->freq < FREQ)
-    { fprintf(stderr,"%s: Genome index for %s cutoff %d < requested cutoff\n",
-                     Prog_Name,argv[2],P2->freq);
-      exit (1);
+    { fprintf(stderr,"%s: Genome index %s/%s.gix cutoff %d < requested cutoff\n",
+                     Prog_Name,SPATH2,SROOT2,P2->freq);
+      Clean_Exit(1);
     }
   if (T1->kmer != T2->kmer)
     { fprintf(stderr,"%s: Indices not made with the same k-mer size (%d vs %d)\n",
                      Prog_Name,T1->kmer,T2->kmer);
-      exit (1);
+      Clean_Exit(1);
     }
 
     //  Make sure you can open (NTHREADS + 3) * 2 * NTHREADS + tid files at one time.
@@ -3545,7 +3891,7 @@ int main(int argc, char *argv[])
       getrlimit(RLIMIT_NOFILE,&rlp);
       if (nfiles > rlp.rlim_max)
         { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);
-          exit (1);
+          Clean_Exit(1);
         }
       rlp.rlim_cur = nfiles;
       setrlimit(RLIMIT_NOFILE,&rlp);
@@ -3598,8 +3944,8 @@ int main(int argc, char *argv[])
   }
 
   if (VERBOSE)
-    { fprintf(stdout,"\n  Using %d threads\n\n",NTHREADS);
-      fflush(stdout);
+    { fprintf(stderr,"\n  Using %d threads\n\n",NTHREADS);
+      fflush(stderr);
     }
 
   { int64 npost, cum, t;   //  Compute DB split into NTHREADS parts
@@ -3610,7 +3956,7 @@ int main(int argc, char *argv[])
     IDBsplit = Malloc((NTHREADS+1)*sizeof(int),"Allocating DB1 partitions");
     Select   = Malloc(NCONTS*sizeof(int),"Allocating DB1 partition");
     if (IDBsplit == NULL || Select == NULL)
-      exit (1);
+      Clean_Exit(1);
 
     npost = DB1->totlen;
     IDBsplit[0] = 0;
@@ -3653,7 +3999,7 @@ int main(int argc, char *argv[])
     buffer  = Malloc(2*NPARTS*NTHREADS*1000000,"IO buffers");
     bucks   = Malloc(2*NTHREADS*NCONTS*sizeof(int64),"IO buffers");
     if (N_Units == NULL || C_Units == NULL || buffer == NULL || bucks == NULL)
-      exit (1);
+      Clean_Exit(1);
 
     k = 0;
     for (i = 0; i < NTHREADS; i++)
@@ -3668,14 +4014,14 @@ int main(int argc, char *argv[])
           N_Units[k].file = open(name,O_RDWR|O_CREAT|O_TRUNC,S_IRWXU);
           if (N_Units[k].file < 0)
             { fprintf(stderr,"%s: Cannot open %s for reading & writing\n",Prog_Name,name);
-              exit (1);
+              Clean_Exit(1);
             }
           unlink(name);
           name = Catenate(SORT_PATH,"/",PAIR_NAME,Numbered_Suffix(".",k,".C"));
           C_Units[k].file = open(name,O_RDWR|O_CREAT|O_TRUNC,S_IRWXU);
           if (C_Units[j].file < 0)
             { fprintf(stderr,"%s: Cannot open %s for reading & writing\n",Prog_Name,name);
-              exit (1);
+              Clean_Exit(1);
             }
           unlink(name);
           k += 1;
@@ -3696,9 +4042,9 @@ int main(int argc, char *argv[])
 #endif
 
     if (SELF)
-      self_adaptamer_merge(argv[1],T1,P1);
+      self_adaptamer_merge(T1,P1);
     else
-      adaptamer_merge(argv[1],argv[2],T1,T2,P1,P2);
+      adaptamer_merge(T1,T2,P1,P2);
 
     //  Transpose N_unit & C_unit matrices
 
@@ -3746,14 +4092,59 @@ int main(int argc, char *argv[])
     free(N_Units->bufr);
     free(C_Units);
     free(N_Units);
+
+    { char *command;
+
+      command = Malloc(strlen(ALGN_OUTP)+strlen(SORT_PATH)+100,"Allocating command buffer");
+      if (command == NULL)
+        { unlink(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"));
+          Clean_Exit(1);
+        }
+
+      switch (OUT_TYPE)
+      { case 0: // PAF
+          sprintf(command,"LAStoPAF%s %s/%s.las",
+                          OUT_OPT==2?" -x":(OUT_OPT==1?" -m":""),SORT_PATH,ALGN_OUTP);
+          break;
+        case 1: // PSL
+          sprintf(command,"LAStoPSL %s/%s.las",SORT_PATH,ALGN_OUTP);
+          break;
+        case 2: // LAS
+          sprintf(command,"cat %s/%s.las",SORT_PATH,ALGN_OUTP);
+          break;
+        case 3: // ONE
+          sprintf(command,"LAStoONE %s/%s.las",SORT_PATH,ALGN_OUTP);
+          break;
+      }
+
+      if (system(command) != 0)
+        { switch (OUT_TYPE)
+          { case 0:
+              fprintf(stderr,"\n%s: Call to LAStoPAF failed\n",Prog_Name);
+              break;
+            case 1:
+              fprintf(stderr,"\n%s: Call to LAStoPSL failed\n",Prog_Name);
+              break;
+            case 3:
+              fprintf(stderr,"\n%s: Call to LAStoONE failed\n",Prog_Name);
+              break;
+          }
+          unlink(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"));
+          Clean_Exit(1);
+        }
+
+      free(command);
+      unlink(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"));
+    }
   }
 
   free(Select);
   free(IDBsplit);
 
-  free(ALGN_UNIQ);
-  free(ALGN_NAME);
+  free(ALGN_PAIR);
   free(PAIR_NAME);
+  free(ALGN_UNIQ);
+  free(ALGN_OUTP);
 
   if ( ! SELF)
     Close_DB(DB2);
@@ -3767,5 +4158,5 @@ int main(int argc, char *argv[])
   Numbered_Suffix(NULL,0,NULL);
   free(Prog_Name);
 
-  exit (0);
+  Clean_Exit(0);
 }

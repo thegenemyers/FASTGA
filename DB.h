@@ -19,7 +19,6 @@
 #include <stdio.h>
 
 #include "gene_core.h"
-#include "QV.h"
 
 #define HIDE_FILES          //  Auxiliary DB files start with a . so they are "hidden"
                             //    Undefine if you don't want this
@@ -212,7 +211,7 @@ typedef struct
   { struct _track *next;
     char          *name;
     int            ncodes;  //  # of coding tables
-    QVcoding      *coding;  //  array [0..ncodes-1] of coding schemes (see QV.h)
+    void          *coding;  //  array [0..ncodes-1] of coding schemes (see QV.h)
     uint16        *table;   //  for i in [0,db->nreads-1]: read i should be decompressed with
                             //    scheme coding[table[i]]
     FILE          *quiva;   //  the open file pointer to the .qvs file

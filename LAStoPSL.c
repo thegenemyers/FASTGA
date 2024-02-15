@@ -24,10 +24,10 @@
 
 #undef DEBUG_THREADS
 
-static char *Usage = " [-T<int(8)>} <src1:db|dam> [ <src2:db|dam> ] <align:las>";
+static char *Usage = " [-T<int(8)>} <align:las>";
 
 static int  NTHREADS;  // -T
-static int  ISTWO;     // one dam or two?
+static int  ISTWO;     // one gdb or two?
 
 static int TSPACE;   // Trace spacing
 
@@ -71,7 +71,7 @@ static int64 find_ovl_boundary(int64 offset, FILE *input, void *buffer)
 { void *bend, *off;
   int   y, len;
 
-  bend   = buffer + SEEK_BLOCK - (OVL_SIZE+PTR_SIZE);
+  bend = buffer + SEEK_BLOCK - (OVL_SIZE+PTR_SIZE);
 
   fseek(input,offset,SEEK_SET);
   fread(buffer,SEEK_BLOCK,1,input);
@@ -142,6 +142,8 @@ void *gen_paf(void *args)
   work = New_Work_Data();
   aseq = New_Read_Buffer(db1);
   bseq = New_Read_Buffer(db2);
+  if (aseq == NULL || bseq == NULL)
+    exit (1);
 
   reads1 = db1->reads;
   reads2 = db2->reads;
@@ -193,7 +195,8 @@ void *gen_paf(void *args)
 
       if (aread != ovl->aread)
         { aread = ovl->aread;
-          Load_Read(db1,aread,aseq,0);
+          if (Load_Read(db1,aread,aseq,0))
+            exit (1);
           aln->alen = reads1[aread].rlen;
           aoff      = reads1[aread].fpulse;
           fseeko(ahdr,reads1[aread].coff,SEEK_SET);
@@ -230,7 +233,8 @@ void *gen_paf(void *args)
         aln->bseq = bact - bmin; 
 
       Compute_Trace_PTS(aln,work,TSPACE,GREEDIEST);
-      Gap_Improver(aln,work);
+      if (Gap_Improver(aln,work))
+        exit (1);
 
       { int     i, j, x, p, q;
         int    *t, T;
@@ -264,8 +268,8 @@ void *gen_paf(void *args)
         X = (M+N - (I+D+2*S))/2;
 
         fprintf(out,"%d\t%d\t0\t0\t%d\t%d\t%d\t%d\t%c",X,S,IB,I,DB,D,COMP(ovl->flags)?'-':'+');
-        fprintf(out,"\t%s\t%d\t%d\t%d",aheader+1,ALEN[aread],aoff+path->abpos,aoff+path->aepos);
-        fprintf(out,"\t%s\t%d\t%d\t%d",bheader+1,BLEN[bread],boff+path->bbpos,boff+path->bepos);
+        fprintf(out,"\t%s\t%d\t%d\t%d",aheader,ALEN[aread],aoff+path->abpos,aoff+path->aepos);
+        fprintf(out,"\t%s\t%d\t%d\t%d",bheader,BLEN[bread],boff+path->bbpos,boff+path->bepos);
 
         bcnt = 0;
         i = path->abpos+1;
@@ -376,6 +380,9 @@ int main(int argc, char *argv[])
 { Packet    *parm;
   DAZZ_DB   _db1, *db1 = &_db1;
   DAZZ_DB   _db2, *db2 = &_db2;
+  char      *db1_name;
+  char      *db2_name;
+  FILE      *input;
   char      *iname;
 
   //  Process options
@@ -403,7 +410,7 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
     argc = j;
 
-    if (argc != 3 && argc != 4)
+    if (argc != 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -T: Use -T threads.\n");
@@ -415,40 +422,112 @@ int main(int argc, char *argv[])
       exit (1);
   }
 
-  //  Open trimmed DB or DB pair and build contig to scaffold maps
+  //  Initiate .las file reading and read header information
 
-  { int status;
-    int s, r;
+  { char       *pwd, *root, *cpath;
+    FILE       *test;
+    int64       novl;
+    int         nlen;
 
-    ISTWO  = (argc > 3);
-    status = Open_DB(argv[1],db1);
-    if (status < 0)
+    pwd   = PathTo(argv[1]);
+    root  = Root(argv[1],".las");
+    iname = Strdup(Catenate(pwd,"/",root,".las"),"Allocating input name");
+    input = Fopen(iname,"r");
+    if (input == NULL)
       exit (1);
-    if (db1->part > 0)
-      { fprintf(stderr,"%s: Cannot be called on a block: %s\n",Prog_Name,argv[1]);
+
+    if (fread(&novl,sizeof(int64),1,input) != 1)
+      SYSTEM_READ_ERROR
+    if (fread(&TSPACE,sizeof(int),1,input) != 1)
+      SYSTEM_READ_ERROR
+    if (TSPACE < 0)
+      { fprintf(stderr,"%s: Garbage .las file, trace spacing < 0 !\n",Prog_Name);
         exit (1);
       }
-    if (status == 0)
-      { fprintf(stderr,"%s: Cannot be called on a .db: %s\n",Prog_Name,argv[1]);
-        exit (1);
-      }
-    if (ISTWO)
-      { status = Open_DB(argv[2],db2);
-        if (status < 0)
+
+    free(pwd);
+    free(root);
+
+    if (fread(&nlen,sizeof(int),1,input) != 1)
+      SYSTEM_READ_ERROR
+    db1_name = Malloc(nlen+1,"Allocating name 1\n");
+    if (db1_name == NULL)
+      exit (1);
+    if (fread(db1_name,nlen,1,input) != 1)
+      SYSTEM_READ_ERROR
+    db1_name[nlen] = '\0';
+
+    if (fread(&nlen,sizeof(int),1,input) != 1)
+      SYSTEM_READ_ERROR
+    if (nlen == 0)
+      db2_name = NULL;
+    else
+      { db2_name = Malloc(nlen+1,"Allocating name 2\n");
+        if (db2_name == NULL)
           exit (1);
-        if (db2->part > 0)
-          { fprintf(stderr,"%s: Cannot be called on a block: %s\n",Prog_Name,argv[2]);
+        if (fread(db2_name,nlen,1,input) != 1)
+          SYSTEM_READ_ERROR
+        db2_name[nlen] = '\0';
+      }
+
+    if (fread(&nlen,sizeof(int),1,input) != 1)
+      SYSTEM_READ_ERROR
+    cpath = Malloc(nlen+1,"Allocating name 1\n");
+    if (cpath == NULL)
+      exit (1);
+    if (fread(cpath,nlen,1,input) != 1)
+      SYSTEM_READ_ERROR
+    cpath[nlen] = '\0';
+
+    test = fopen(db1_name,"r");
+    if (test == NULL)
+      { test = fopen(Catenate(cpath,db1_name,"",""),"r");
+        if (test == NULL)
+          { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db1_name);
             exit (1);
+
           }
-        if (status == 0)
-          { fprintf(stderr,"%s: Cannot be called on a .db: %s\n",Prog_Name,argv[2]);
-            exit (1);
+        pwd = Strdup(Catenate(cpath,db1_name,"",""),"Allocating expanded name");
+        free(db1_name);
+        db1_name = pwd;
+      }
+    fclose(test);
+
+    if (db2_name != NULL)
+      { test = fopen(db2_name,"r");
+        if (test == NULL)
+          { test = fopen(Catenate(cpath,db2_name,"",""),"r");
+            if (test == NULL)
+              { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db2_name);
+                exit (1);
+              }
+            pwd = Strdup(Catenate(cpath,db2_name,"",""),"Allocating expanded name");
+            free(db2_name);
+            db2_name = pwd;
           }
-        Trim_DB(db2);
+        fclose(test);
+      }
+
+    free(cpath);
+  }
+
+  //  Open DB or DB pair
+
+  { int   s, r, gdb;
+
+    ISTWO  = 0;
+    gdb    = Open_DB(db1_name,db1);
+    if (gdb < 0)
+      exit (1);
+
+    if (db2_name != NULL)
+      { gdb = Open_DB(db2_name,db2);
+        if (gdb < 0)
+          exit (1);
+        ISTWO = 1;
       }
     else
-      db2 = db1;
-    Trim_DB(db1);
+      db2  = db1;
 
     //  Build contig to scaffold maps in global vars
 
@@ -465,7 +544,7 @@ int main(int argc, char *argv[])
 
     s = -1;
     for (r = 0; r < db1->treads; r++)
-      { if (db1->reads[r].fpulse == 0)
+      { if (db1->reads[r].origin == 0)
           s += 1;
         ALEN[s] = db1->reads[r].fpulse + db1->reads[r].rlen;
         AMAP[r] = s;
@@ -479,7 +558,7 @@ int main(int argc, char *argv[])
 
         s = -1;
         for (r = 0; r < db2->treads; r++)
-          { if (db2->reads[r].fpulse == 0)
+          { if (db2->reads[r].origin == 0)
               s += 1;
             BLEN[s] = db2->reads[r].fpulse + db2->reads[r].rlen;
             BMAP[r] = s;
@@ -493,41 +572,24 @@ int main(int argc, char *argv[])
       }
   }
 
-  //  Get .las trace spacing info and divide file into NTHREADS parts
+  //  Divide .las into NTHREADS parts
 
-  { char       *pwd, *root;
+  { int   i;
+    int64 p, x, ioff, ipar, size;
+    char *buffer;
     struct stat info;
-    FILE       *input;
-    char       *buffer;
-    int64       size, novl, x, p;
-    int         i;
-
-    pwd   = PathTo(argv[2+ISTWO]);
-    root  = Root(argv[2+ISTWO],".las");
-    iname = Strdup(Catenate(pwd,"/",root,".las"),"Allocating input name");
-    input = Fopen(iname,"r");
-    if (input == NULL)
-      exit (1);
-    free(root);
-    free(pwd);
 
     stat(iname,&info);
     size = info.st_size;
-
-    if (fread(&novl,sizeof(int64),1,input) != 1)
-      SYSTEM_READ_ERROR
-    if (fread(&TSPACE,sizeof(int),1,input) != 1)
-      SYSTEM_READ_ERROR
-    if (TSPACE != 100)
-      { fprintf(stderr,"%s: Garbage .las file, trace spacing < 0 !\n",Prog_Name);
-        exit (1);
-      }
+    ioff = ftello(input);
+    size -= ioff;
+    ipar = (ioff % 2);
 
     buffer = Malloc(SEEK_BLOCK,"Allocating seek block");
-    parm[0].beg = sizeof(int64) + sizeof(int);
+    parm[0].beg = ioff;
     for (i = 1; i < NTHREADS; i++)
-      { p = (size*i)/NTHREADS;
-        if (p % 2)
+      { p = (size*i)/NTHREADS + ioff;
+        if (p % 2 != ipar)
           p += 1;
         x = find_ovl_boundary(p,input,buffer);
         if (x == 0)
@@ -539,8 +601,11 @@ int main(int argc, char *argv[])
     parm[NTHREADS-1].end = size;
 
     free(buffer);
+
     fclose(input);
   }
+
+  //   Use NTHREADS to produce .paf for each part and then cat the parts to stdout
 
   { int   p, x;
     char *oprefix;
@@ -626,6 +691,7 @@ int main(int argc, char *argv[])
   Close_DB(db1);
   if (ISTWO)
     Close_DB(db2);
+  free(iname);
 
   exit (0);
 }

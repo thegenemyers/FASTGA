@@ -21,7 +21,6 @@
 #include <sys/stat.h>
 
 #include "DB.h"
-#include "QV.h"
 
 #ifdef HIDE_FILES
 #define PATHSEP "/."
@@ -329,7 +328,7 @@ static char *qtrack_name = ".@qvs";
 
 int Open_DB(char* path, DAZZ_DB *db)
 { DAZZ_DB dbcopy;
-  char   *root, *pwd, *bptr, *fptr, *cat;
+  char   *root, *pwd, *cat;
   int     nreads;
   FILE   *index, *dbvis, *bases;
   int     status, plen, isdam;
@@ -340,8 +339,8 @@ int Open_DB(char* path, DAZZ_DB *db)
   dbcopy = *db;
 
   plen = strlen(path);
-  if (strcmp(path+(plen-4),".dam") == 0)
-    { root = Root(path,".dam");
+  if (strcmp(path+(plen-4),".gdb") == 0)
+    { root = Root(path,".gdb");
       isdam = 1;
     }
   else
@@ -353,19 +352,10 @@ int Open_DB(char* path, DAZZ_DB *db)
     }
   pwd = PathTo(path);
 
-  bptr = rindex(root,'.');
-  if (bptr != NULL && bptr[1] != '\0' && bptr[1] != '-')
-    { part = strtol(bptr+1,&fptr,10);
-      if (*fptr != '\0' || part == 0)
-        part = 0;
-      else
-        *bptr = '\0';
-    }
-  else
-    part = 0;
+  part = 0;   //  Part extension turned off for FastGA .gdb
 
   if (isdam > 0)
-    cat = MyCatenate(pwd,"/",root,".dam");
+    cat = MyCatenate(pwd,"/",root,".gdb");
   else
     cat = MyCatenate(pwd,"/",root,".db");
   if (cat == NULL)
@@ -376,14 +366,14 @@ int Open_DB(char* path, DAZZ_DB *db)
           goto error;
         }
       if (isdam > 0)
-        { EPRINTF(EPLACE,"%s: Could not open DAM %s\n",Prog_Name,path);
+        { EPRINTF(EPLACE,"%s: Could not open GDB %s\n",Prog_Name,path);
           goto error;
         }
-      cat = MyCatenate(pwd,"/",root,".dam");
+      cat = MyCatenate(pwd,"/",root,".gdb");
       if (cat == NULL)
         return (-1);
       if ((dbvis = fopen(cat,"r")) == NULL)
-        { EPRINTF(EPLACE,"%s: Could not open %s as a DB or a DAM\n",Prog_Name,path);
+        { EPRINTF(EPLACE,"%s: Could not open %s as a DB or a GDB\n",Prog_Name,path);
           goto error;
         }
       isdam = 1;
@@ -528,8 +518,6 @@ error2:
 error1:
   fclose(dbvis);
 error:
-  if (bptr != NULL)
-    *bptr = '.';
 
   free(pwd);
   free(root);
@@ -695,7 +683,7 @@ int64 sizeof_DB(DAZZ_DB *db)
     { DAZZ_QV *q = (DAZZ_QV *) t;
       s += sizeof(DAZZ_QV)
          + sizeof(uint16) * db->nreads
-         + q->ncodes * sizeof(QVcoding)
+         + q->ncodes * sizeof(void *)
          + 6;
       t = t->next;
     }
@@ -736,8 +724,8 @@ int List_DB_Files(char *path, void actor(char *path, char *extension))
   status = 0;
   pwd    = PathTo(path);
   plen   = strlen(path);
-  if (strcmp(path+(plen-4),".dam") == 0)
-    root = Root(path,".dam");
+  if (strcmp(path+(plen-4),".gdb") == 0)
+    root = Root(path,".gdb");
   else
     root = Root(path,".db");
   rlen = strlen(root);
@@ -759,7 +747,7 @@ int List_DB_Files(char *path, void actor(char *path, char *extension))
     { name = dp->d_name;
       if (strcmp(name,MyCatenate("","",root,".db")) == 0)
         break;
-      if (strcmp(name,MyCatenate("","",root,".dam")) == 0)
+      if (strcmp(name,MyCatenate("","",root,".gdb")) == 0)
         { isdam = 1;
           break;
         }
@@ -771,7 +759,7 @@ int List_DB_Files(char *path, void actor(char *path, char *extension))
     }
 
   if (isdam)
-    actor(MyCatenate(pwd,"/",root,".dam"),"dam");
+    actor(MyCatenate(pwd,"/",root,".gdb"),"gdb");
   else
     actor(MyCatenate(pwd,"/",root,".db"),"db");
 
@@ -836,8 +824,6 @@ void Close_DB(DAZZ_DB *db)
     free(db->reads-1);
   free(db->path);
 
-  Close_QVs(db);
-
   Close_Arrow(db);
 
   while (db->tracks != NULL)
@@ -859,7 +845,7 @@ char *New_Read_Buffer(DAZZ_DB *db)
 
   read = (char *) Malloc(db->maxlen+4,"Allocating New Read Buffer");
   if (read == NULL)
-    EXIT(NULL);
+    return (NULL);
   return (read+1);
 }
 
@@ -876,8 +862,8 @@ int Load_Read(DAZZ_DB *db, int i, char *read, int ascii)
   DAZZ_READ *r = db->reads;
 
   if (i < 0 || i >= db->nreads)
-    { EPRINTF(EPLACE,"%s: Index %d out of bounds (Load_Read)\n",Prog_Name,i);
-      EXIT(1);
+    { fprintf(stderr,"%s: Index %d out of bounds (Load_Read)\n",Prog_Name,i);
+      return (1);
     }
 
   if (db->loaded)
@@ -919,8 +905,8 @@ int Load_Read(DAZZ_DB *db, int i, char *read, int ascii)
   clen = COMPRESSED_LEN(len);
   if (clen > 0)
     { if (fread(read,clen,1,bases) != 1)
-        { EPRINTF(EPLACE,"%s: Failed read of .bps file (Load_Read)\n",Prog_Name);
-          EXIT(1);
+        { fprintf(stderr,"%s: Failed read of .bps file (Load_Read)\n",Prog_Name);
+          return (1);
         }
     }
   Uncompress_Read(len,read);
@@ -1954,338 +1940,6 @@ void Close_Track(DAZZ_DB *db, DAZZ_TRACK *track)
 
 /*******************************************************************************************
  *
- *  QV OPEN, BUFFER ALLOCATION, LOAD, & CLOSE ROUTINES
- *
- ********************************************************************************************/
-
-DAZZ_DB *Active_DB = NULL;  //  Last db/qv used by "Load_QVentry"
-DAZZ_QV *Active_QV;         //    Becomes invalid after closing
-
-int Open_QVs(DAZZ_DB *db)
-{ FILE        *quiva, *istub, *indx;
-  char        *root;
-  uint16      *table;
-  DAZZ_QV     *qvtrk;
-  QVcoding    *coding, *nx;
-  int          ncodes = 0;
-
-  if (db->tracks != NULL && db->tracks->name == qtrack_name)
-    return (0);
-
-  if (db->trimmed)
-    { EPRINTF(EPLACE,"%s: Cannot load QVs after trimming the DB\n",Prog_Name);
-      EXIT(1);
-    }
-
-  if (db->reads[db->nreads-1].coff < 0)
-    { if (db->part > 0)
-        { EPRINTF(EPLACE,"%s: All QVs for this block have not been added to the DB!\n",Prog_Name);
-          EXIT(1);
-        }
-      else
-        { EPRINTF(EPLACE,"%s: All QVs for this DB have not been added!\n",Prog_Name);
-          EXIT(1);
-        }
-    }
-
-  //  Open .qvs, .idx, and .db files
-
-  quiva = Fopen(MyCatenate(db->path,"","",".qvs"),"r");
-  if (quiva == NULL)
-    return (-1);
-
-  istub  = NULL;
-  indx   = NULL; 
-  table  = NULL;
-  coding = NULL;
-  qvtrk  = NULL;
-
-  root = rindex(db->path,'/');
-  if (root[1] == '.')
-    { *root = '\0';
-      istub = Fopen(MyCatenate(db->path,"/",root+2,".db"),"r");
-      *root = '/';
-    }
-  else
-    istub = Fopen(MyCatenate(db->path,"","",".db"),"r");
-  if (istub == NULL)
-    goto error;
-
-  { int   first, last, nfiles;
-    char  prolog[MAX_NAME], fname[MAX_NAME];
-    int   i, j;
-
-    if (fscanf(istub,DB_NFILE,&nfiles) != 1)
-      { EPRINTF(EPLACE,"%s: Stub file (.db) of %s is junk\n",Prog_Name,root);
-        goto error;
-      }
-
-    if (db->part > 0)
-      { int       pfirst, plast;
-        int       fbeg, fend;
-        int       n, k;
-        FILE     *indx;
-
-        //  Determine first how many and which files span the block (fbeg to fend)
-
-        pfirst = db->ufirst;
-        plast  = pfirst + db->nreads;
-
-        first = 0;
-        for (fbeg = 0; fbeg < nfiles; fbeg++)
-          { if (fscanf(istub,DB_FDATA,&last,fname,prolog) != 3)
-              { EPRINTF(EPLACE,"%s: Stub file (.db) of %s is junk\n",Prog_Name,root);
-                goto error;
-              }
-            if (last > pfirst)
-              break;
-            first = last;
-          }
-        for (fend = fbeg+1; fend <= nfiles; fend++)
-          { if (last >= plast)
-              break;
-            if (fscanf(istub,DB_FDATA,&last,fname,prolog) != 3)
-              { EPRINTF(EPLACE,"%s: Stub file (.db) of %s is junk\n",Prog_Name,root);
-                goto error;
-              }
-            first = last;
-          }
-
-        indx   = Fopen(MyCatenate(db->path,"","",".idx"),"r");
-        ncodes = fend-fbeg;
-        coding = (QVcoding *) Malloc(sizeof(QVcoding)*ncodes,"Allocating coding schemes");
-        table  = (uint16 *) Malloc(sizeof(uint16)*db->nreads,"Allocating QV table indices");
-        if (indx == NULL || coding == NULL || table == NULL)
-          { ncodes = 0;
-            goto error;
-          }
-
-        //  Carefully get the first coding scheme (its offset is most likely in a DAZZ_RECORD
-        //    in .idx that is *not* in memory).  Get all the other coding schemes normally and
-        //    assign the tables # for each read in the block in "tables".
-
-        rewind(istub);
-        (void) fscanf(istub,DB_NFILE,&nfiles);
-
-        first = 0;
-        for (n = 0; n < fbeg; n++)
-          { (void) fscanf(istub,DB_FDATA,&last,fname,prolog);
-            first = last;
-          }
-
-        for (n = fbeg; n < fend; n++)
-          { (void) fscanf(istub,DB_FDATA,&last,fname,prolog);
-
-            i = n-fbeg;
-            if (first < pfirst)
-              { DAZZ_READ read;
-
-                fseeko(indx,sizeof(DAZZ_DB) + sizeof(DAZZ_READ)*first,SEEK_SET);
-                if (fread(&read,sizeof(DAZZ_READ),1,indx) != 1)
-                  { EPRINTF(EPLACE,"%s: Index file (.idx) of %s is junk\n",Prog_Name,root);
-                    ncodes = i;
-                    goto error;
-                  }
-                fseeko(quiva,read.coff,SEEK_SET);
-                nx = Read_QVcoding(quiva);
-                if (nx == NULL)
-                  { ncodes = i;
-                    goto error;
-                  }
-                coding[i] = *nx;
-              }
-            else
-              { fseeko(quiva,db->reads[first-pfirst].coff,SEEK_SET);
-                nx = Read_QVcoding(quiva);
-                if (nx == NULL)
-                  { ncodes = i;
-                    goto error;
-                  }
-                coding[i] = *nx;
-                db->reads[first-pfirst].coff = ftello(quiva);
-              }
-
-            j = first-pfirst;
-            if (j < 0)
-              j = 0;
-            k = last-pfirst;
-            if (k > db->nreads)
-              k = db->nreads;
-            while (j < k)
-              table[j++] = (uint16) i;
-
-            first = last;
-	  }
-
-        fclose(indx);
-        indx = NULL;
-      }
-
-    else
-      { //  Load in coding scheme for each file, adjust .coff of first read in the file, and
-        //    record which table each read uses
-
-        ncodes = nfiles;
-        coding = (QVcoding *) Malloc(sizeof(QVcoding)*nfiles,"Allocating coding schemes");
-        table  = (uint16 *) Malloc(sizeof(uint16)*db->nreads,"Allocating QV table indices");
-        if (coding == NULL || table == NULL)
-          goto error;
-  
-        first = 0;
-        for (i = 0; i < nfiles; i++)
-          { if (fscanf(istub,DB_FDATA,&last,fname,prolog) != 3)
-              { EPRINTF(EPLACE,"%s: Stub file (.db) of %s is junk\n",Prog_Name,root);
-                goto error;
-              }
-  
-            fseeko(quiva,db->reads[first].coff,SEEK_SET);
-            nx = Read_QVcoding(quiva);
-            if (nx == NULL)
-              { ncodes = i;
-                goto error;
-              }
-            coding[i] = *nx;
-	    db->reads[first].coff = ftello(quiva);
-
-            for (j = first; j < last; j++)
-              table[j] = (uint16) i;
-
-            first = last;
-          }
-      }
-
-    //  Allocate and fill in the DAZZ_QV record and add it to the front of the
-    //    track list
-
-    qvtrk = (DAZZ_QV *) Malloc(sizeof(DAZZ_QV),"Allocating QV pseudo-track");
-    if (qvtrk == NULL)
-      goto error;
-    qvtrk->name   = qtrack_name;
-    if (qvtrk->name == NULL)
-      goto error;
-    qvtrk->next   = db->tracks;
-    db->tracks    = (DAZZ_TRACK *) qvtrk;
-    qvtrk->ncodes = ncodes;
-    qvtrk->table  = table;
-    qvtrk->coding = coding;
-    qvtrk->quiva  = quiva;
-  }
-
-  fclose(istub);
-  return (0);
-
-error:
-  if (qvtrk != NULL)
-    free(qvtrk);
-  if (table != NULL)
-    free(table);
-  if (coding != NULL)
-    { int i;
-      for (i = 0; i < ncodes; i++)
-        Free_QVcoding(coding+i);
-      free(coding);
-    }
-  if (indx != NULL)
-    fclose(indx);
-  if (istub != NULL)
-    fclose(istub);
-  fclose(quiva);
-  EXIT(1);
-}
-
-// Allocate and return a buffer of 5 vectors big enough for the largest read in 'db'
-
-char **New_QV_Buffer(DAZZ_DB *db)
-{ char **entry;
-  char  *qvs;
-  int    i;
-
-  qvs   = (char *) Malloc(db->maxlen*5,"Allocating New QV Buffer");
-  entry = (char **) Malloc(sizeof(char *)*5,"Allocating New QV Buffer");
-  if (qvs == NULL || entry == NULL)
-    EXIT(NULL);
-  for (i = 0; i < 5; i++)
-    entry[i] = qvs + i*db->maxlen;
-  return (entry);
-}
-
-// Load into entry the QV streams for the i'th read from db.  The parameter ascii applies to
-//  the DELTAG stream as described for Load_Read.
-
-int Load_QVentry(DAZZ_DB *db, int i, char **entry, int ascii)
-{ DAZZ_READ *reads;
-  FILE      *quiva;
-  int        rlen;
-
-  if (db != Active_DB)
-    { if (db->tracks == NULL || strcmp(db->tracks->name,".@qvs") != 0)
-        { EPRINTF(EPLACE,"%s: QV's have not been opened (Load_QVentry)\n",Prog_Name);
-          EXIT(1);
-        }
-      Active_QV = (DAZZ_QV *) db->tracks;
-      Active_DB = db;
-    }
-
-  if (i < 0 || i >= db->nreads)
-    { EPRINTF(EPLACE,"%s: Index out of bounds (Load_QVentry)\n",Prog_Name);
-      EXIT(1);
-    }
-
-  reads = db->reads;
-  quiva = Active_QV->quiva;
-  rlen  = reads[i].rlen;
-
-  fseeko(quiva,reads[i].coff,SEEK_SET);
-  if (Uncompress_Next_QVentry(quiva,entry,Active_QV->coding+Active_QV->table[i],rlen))
-    EXIT(1);
-
-  if (ascii != 1)
-    { char *deltag = entry[1];
-
-      if (ascii != 2)
-        { char x = deltag[rlen];
-          deltag[rlen] = '\0';
-          Number_Read(deltag);
-          deltag[rlen] = x;
-        }
-      else
-        { int j;
-          int u = 'A'-'a';
-
-          for (j = 0; j < rlen; j++)
-            deltag[j] = (char) (deltag[j]+u);
-        }
-    }
-
-  return (0);
-}
-
-// Close the QV stream, free the QV pseudo track and all associated memory
-
-void Close_QVs(DAZZ_DB *db)
-{ DAZZ_TRACK *track;
-  DAZZ_QV    *qvtrk;
-  int         i;
-
-  Active_DB = NULL;
-
-  track = db->tracks;
-  if (track != NULL && strcmp(track->name,".@qvs") == 0)
-    { qvtrk = (DAZZ_QV *) track;
-      for (i = 0; i < qvtrk->ncodes; i++)
-        Free_QVcoding(qvtrk->coding+i);
-      free(qvtrk->coding);
-      free(qvtrk->table);
-      fclose(qvtrk->quiva);
-      db->tracks = track->next;
-      free(track);
-    }
-  return;
-}
-
-
-/*******************************************************************************************
- *
  *  COMMAND LINE @-EXPANSION PARSER
  *    Take a command line argument and interpret the '@' block number ranges.
  *    Parse_Block_Arg produces an Block_Looper iterator object that can then
@@ -2452,8 +2106,8 @@ static Block_Looper *parse_block_arg(char *arg, int isDB)
   pwd   = PathTo(arg);
   if (isDB)
     { int len = strlen(arg);
-      if (strcmp(arg+(len-4),".dam") == 0)
-        { root = Root(arg,".dam");
+      if (strcmp(arg+(len-4),".gdb") == 0)
+        { root = Root(arg,".gdb");
           isDB = 2;
         }
       else
@@ -2527,10 +2181,10 @@ static Block_Looper *parse_block_arg(char *arg, int isDB)
       dbname = MyCatenate(pwd,"/",root,"db"); 
       dbfile = fopen(dbname,"r");
       if (dbfile == NULL)
-        { dbname = MyCatenate(pwd,"/",root,"dam"); 
+        { dbname = MyCatenate(pwd,"/",root,"gdb"); 
           dbfile = fopen(dbname,"r");
           if (dbfile == NULL)
-            { EPRINTF(EPLACE,"%s: Cannot open database %s[db|dam]\n",Prog_Name,root);
+            { EPRINTF(EPLACE,"%s: Cannot open database %s[db|gdb]\n",Prog_Name,root);
               goto error;
             }
         }
@@ -2561,5 +2215,3 @@ Block_Looper *Parse_Block_LAS_Arg(char *arg)
 
 Block_Looper *Parse_Block_DB_Arg(char *arg)
 { return (parse_block_arg(arg, 1)); }
-
-#include "QV.c"

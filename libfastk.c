@@ -337,11 +337,11 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
   //  Open stub file and get # of parts
 
   dir  = PathTo(name);
-  root = Root(name,".ktab");
+  root = Root(name,".gix");
   full = Malloc(strlen(dir)+strlen(root)+20,"Histogram name allocation");
   if (full == NULL)
     exit (1);
-  sprintf(full,"%s/%s.ktab",dir,root);
+  sprintf(full,"%s/%s.gix",dir,root);
   f = open(full,O_RDONLY);
   sprintf(full,"%s/.%s.ktab.",dir,root);
   flen = strlen(full);
@@ -799,11 +799,11 @@ Kmer_Stream *Open_Kmer_Stream(char *name)
   //  Open stub file and read header values
 
   dir  = PathTo(name);
-  root = Root(name,".ktab");
+  root = Root(name,".gix");
   full = Malloc(strlen(dir)+strlen(root)+20,"Histogram name allocation");
   if (full == NULL)
     exit (1);
-  sprintf(full,"%s/%s.ktab",dir,root);
+  sprintf(full,"%s/%s.gix",dir,root);
   f = open(full,O_RDONLY);
   sprintf(full,"%s/.%s.ktab.",dir,root);
   free(root);

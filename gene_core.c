@@ -27,9 +27,9 @@ void *Malloc(int64 size, char *mesg)
 
   if ((p = malloc(size)) == NULL)
     { if (mesg == NULL)
-        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
+        fprintf(stderr,"%s: Out of memory\n",Prog_Name);
       else
-        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        fprintf(stderr,"%s: Out of memory (%s)\n",Prog_Name,mesg);
     }
   return (p);
 }
@@ -39,9 +39,9 @@ void *Realloc(void *p, int64 size, char *mesg)
     size = 1;
   if ((p = realloc(p,size)) == NULL)
     { if (mesg == NULL)
-        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
+        fprintf(stderr,"%s: Out of memory\n",Prog_Name);
       else
-        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        fprintf(stderr,"%s: Out of memory (%s)\n",Prog_Name,mesg);
     }
   return (p);
 }
@@ -53,9 +53,9 @@ char *Strdup(char *name, char *mesg)
     return (NULL);
   if ((s = strdup(name)) == NULL)
     { if (mesg == NULL)
-        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
+        fprintf(stderr,"%s: Out of memory\n",Prog_Name);
       else
-        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        fprintf(stderr,"%s: Out of memory (%s)\n",Prog_Name,mesg);
     }
   return (s);
 }
@@ -67,9 +67,9 @@ char *Strndup(char *name, int len, char *mesg)
     return (NULL);
   if ((s = strndup(name,len)) == NULL)
     { if (mesg == NULL)
-        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
+        fprintf(stderr,"%s: Out of memory\n",Prog_Name);
       else
-        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        fprintf(stderr,"%s: Out of memory (%s)\n",Prog_Name,mesg);
     }
   return (s);
 }
@@ -80,7 +80,7 @@ FILE *Fopen(char *name, char *mode)
   if (name == NULL || mode == NULL)
     return (NULL);
   if ((f = fopen(name,mode)) == NULL)
-    EPRINTF(EPLACE,"%s: Cannot open %s for '%s'\n",Prog_Name,name,mode);
+    fprintf(stderr,"%s: Cannot open %s for '%s'\n",Prog_Name,name,mode);
   return (f);
 }
 
@@ -139,7 +139,7 @@ char *Catenate(char *path, char *sep, char *root, char *suffix)
   if (len > max)
     { max = ((int) (1.2*len)) + 100;
       if ((cat = (char *) realloc(cat,max+1)) == NULL)
-        { EPRINTF(EPLACE,"%s: Out of memory (Making path name for %s)\n",Prog_Name,root);
+        { fprintf(stderr,"%s: Out of memory (Making path name for %s)\n",Prog_Name,root);
           return (NULL);
         }
     }
@@ -162,7 +162,7 @@ char *Numbered_Suffix(char *left, int num, char *right)
   if (len > max)
     { max = ((int) (1.2*len)) + 100;
       if ((suffix = (char *) realloc(suffix,max+1)) == NULL)
-        { EPRINTF(EPLACE,"%s: Out of memory (Making number suffix for %d)\n",Prog_Name,num);
+        { fprintf(stderr,"%s: Out of memory (Making number suffix for %d)\n",Prog_Name,num);
           return (NULL);
         }
     }

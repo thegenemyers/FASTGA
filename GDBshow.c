@@ -319,6 +319,7 @@ int main(int argc, char *argv[])
     c = 2;
     while (1)
       { substr = 0;
+        fst = lst = 0;
         sunits = 0;
         if (argc == 2)      //  No args: show everything
           { if (c > 2)

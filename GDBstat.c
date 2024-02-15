@@ -90,7 +90,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("h")
+            ARG_FLAGS("")
             break;
           case 'h':
             if (strcmp(argv[i]+2,"log") == 0)

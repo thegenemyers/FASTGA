@@ -51,7 +51,7 @@ static int OVL_SIZE = sizeof(Overlap) - sizeof(void *);
 static int plausible_record(Overlap *o)
 { int l1, l2;
 
-  if (o->flags < 0 || o->flags > 2)
+  if (o->flags > 2)
    return (0);
   if (o->path.abpos < 0 || o->path.abpos > o->path.aepos || o->path.aepos > AMAX)
     return (0);

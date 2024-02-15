@@ -577,6 +577,7 @@ static void *setup_thread(void *args)
   ncntg = DBsplit[tid];
   post  = DBpost[tid];
   nextpost = post;
+  basepost = post;
   while (1)
     { { int   v;
         int64 extra;
@@ -1348,7 +1349,7 @@ int main(int argc, char *argv[])
         SROOT[strlen(SROOT)-4] = '\0';
       }
 
-    if (SEXTN == 8 & argc > 2)
+    if (SEXTN == 8 && argc > 2)
       { fprintf(stderr,
                 "%s: Cannot create a .gix with a different location and root name than its .gdb\n",
                 Prog_Name);

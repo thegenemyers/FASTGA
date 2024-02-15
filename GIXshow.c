@@ -90,9 +90,9 @@ static Post_List *Open_Post_List(char *name)
   int64      nels, maxp, n;
   int        copn;
 
-  int    f, p, flen;
+  int    f, p;
   char  *dir, *root, *full;
-  int    pb, cb, nfile, nthreads, freq;
+  int    pb, cb, nfile, freq;
 
   dir  = PathTo(name);
   root = Root(name,".gix");
@@ -106,7 +106,6 @@ static Post_List *Open_Post_List(char *name)
       exit (1);
     }
   sprintf(full,"%s/.%s.post.",dir,root);
-  flen = strlen(full);
   free(root);
   free(dir);
 
@@ -119,7 +118,6 @@ static Post_List *Open_Post_List(char *name)
   if (read(f,&nfile,sizeof(int)) < 0) goto open_io_error;
   if (read(f,&maxp,sizeof(int64)) < 0) goto open_io_error;
   if (read(f,&freq,sizeof(int)) < 0) goto open_io_error;
-  nthreads = nfile;
 
   if (read(f,&nctg,sizeof(int)) < 0) goto open_io_error;
 
@@ -443,7 +441,9 @@ int main(int argc, char *argv[])
   { int    i, j, k;
     int    flags[128];
 
-    ARG_INIT("Gshow");
+    ARG_INIT("GIXshow");
+
+    (void) flags;
 
     j = 1;
     for (i = 1; i < argc; i++)

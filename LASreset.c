@@ -38,6 +38,8 @@ int main(int argc, char *argv[])
 
     ARG_INIT("LASreset")
 
+    (void) flags;
+
     j = 1;
     for (i = 1; i < argc; i++)
       if (argv[i][0] == '-')
@@ -65,6 +67,8 @@ int main(int argc, char *argv[])
       exit (1);
     fclose(input);
 
+    SPATH2 = NULL;
+    SROOT2 = NULL;
     if (argc == 4)
       { SPATH2 = PathTo(argv[3]);
         SROOT2 = Root(argv[3],".gdb");

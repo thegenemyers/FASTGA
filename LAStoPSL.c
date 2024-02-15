@@ -48,7 +48,7 @@ static int OVL_SIZE = sizeof(Overlap) - sizeof(void *);
 static int plausible_record(Overlap *o)
 { int l1, l2;
 
-  if (o->flags < 0 || o->flags > 2)
+  if (o->flags > 2)
    return (0);
   if (o->path.abpos < 0 || o->path.abpos > o->path.aepos || o->path.aepos > AMAX)
     return (0);
@@ -112,7 +112,7 @@ typedef struct
     FILE   *out;
   } Packet;
 
-void *gen_paf(void *args)
+void *gen_psl(void *args)
 { Packet *parm = (Packet *) args;
 
   int64    beg = parm->beg;
@@ -176,6 +176,7 @@ void *gen_paf(void *args)
 
   fseek(in,beg,SEEK_SET);
 
+  aoff  = 0;
   aread = -1;
   bytes = 0;
   while (bytes < tot)
@@ -392,6 +393,8 @@ int main(int argc, char *argv[])
     char  *eptr;
 
     ARG_INIT("LAStoPSL")
+
+    (void) flags;
 
     NTHREADS = 8;
 
@@ -651,11 +654,11 @@ int main(int argc, char *argv[])
 
 #ifdef DEBUG_THREADS
     for (p = 0; p < NTHREADS; p++)
-      gen_paf(parm+p);
+      gen_psl(parm+p);
 #else
     for (p = 1; p < NTHREADS; p++)
-      pthread_create(threads+p,NULL,gen_paf,parm+p);
-    gen_paf(parm);
+      pthread_create(threads+p,NULL,gen_psl,parm+p);
+    gen_psl(parm);
     for (p = 1; p < NTHREADS; p++)
       pthread_join(threads[p],NULL);
 #endif

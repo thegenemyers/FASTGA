@@ -107,6 +107,9 @@ int main(int argc, char *argv[])
     if (argc == 2)
       { output = stdout;
         gzip   = 0;
+        TPATH  = NULL;
+        TROOT  = NULL;
+        TEXTN  = 0;
       }
     else
       { if (strcmp(argv[2],"@") == 0)

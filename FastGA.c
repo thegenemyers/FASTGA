@@ -251,9 +251,9 @@ static Post_List *Open_Post_List(char *name)
   int64      nels, maxp, n;
   int        copn;
 
-  int    f, p, flen;
+  int    f, p;
   char  *dir, *root, *full;
-  int    pb, cb, nfile, nthreads, freq;
+  int    pb, cb, nfile, freq;
 
   dir  = PathTo(name);
   root = Root(name,".gix");
@@ -270,7 +270,6 @@ static Post_List *Open_Post_List(char *name)
       exit (1);
     }
   sprintf(full,"%s/.%s.post.",dir,root);
-  flen = strlen(full);
   free(root);
   free(dir);
 
@@ -283,7 +282,6 @@ static Post_List *Open_Post_List(char *name)
   if (read(f,&nfile,sizeof(int)) < 0) goto open_io_error;
   if (read(f,&maxp,sizeof(int64)) < 0) goto open_io_error;
   if (read(f,&freq,sizeof(int)) < 0) goto open_io_error;
-  nthreads = nfile;
 
   if (read(f,&nctg,sizeof(int)) < 0) goto open_io_error;
 
@@ -1962,6 +1960,8 @@ static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *
     }
 #endif
 
+  (void) den;
+
   return (min);
 }
 
@@ -2116,7 +2116,13 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
           else
             apost = MAX_INT64;
 
+          dgmin = 2*BUCK_WIDTH;
+          dgmax = 0;
           ahgh = -CHAIN_BREAK;
+          if (apost < ipost)
+            alow = apost;
+          else
+            alow = ipost;
           cov  = 0;
           go   = 1;
           while (go)
@@ -2273,9 +2279,6 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
 
                             if (path->aepos - path->abpos >= ALIGN_MIN)
                               { Compress_TraceTo8(ovl,0);
-// if (ovl->aread == 53 && ovl->bread == 11)
-  // fprintf(stderr," self = %d\n",self);
-  // fprintf(stderr," diff = %d %x\n",ovl->path.diffs,ovl->flags);
                                 if (fwrite(ovl,OVL_SIZE,1,tfile) != 1)
                                   { fprintf(stderr,
                                            "%s: Cannot write overlap gather file %s/%s.%d.las\n",
@@ -2346,7 +2349,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                             if (eant <= alow)
                               alow = amid;
                             else
-                             alow = eant;
+                              alow = eant;
                           } while (alow < ahgh);
 #endif
                           alast = alow;

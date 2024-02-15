@@ -40,28 +40,12 @@ static char number[128] =
       0, 0, 0, 0, 0, 0, 0, 0,
     };
 
-
-static FILE *fzopen(const char *path, const char *mode)
-{ gzFile zfp;
-
-  zfp = gzopen(path,mode);
-  if (zfp == NULL)
-    return (fopen(path,mode));
-
-  return (funopen(zfp,
-                  (int(*)(void*,char*,int))gzread,
-                  (int(*)(void*,const char*,int))gzwrite,
-                  (fpos_t(*)(void*,fpos_t,int))gzseek,
-                  (int(*)(void*))gzclose) );
-}
-
 int main(int argc, char *argv[])
 { char   *SPATH, *SROOT;
   char   *TPATH, *TROOT;
   int     SEXTN;
   char   *suffix[8] = { "", ".fa", ".fna", ".fasta", ".gz", ".fa.gz", ".fna.gz", ".fasta.gz" };
   int     suflen[8] = { 0, 3, 4, 6, 3, 6, 7, 9 };
-  FILE   *input;
   DAZZ_DB db;
   FILE   *bases, *indx, *hdrs;
 
@@ -101,6 +85,7 @@ int main(int argc, char *argv[])
   { char *p, *s, *e;
     int   i, exists;
     struct stat status;
+    FILE *input;
 
     SPATH = argv[1];
     p = rindex(SPATH,'/');
@@ -113,10 +98,11 @@ int main(int argc, char *argv[])
         SROOT = p;
       }
     for (i = 7; i >= 0; i--)
-      { input = fzopen(Catenate(SPATH,"/",SROOT,suffix[i]),"r");
+      { input = fopen(Catenate(SPATH,"/",SROOT,suffix[i]),"r");
         if (input != NULL)
           break;
       }
+    fclose(input);
     if (i < 0)
       {fprintf(stderr,"%s: Could not find a fasta file with base name %s\n",Prog_Name,SROOT);
         exit (1);
@@ -189,6 +175,8 @@ int main(int argc, char *argv[])
     char      *read;
     int        nline, eof;
     int        c, i, x, n;
+    void      *input;
+    int        gzip;
 
     nreads  = 0;
     offset  = 0;
@@ -206,6 +194,12 @@ int main(int argc, char *argv[])
     for (c = 0; c < 4; c++)  //  count of acgt in new .fasta files
       count[c] = 0;
 
+    gzip = (SEXTN >= 4);
+    if (gzip)
+      input = gzopen(Catenate(SPATH,"/",SROOT,suffix[SEXTN]),"r");
+    else
+      input = fopen(Catenate(SPATH,"/",SROOT,suffix[SEXTN]),"r");
+
     bases  = Fopen(Catenate(TPATH,"/.",TROOT,".bps"),"w");
     indx   = Fopen(Catenate(TPATH,"/.",TROOT,".idx"),"w");
     hdrs   = Fopen(Catenate(TPATH,"/.",TROOT,".hdr"),"w");
@@ -219,9 +213,20 @@ int main(int argc, char *argv[])
 
     rlen  = 0;
     nline = 1;
-    eof   = (fgets(read,MAX_NAME,input) == NULL);
-    if (eof & !feof(input))
-      goto in_error;
+    if (gzip)
+      eof = (gzgets(input,read,MAX_NAME) == NULL);
+    else
+      eof = (fgets(read,MAX_NAME,input) == NULL);
+    if (eof)
+      { if (gzip)
+          { if (!gzeof(input))
+              goto in_error;
+          }
+        else
+          { if (!feof(input))
+              goto in_error;
+          }
+      }
     if (eof || strlen(read) < 1)
       { fclose(input);
         fprintf(stderr,"Input is empty, terminating!\n");
@@ -255,9 +260,20 @@ int main(int argc, char *argv[])
 
         rlen = 0;
         while (1)
-          { eof = (fgets(read+rlen,MAX_NAME,input) == NULL);
-            if (eof & !feof(input))
-              goto in_error;
+          { if (gzip)
+              eof = (gzgets(input,read+rlen,MAX_NAME) == NULL);
+            else
+              eof = (fgets(read+rlen,MAX_NAME,input) == NULL);
+            if (eof)
+              { if (gzip)
+                  { if (!gzeof(input))
+                      goto in_error;
+                  }
+                else
+                  { if (!feof(input))
+                      goto in_error;
+                  }
+              }
             x = strlen(read+rlen)-1;
             if (read[rlen] == '>')
               { if (read[rlen+x] != '\n')
@@ -289,7 +305,7 @@ int main(int argc, char *argv[])
           }
         read[rlen] = '\0';
 
-        n = 0;
+	n = 0;
         i = -1;
         while (i < rlen)
           { int pbeg, plen, clen;
@@ -318,7 +334,7 @@ int main(int argc, char *argv[])
             if (plen > maxlen)
               maxlen = plen;
 
-            Compress_Read(plen,read+pbeg);
+	    Compress_Read(plen,read+pbeg);
             clen = COMPRESSED_LEN(plen);
             if ((int) fwrite(read+pbeg,1,clen,bases) < clen)
               goto out_error;
@@ -330,7 +346,10 @@ int main(int argc, char *argv[])
         hdrset += hlen;
       }
 
-    fclose(input);
+    if (gzip)
+      gzclose(input);
+    else
+      fclose(input);
 
     //  Update relevant fields in db record
 

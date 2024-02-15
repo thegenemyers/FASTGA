@@ -18,27 +18,13 @@
 
 static char *Usage = "[-vU] [-w<int(80)>] <source:path>[.gdb] [ @ | <target:path>[<fa_extn>] ]";
 
-
-static FILE *fzopen(const char *path, const char *mode)
-{ gzFile zfp;
-
-  zfp = gzopen(path,mode);
-  if (zfp == NULL)
-    return (fopen(path,mode));
-
-  return (funopen(zfp,
-                  (int(*)(void*,char*,int))gzread,
-                  (int(*)(void*,const char*,int))gzwrite,
-                  (fpos_t(*)(void*,fpos_t,int))gzseek,
-                  (int(*)(void*))gzclose) );
-}
-
 int main(int argc, char *argv[])
 { DAZZ_DB    _db, *db = &_db;
-  FILE       *output;
+  void       *output;
   char       *SPATH, *SROOT;
   char       *TPATH, *TROOT;
   int         TEXTN;
+  int         gzip;
 
   int UPPER;   // -U
   int WIDTH;   // -w
@@ -119,7 +105,9 @@ int main(int argc, char *argv[])
     opath  = stub->prolog[0];
 
     if (argc == 2)
-      output = stdout;
+      { output = stdout;
+        gzip   = 0;
+      }
     else
       { if (strcmp(argv[2],"@") == 0)
           { TPATH = oname;
@@ -167,8 +155,9 @@ int main(int argc, char *argv[])
                 break;
             TEXTN = i;
           }
-        if (TEXTN >= 3)
-          output = fzopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
+        gzip = (TEXTN >= 3);
+        if (gzip)
+          output = gzopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
         else
           output = fopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
         if (output == NULL)
@@ -195,7 +184,7 @@ int main(int argc, char *argv[])
     char       *read;
     FILE       *hdrs;
     char       *nstring;
-    int         i, f, wpos;
+    int         i, f, z, wpos;
     char        header[MAX_NAME];
 
     hdrs = Fopen(Catenate(db->path,".hdr","",""),"r");
@@ -232,7 +221,12 @@ int main(int argc, char *argv[])
 
         if (r->origin == 0)
           { if (i != 0 && wpos != 0)
-              { fprintf(output,"\n");
+              { if (gzip)
+                  z = gzprintf(output,"\n");
+                else
+                  z = fprintf(output,"\n");
+                if (z < 0)
+                  goto out_error;
                 wpos = 0;
               }
             if (fseeko(hdrs,r->coff,SEEK_SET) < 0)
@@ -243,7 +237,11 @@ int main(int argc, char *argv[])
               { fprintf(stderr,"%s: Failed to read from the GDB header file\n",Prog_Name);
                 goto clean_up;
               }
-            if (fprintf(output,"> %s",header) == EOF)
+            if (gzip)
+              z = gzprintf(output,"> %s",header);
+            else
+              z = fprintf(output,"> %s",header);
+            if (z < 0)
               goto out_error;
           }
 
@@ -254,12 +252,20 @@ int main(int argc, char *argv[])
               nlen = r->fpulse;
 
             for (j = 0; j+(w = WIDTH-wpos) <= nlen; j += w)
-              { if (fprintf(output,"%.*s\n",w,nstring) < 0)
+              { if (gzip)
+                  z = gzprintf(output,"%.*s\n",w,nstring);
+                else
+                  z = fprintf(output,"%.*s\n",w,nstring);
+                if (z < 0)
                   goto out_error;
                 wpos = 0;
               }
             if (j < nlen)
-              { if (fprintf(output,"%.*s",nlen-j,nstring) < 0)
+              { if (gzip)
+                  z = gzprintf(output,"%.*s",nlen-j,nstring);
+                else
+                  z = fprintf(output,"%.*s",nlen-j,nstring);
+                if (z < 0)
                   goto out_error;
                 if (j == 0)
                   wpos += nlen;
@@ -272,12 +278,20 @@ int main(int argc, char *argv[])
           exit (1);
 
         for (j = 0; j+(w = WIDTH-wpos) <= len; j += w)
-          { if (fprintf(output,"%.*s\n",w,read+j) < 0)
+          { if (gzip)
+              z = gzprintf(output,"%.*s\n",w,read+j);
+            else
+              z = fprintf(output,"%.*s\n",w,read+j);
+            if (z < 0)
               goto out_error;
             wpos = 0;
           }
         if (j < len)
-          { if (fprintf(output,"%s",read+j) < 0)
+          { if (gzip)
+              z = gzprintf(output,"%s",read+j);
+            else
+              z = fprintf(output,"%s",read+j);
+            if (z < 0)
               goto out_error;
             if (j == 0)
               wpos += len;
@@ -286,10 +300,19 @@ int main(int argc, char *argv[])
           }
       }
     if (wpos > 0)
-      if (fprintf(output,"\n") < 0)
-        goto out_error;
+      { if (gzip)
+          z = gzprintf(output,"\n");
+        else
+          z = fprintf(output,"\n");
+        if (z < 0)
+          goto out_error;
+      }
     if (output != stdout)
-      fclose(output);
+      { if (gzip)
+          gzclose(output);
+        else
+          fclose(output);
+      }
     free(nstring);
     fclose(hdrs);
   }

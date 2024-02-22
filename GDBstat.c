@@ -344,7 +344,7 @@ int main(int argc, char *argv[])
               printf(":  %*d   %5.1f%%",ccwide,ct,(100.*cs)/totbps);
             }
           else
-            printf("%*s",ccwide+12,"");
+            printf("%*s",cwide+ccwide+12,"");
           if (sbin >= smin)
             { printf("        ");
               Print_Number(sbin,swide,stdout);
@@ -425,7 +425,7 @@ int main(int argc, char *argv[])
               printf(":  %*d   %5.1f%%",ccwide,ct,(100.*cs)/totbps);
             }
           else
-            printf("%*s",ccwide+12,"");
+            printf("%*s",cwide+ccwide+12,"");
           if (sbin >= smin)
             { printf("        ");
               Print_Number(sbin,swide,stdout);

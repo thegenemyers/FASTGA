@@ -3556,8 +3556,16 @@ int main(int argc, char *argv[])
         fprintf(stderr,"             <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
+        fprintf(stderr,"      -k: Keep any generated .gdb's and .gix's.\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -paf: Generate PAF output\n");
+        fprintf(stderr,"        -pafx: Generate PAF output with CIGAR sring with X's\n");
+        fprintf(stderr,"        -pafm: Generate PAF output with CIGAR sring with ='s\n");
+        fprintf(stderr,"      -psl: Generate PSL output\n");
+        fprintf(stderr,"      -one: Generate 1-code output\n");
+        fprintf(stderr,"      -las: Generate LAS output\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         fprintf(stderr,"      -c: minimum seed chain coverage in both genomes\n");

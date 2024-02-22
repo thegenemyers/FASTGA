@@ -82,6 +82,8 @@ int main(int argc, char *argv[])
 
     ARG_INIT("GDBstat")
 
+    (void) flags;
+
     HIST_LIN = 0;
     HIST_LOG = 0;
 

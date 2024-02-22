@@ -17,6 +17,8 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
+#include <fcntl.h>
 
 #include "DB.h"
 #include "align.h"
@@ -29,6 +31,70 @@ static char *Usage[] =
 #define LAST_SYMBOL  '#'
 #define SCAF_SYMBOL  '@'
 
+static char      *AHEADERS;
+static DAZZ_READ *AREADS;
+static int       *AMAP;
+static int       *HPERMA;
+
+static char      *BHEADERS;
+static DAZZ_READ *BREADS;
+static int       *BMAP;
+static int       *HPERMB;
+
+//  Sorted table of Headers
+
+static int HSORTA(const void *l, const void *r)
+{ int x = *((int *) l);
+  int y = *((int *) r);
+
+  return (strcmp(AHEADERS+AREADS[AMAP[x]].coff,AHEADERS+AREADS[AMAP[y]].coff));
+}
+
+static int HSORTB(const void *l, const void *r)
+{ int x = *((int *) l);
+  int y = *((int *) r);
+
+  return (strcmp(BHEADERS+BREADS[BMAP[x]].coff,BHEADERS+BREADS[BMAP[y]].coff));
+}
+
+static char *AHEAD(int x)
+{ return (AHEADERS+AREADS[AMAP[HPERMA[x]]].coff); }
+
+static char *BHEAD(int x)
+{ return (BHEADERS+BREADS[BMAP[HPERMB[x]]].coff); }
+
+static int lookup(char *x, char *(*head)(int), int nscaff)
+{ int l, r, m;
+
+  // smallest l s.t. HPERM(l) >= x (or NSCAFF if does not exist)
+
+  l = 0;
+  r = nscaff;
+  while (l < r)
+    { m = ((l+r) >> 1);
+      if (strcmp(head(m),x) < 0)
+        l = m+1;
+      else
+        r = m;
+    }
+
+  if (l >= nscaff || strncmp(head(l),x,strlen(x)) != 0)
+    return (-1);
+
+  return (l);
+}
+
+static int matches(char *x, int *pe, char *(*head)(int), int nscaff)
+{ int b, e;
+
+  b = lookup(x,head,nscaff);
+  for (e = b+1; b < nscaff; e++)
+    if (strncmp(head(e),x,strlen(x)) != 0)
+      break;
+  *pe = e-1;
+  return (b);
+}
+
 
 //  Parse read range grabbing up to 4 values from it as follows:
 //    type 1
@@ -39,7 +105,8 @@ static char *Usage[] =
 //          val[0][.val[1]] _ val[2] - val[3]
 //  Return 0 if there is a syntactic error, otherwise return the type.
 //  0 values indicate $, -1 indicates not present, -2 (only in val[1] or val[3])
-//      indicates val[0] or val[2], respectively, is a scaffold index.
+//      indicates val[0] or val[2], respectively, is a scaffold index, -3 (like -2)
+//      implies val is index into arg of string value.
 
 static char *white(char *x)
 { while (isspace(*x))
@@ -86,32 +153,72 @@ static char *address(char *x, int *v, int sep)
   return (x);
 }
 
-static int range(char *x, int *v)
-{ int t, sep;
+static int range(char *src, int *v, char *(*head)(int), int nscaff)
+{ int   t, sep;
+  char *x, *y, *z;
 
   v[2] = -1;
-  x = white(x);
+  x = white(src);
   if (*x == SCAF_SYMBOL)
     { x += 1;
       sep = ' ';
     }
   else
     sep = '.';
-  x = address(x,v,sep);
-  if (x == NULL)
-    return (0);
+  y = address(x,v,sep);
+  if (y == NULL)
+    { if (sep == ' ')
+        goto try_string;
+      else
+        return (0);
+    }
   t = 1;
-  if (*x == '-')
-    { x = address(x+1,v+2,sep);
+  if (*y == '-')
+    { y = address(y+1,v+2,sep);
       t = 2;
     }
-  else if (*x == '_')
-    { x = address(x+1,v+2,'-');
+  else if (*y == '_')
+    { y = address(y+1,v+2,'-');
       t = 3;
     }
-  if (x == NULL || *x != '\0')
-    return (0);
+  if (y == NULL || *y != '\0')
+    { if (sep == ' ')
+        goto try_string;
+      else
+        return (0);
+    }
   return (t);
+
+try_string:
+  if (lookup(x,head,nscaff) >= 0)
+    { v[1] = -3;
+      v[0] = x-src;
+      return (1);
+    }
+  y = rindex(x,'_');
+  if (y != NULL)
+    { *y = '\0';
+      if (lookup(x,head,nscaff) >= 0)
+        { z = address(y+1,v+2,'-');
+          if (z != NULL && *z == '\0')
+            { v[1] = -3;
+              v[0] = x-src;  
+              return (3);
+            }
+        }
+      *y = '_';
+    }
+  for (y = index(x,'-'); y != NULL; y = index(y+1,'-'))
+    { *y = '\0'; 
+      if (lookup(x,head,nscaff) >= 0 && lookup(y+1,head,nscaff) >= 0)
+        { v[1] = v[3] = -3;
+          v[0] = x-src;
+          v[2] = (y+1)-src;
+          return (2);
+        }
+      *y = '-';
+    }
+  return (0);
 }
 
  //  Interpret value pair s.c into an absolute contig range (1-based)
@@ -120,57 +227,79 @@ static int interpret_address(int s, int c, int ncontig, int nscaff, int *map)
 { if (c == -1)
     { if (s == 0)
         return (ncontig);
-      else if (s > ncontig)
+      if (s > ncontig)
         { fprintf(stderr,"%s: Absolute contig index '%d' is out of bounds\n",Prog_Name,s);
           exit (1);
         }
-      else
-        return (s);
+      return (s);
     }
-  else
-    { if (s == 0)
-        s = nscaff;
-      else if (s > nscaff)
-        { fprintf(stderr,"%s: Scaffold index '%d' is out of bounds\n",Prog_Name,s);
-          exit (1);
-        }
-      if (c == 0)
-        return (map[s]);
-      else if (c == -2)
-        return (s);
-      else if (c > map[s]-map[s-1])
-        { fprintf(stderr,"%s: Relative contig index '%d' is out of bounds\n",Prog_Name,c);
-          exit (1);
-        }
-      else
-        return (map[s-1] + c);
+  if (s == 0)
+    s = nscaff;
+  else if (s > nscaff)
+    { fprintf(stderr,"%s: Scaffold index '%d' is out of bounds\n",Prog_Name,s);
+      exit (1);
     }
+  if (c == 0)
+    return (map[s]);
+  if (c == -2)
+    return (s);
+  if (c > map[s]-map[s-1])
+    { fprintf(stderr,"%s: Relative contig index '%d' is out of bounds\n",Prog_Name,c);
+      exit (1);
+    }
+  return (map[s-1] + c);
 }
 
   //  Interpret argument x as a range and map to contig level ranges
 
-static void contig_range(char *x, DAZZ_DB *db, int ncontig, int nscaff, int *map,
+static void contig_range(char *x, DAZZ_DB *db, int ncontig, int nscaff, int *map, char *(*head)(int), int *hperm,
                          int *pbeg, int *pend, int *pfst, int *plst)
 { int t, vals[4], len, sunit;
   int beg, end, fst, lst;
 
-  t = range(x,vals);
+  t = range(x,vals,head,nscaff);
   if (t == 0)
     { fprintf(stderr,"%s: Command line argument %s not a valid read range\n",Prog_Name,x);
       exit (1);
     }
 
-  sunit = (vals[1] == -2);
+  sunit = (vals[1] <= -2);
 
-  beg = end = interpret_address(vals[0],vals[1],ncontig,nscaff,map) - 1;
-  fst = 0;
-  if (t == 2)
-    { end = interpret_address(vals[2],vals[3],ncontig,nscaff,map) - 1;
-      if (beg > end)
-        { fprintf(stderr,"%s: Read range in '%s' is empty\n",Prog_Name,x);
-          exit (1);
+  if (vals[1] == -3)
+    { beg = matches(x+vals[0],&end,head,nscaff);
+      if (t == 2)
+        { matches(x+vals[2],&end,head,nscaff);
+          if (beg > end)
+            { fprintf(stderr,"%s: Scaffold range in '%s' is empty\n",Prog_Name,x);
+              exit (1);
+            }
+        }
+      if (t == 3)
+        { if (end > beg)
+            { fprintf(stderr,"%s: String in %s matches multiple scaffolds, so substring ambiguous.\n",Prog_Name,x);
+              exit (1);
+            }
+          beg = end = hperm[beg];
+        }
+      else
+        { *pbeg = beg;
+          *pend = end;
+          *pfst = -1;
+          return;
         }
     }
+  else
+    { beg = end = interpret_address(vals[0],vals[1],ncontig,nscaff,map) - 1;
+      fst = 0;
+      if (t == 2)
+        { end = interpret_address(vals[2],vals[3],ncontig,nscaff,map) - 1;
+          if (beg > end)
+            { fprintf(stderr,"%s: Read range in '%s' is empty\n",Prog_Name,x);
+              exit (1);
+            }
+        }
+    }
+
   if (sunit)
     { beg = map[beg];
       end = map[end+1]-1; 
@@ -235,6 +364,8 @@ int main(int argc, char *argv[])
   int    *bmap, *blen, *bctg, *bscf, nbscaff, nbcontig, bmaxlen, bctgmax;
   int     abeg, aend, afst, alst;
   int     bbeg, bend, bfst, blst;
+  char   *abst, *aest;
+  char   *bbst, *best;
 
   //  Process options
 
@@ -282,7 +413,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"        <contig>   = (<int>|#)[.(<int>|#)]\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"        <scaffold> =  <int>|#\n");
+        fprintf(stderr,"        <scaffold> =  <int>|<string>|#\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -a: Show the alignment of each LA.\n");
         fprintf(stderr,"      -r: Show the alignment of each LA with -w bp's of A in each row.\n");
@@ -393,7 +524,8 @@ int main(int argc, char *argv[])
 
   //  Open DB or DB pair and set up scaffold->contig maps
 
-  { int   s, r;
+  { int r, s, hdrs;
+    struct stat state;
 
     ISTWO  = 0;
     if (Open_DB(db1_name,db1) < 0)
@@ -409,6 +541,8 @@ int main(int argc, char *argv[])
 
     nacontig = db1->nreads;
     nbcontig = db2->nreads;
+    AREADS   = db1->reads;
+    BREADS   = db2->reads;
 
     ascf = (int *) Malloc(sizeof(int)*(4*nacontig+1),"Allocating scaffold map");
     if (ascf == NULL)
@@ -439,6 +573,37 @@ int main(int argc, char *argv[])
           actgmax = actg[r];
       }
 
+    hdrs = open(Catenate(db1->path,".hdr","",""),O_RDONLY);
+    if (hdrs < 0)
+      { fprintf(stderr,"%s: Cannot open header file of %s\n",Prog_Name,db1_name);
+        exit (1);
+      }
+    if (fstat(hdrs,&state) < 0)
+      { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,db1_name);
+        exit (1);
+      }
+
+    AMAP     = amap;
+    HPERMA   = Malloc(sizeof(int)*nascaff,"Allocating header table");
+    AHEADERS = Malloc(state.st_size,"Allocating header table");
+    if (HPERMA == NULL || AHEADERS == NULL)
+      exit (1);
+
+    if (read(hdrs,AHEADERS,state.st_size) < 0)
+      { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,db1_name);
+        exit (1);
+      }
+    AHEADERS[state.st_size-1] = '\0';
+    close(hdrs);
+
+    HPERMA[0] = 0;
+    for (s = 1; s < nascaff; s++)
+      { AHEADERS[AREADS[AMAP[s]].coff-1] = '\0';
+        HPERMA[s] = s;
+      }
+
+    qsort(HPERMA,nascaff,sizeof(int),HSORTA);
+
     if (db2_name != NULL)
       { bscf = (int *) Malloc(sizeof(int)*(4*nbcontig+1),"Allocating scaffold map");
         if (bscf == NULL)
@@ -468,6 +633,37 @@ int main(int argc, char *argv[])
             if (bctg[r] > bctgmax)
               bctgmax = bctg[r];
           }
+
+        hdrs = open(Catenate(db2->path,".hdr","",""),O_RDONLY);
+        if (hdrs < 0)
+          { fprintf(stderr,"%s: Cannot open header file of %s\n",Prog_Name,db2_name);
+            exit (1);
+          }
+        if (fstat(hdrs,&state) < 0)
+          { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,db2_name);
+            exit (1);
+          }
+
+        BMAP     = bmap;
+        HPERMB   = Malloc(sizeof(int)*nbscaff,"Allocating header table");
+        BHEADERS = Malloc(state.st_size,"Allocating header table");
+        if (HPERMB == NULL || BHEADERS == NULL)
+          exit (1);
+
+        if (read(hdrs,BHEADERS,state.st_size) < 0)
+          { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,db1_name);
+            exit (1);
+          }
+        BHEADERS[state.st_size-1] = '\0';
+        close(hdrs);
+
+        HPERMB[0] = 0;
+        for (s = 1; s < nbscaff; s++)
+          { BHEADERS[BREADS[BMAP[s]].coff-1] = '\0';
+            HPERMB[s] = s;
+          }
+
+        qsort(HPERMB,nbscaff,sizeof(int),HSORTB);
       }
     else
       { bmap = amap;
@@ -477,15 +673,19 @@ int main(int argc, char *argv[])
         nbscaff = nascaff;
         bctgmax = actgmax;
         bmaxlen = amaxlen;
+
+        BMAP     = bmap;
+        HPERMB   = HPERMA;
+        BHEADERS = AHEADERS;
       }
   }
 
   //  Setup up contig reporting ranges
 
   if (argc > 2)
-    { contig_range(argv[2],db1,nacontig,nascaff,amap,&abeg,&aend,&afst,&alst);
+    { contig_range(argv[2],db1,nacontig,nascaff,amap,AHEAD,HPERMA,&abeg,&aend,&afst,&alst);
       if (argc > 3)
-        contig_range(argv[3],db2,nbcontig,nbscaff,bmap,&bbeg,&bend,&bfst,&blst);
+        contig_range(argv[3],db2,nbcontig,nbscaff,bmap,BHEAD,HPERMB,&bbeg,&bend,&bfst,&blst);
       else
         { bbeg = 0;
           bend = db2->nreads-1;
@@ -500,6 +700,18 @@ int main(int argc, char *argv[])
       afst = bfst = 0;
       alst = db1->reads[aend].rlen;
       blst = db2->reads[bend].rlen;
+    }
+printf("  %d(%d) .. %d(%d)\n",abeg,afst,aend,alst);
+printf("  %d(%d) .. %d(%d)\n",bbeg,bfst,bend,blst);
+  if (afst < 0)
+    { abst = AHEAD(abeg);
+      aest = AHEAD(aend);
+printf("  A %s to %s\n",abst,aest);
+    }
+  if (bfst < 0)
+    { bbst = BHEAD(bbeg);
+      best = BHEAD(bend);
+printf("  B %s to %s\n",bbst,best);
     }
 
   //  Read the file and display selected records
@@ -606,16 +818,36 @@ int main(int argc, char *argv[])
 
         //  Determine if it should be displayed
 
-        if (aread < abeg || (aread == abeg && ovl->path.aepos <= afst))
-          continue;
-        if (aread > aend)
-          break;
-        if (aread == aend && ovl->path.abpos >= alst)
-          continue;
-        if (bread < bbeg || (bread == bbeg && ovl->path.bepos <= bfst))
-          continue;
-        if (bread > bend || (bread == bend && ovl->path.bbpos >= blst))
-          continue;
+        if (afst < 0)
+          { char *ahead = AHEADERS+AREADS[aread].coff;
+
+            if (strcmp(ahead,abst) < 0)
+              continue;
+            if (strcmp(aest,ahead) < 0)
+              continue;
+          }
+        else
+          { if (aread < abeg || (aread == abeg && ovl->path.aepos <= afst))
+              continue;
+            if (aread > aend)
+              break;
+            if (aread == aend && ovl->path.abpos >= alst)
+              continue;
+          }
+        if (bfst < 0)
+          { char *bhead = BHEADERS+BREADS[bread].coff;
+
+            if (strcmp(bhead,bbst) < 0)
+              continue;
+            if (strcmp(best,bhead) < 0)
+              continue;
+          }
+        else
+          { if (bread < bbeg || (bread == bbeg && ovl->path.bepos <= bfst))
+              continue;
+            if (bread > bend || (bread == bend && ovl->path.bbpos >= blst))
+              continue;
+          }
 
         aln->alen  = db1->reads[aread].rlen;
         aln->blen  = db2->reads[bread].rlen;

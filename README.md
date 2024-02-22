@@ -286,7 +286,7 @@ Not yet.
 
          <contig>   = (<int>|#)[.(<int>|#)]
          
-         <scaffold> =  <int>|#
+         <scaffold> =  <int>|<string>|#
 ```
 
 GDBshow allows one to view a given set of scaffolds/contigs or portions thereof for the source GDB.
@@ -296,7 +296,9 @@ besides the source DB are given, then the contigs of the entire GDB are output (
 
 * A contig (index) is either (1) a single integer, say c, denoting the c'th contig in the genome, or (2) a pair of integers separated by a ., say s.c, denoting the c'th contig of the s'th scaffold in the genome.
 
-* A scaffold (index) is a single integer, say s, denoting the s'th scaffold in the genome.
+* A scaffold (index) is either a single integer, say s, denoting the s'th scaffold in the genome, or
+   it can be a string in which case it denotes every scaffold whose header prefix (excluding any leading
+   white space) matches the string. 
 
 * The special symbol # which may substitute for an integer denotes "the last", e.g. # adresses the last contig in the genome, #.1 addresses the 1st contig of the last scaffold, and 1_500-# selects the substring from 500 to the end of contig 1.
 
@@ -358,7 +360,7 @@ the string (or the last if it is the second argument of a range).
 
          <contig>   = (<int>|#)[.(<int>|#)]
          
-         <scaffold> =  <int>|#
+         <scaffold> =  <int>|<string>|#
 ```
 
 LAshow produces a printed listing of a subset of the local alignments contained in the specified

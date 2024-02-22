@@ -12,6 +12,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include "DB.h"
 
@@ -24,9 +29,18 @@ static char *Usage =
 #define SCAF_SYMBOL  '@'
 #define MAX_BUFFER   10001
 
+static int        NCONTIG;  // # of contigs (across all scaffolds)
+static int        NSCAFF;   // # of scaffolds
+static int       *SMAP;     // SMAP[s] = idx of 1st contig in scaffold s in [0,NSCAFF]
+static char      *HEADERS;  // All headers 0-terminated (new-line replaced)
+static int       *HPERM;    // HEADERS + READS[SMAP[HPERM[s]]].coff are in lex-order with increasing s in [0,NSCAFF]
+static DAZZ_READ *READS;    // read vector of the database
+
+//   Utility to read lines from a file
+
 typedef struct
-  { FILE  *input;
-    int    lineno;
+  { FILE  *input;    //  File being read
+    int    lineno;   //  Line # currently being read
   } File_Iter;
 
 static void init_file_iterator(FILE *input, File_Iter *it)
@@ -61,6 +75,48 @@ static char *next_entry(File_Iter *it)
   return (nbuffer);
 }
 
+//  Sorted table of Headers
+
+static int HSORT(const void *l, const void *r)
+{ int x = *((int *) l);
+  int y = *((int *) r);
+
+  return (strcmp(HEADERS+READS[SMAP[x]].coff,HEADERS+READS[SMAP[y]].coff));
+}
+
+static int lookup(char *x)
+{ int l, r, m;
+
+  // smallest l s.t. HPERM(l) >= x (or NSCAFF if does not exist)
+
+  l = 0;
+  r = NSCAFF;
+  while (l < r)
+    { m = ((l+r) >> 1);
+      if (strcmp(HEADERS+READS[SMAP[HPERM[m]]].coff,x) < 0)
+        l = m+1;
+      else
+        r = m;
+    }
+
+  if (l >= NSCAFF || strncmp(HEADERS+READS[SMAP[HPERM[l]]].coff,x,strlen(x)) != 0)
+    return (-1);
+
+  return (l);
+}
+
+static int matches(char *x, int *pe)
+{ int b, e;
+
+  b = lookup(x);
+  for (e = b+1; b < NSCAFF; e++)
+    if (strncmp(HEADERS+READS[SMAP[HPERM[e]]].coff,x,strlen(x)) != 0)
+      break;
+  *pe = e-1;
+  return (b);
+}
+
+
 //  Parse read range grabbing up to 4 values from it as follows:
 //    type 1
 //          val[0][.val[1]]
@@ -70,11 +126,8 @@ static char *next_entry(File_Iter *it)
 //          val[0][.val[1]] _ val[2] - val[3]
 //  Return 0 if there is a syntactic error, otherwise return the type.
 //  0 values indicate $, -1 indicates not present, -2 (only in val[1] or val[3])
-//      indicates val[0] or val[2], respectively, is a scaffold index.
-
-static int  ncontig;  // # of contigs (across all scaffolds)
-static int  nscaff;   // # of scaffolds
-static int *smap;     // smap[r] = idx of 1st contig in scaffold r in [0,nscaff]
+//      indicates val[0] or val[2], respectively, is a scaffold index, -3 (like -2)
+//      imples val is index into arg of string value.
 
 static char *white(char *x)
 { while (isspace(*x))
@@ -121,32 +174,76 @@ static char *address(char *x, int *v, int sep)
   return (x);
 }
 
-static int range(char *x, int *v)
-{ int t, sep;
+static int range(char *src, int *v, int test)
+{ int   t, sep;
+  char *x, *y, *z;
 
   v[2] = -1;
-  x = white(x);
+  x = white(src);
   if (*x == SCAF_SYMBOL)
     { x += 1;
       sep = ' ';
     }
   else
     sep = '.';
-  x = address(x,v,sep);
-  if (x == NULL)
-    return (0);
+  y = address(x,v,sep);
+  if (y == NULL)
+    { if (sep == ' ')
+        goto try_string;
+      else
+        return (0);
+    }
   t = 1;
-  if (*x == '-')
-    { x = address(x+1,v+2,sep);
+  if (*y == '-')
+    { y = address(y+1,v+2,sep);
       t = 2;
     }
-  else if (*x == '_')
-    { x = address(x+1,v+2,'-');
+  else if (*y == '_')
+    { y = address(y+1,v+2,'-');
       t = 3;
     }
-  if (x == NULL || *x != '\0')
-    return (0);
+  if (y == NULL || *y != '\0')
+    { if (sep == ' ')
+        goto try_string;
+      else
+        return (0);
+    }
   return (t);
+
+try_string:
+  if (lookup(x) >= 0)
+    { v[1] = -3;
+      v[0] = x-src;
+      return (1);
+    }
+  y = rindex(x,'_');
+  if (y != NULL)
+    { *y = '\0';
+      if (lookup(x) >= 0)
+        { z = address(y+1,v+2,'-');
+          if (z != NULL && *z == '\0')
+            { v[1] = -3;
+              v[0] = x-src;  
+              if (test)
+                *y = '_';
+              return (3);
+            }
+        }
+      *y = '_';
+    }
+  for (y = index(x,'-'); y != NULL; y = index(y+1,'-'))
+    { *y = '\0'; 
+      if (lookup(x) >= 0 && lookup(y+1) >= 0)
+        { v[1] = v[3] = -3;
+          v[0] = x-src;
+          v[2] = (y+1)-src;
+          if (test)
+            *y = '-';
+          return (2);
+        }
+      *y = '-';
+    }
+  return (0);
 }
 
  //  Interpret value pair s.c into an absolute contig range (1-based)
@@ -154,37 +251,33 @@ static int range(char *x, int *v)
 static int interpret_address(int s, int c)
 { if (c == -1)
     { if (s == 0)
-        return (ncontig);
-      else if (s > ncontig)
+        return (NCONTIG);
+      if (s > NCONTIG)
         { fprintf(stderr,"%s: Absolute contig index '%d' is out of bounds\n",Prog_Name,s);
           exit (1);
         }
-      else
-        return (s);
+      return (s);
     }
-  else
-    { if (s == 0)
-        s = nscaff;
-      else if (s > nscaff)
-        { fprintf(stderr,"%s: Scaffold index '%d' is out of bounds\n",Prog_Name,s);
-          exit (1);
-        }
-      if (c == 0)
-        return (smap[s]);
-      else if (c == -2)
-        return (s);
-      else if (c > smap[s]-smap[s-1])
-        { fprintf(stderr,"%s: Relative contig index '%d' is out of bounds\n",Prog_Name,c);
-          exit (1);
-        }
-      else
-        return (smap[s-1] + c);
+  if (s == 0)
+    s = NSCAFF;
+  else if (s > NSCAFF)
+    { fprintf(stderr,"%s: Scaffold index '%d' is out of bounds\n",Prog_Name,s);
+      exit (1);
     }
+  if (c == 0)
+    return (SMAP[s]);
+  if (c == -2)
+    return (s);
+  if (c > SMAP[s]-SMAP[s-1])
+    { fprintf(stderr,"%s: Relative contig index '%d' is out of bounds\n",Prog_Name,c);
+      exit (1);
+    }
+  return (SMAP[s-1] + c);
 }
+
 
 int main(int argc, char *argv[])
 { DAZZ_DB    _db, *db = &_db;
-  FILE       *hdrs;
   FILE       *input;
   File_Iter  _iter, *iter = &_iter;
   int         rvals[4];
@@ -229,7 +322,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"        <contig>   = (<int>|#)[.(<int>|#)]\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"        <scaffold> =  <int>|#\n");
+        fprintf(stderr,"        <scaffold> =  <int>|<string>|#\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -h: Show only the header lines.\n");
         fprintf(stderr,"      -w: Print -w bp per line (default is 80).\n");
@@ -249,35 +342,66 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"%s: Cannot open %s as a .gdb\n",Prog_Name,argv[1]);
         exit (1);
       }
-    ncontig = db->nreads;
-
-    hdrs = Fopen(Catenate(db->path,".hdr","",""),"r");
-    if (hdrs == NULL)
-      exit (1);
+    NCONTIG = db->nreads;
+    READS   = db->reads;
   }
 
   //  Establish map from scaffold to absolute index of 1st contig
 
-  { int r, s;
+  { int r, s, hdrs;
+    struct stat state;
 
-    smap = (int *) Malloc(sizeof(int)*(ncontig+1),"Allocating scaffold map");
-    if (smap == NULL)
+    SMAP = (int *) Malloc(sizeof(int)*(NCONTIG+1),"Allocating scaffold map");
+    if (SMAP == NULL)
       exit (1);
 
     s = -1;
-    for (r = 0; r < ncontig; r++)
-      if (db->reads[r].origin == 0)
+    for (r = 0; r < NCONTIG; r++)
+      if (READS[r].origin == 0)
         { s += 1;
-          smap[s] = r;
+          SMAP[s] = r;
         }
-    nscaff = s+1;
-    smap[nscaff] = r;
+    NSCAFF = s+1;
+    SMAP[NSCAFF] = r;
+
+    hdrs = open(Catenate(db->path,".hdr","",""),O_RDONLY);
+    if (hdrs < 0) 
+      { fprintf(stderr,"%s: Cannot open header file of %s\n",Prog_Name,argv[1]);
+        exit (1);
+      }
+    if (fstat(hdrs,&state) < 0)
+      { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,argv[1]);
+        exit (1);
+      }
+
+    HPERM   = Malloc(sizeof(int)*NSCAFF,"Allocating header table");
+    HEADERS = Malloc(state.st_size,"Allocating header table");
+    if (HPERM == NULL || HEADERS == NULL)
+      exit (1);
+
+    if (read(hdrs,HEADERS,state.st_size) < 0)
+      { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[1]);
+        exit (1);
+      }
+    HEADERS[state.st_size-1] = '\0';
+    close(hdrs);
+
+    HPERM[0] = 0;
+    for (s = 1; s < NSCAFF; s++)
+      { HEADERS[READS[SMAP[s]].coff-1] = '\0';
+        HPERM[s] = s;
+      }
+
+    qsort(HPERM,NSCAFF,sizeof(int),HSORT);
+
+    for (s = 0; s < NSCAFF; s++)
+      printf(" %3d: %d %s\n",s,HPERM[s],HEADERS+READS[SMAP[HPERM[s]]].coff);
   }
 
   //  Determine if extra arg is a range or a file, and if a file then initialize it
 
   input = NULL;
-  if (argc == 3 && range(argv[2],rvals) <= 0)
+  if (argc == 3 && range(argv[2],rvals,1) <= 0)
     { input = fopen(argv[2],"r");
       if (input == NULL)
         { fprintf(stderr,"%s: '%s' is neither a valid read range nor an openable file\n",
@@ -290,12 +414,11 @@ int main(int argc, char *argv[])
   //  Display each read (and/or QV streams) in the active DB according to the
   //    range pairs in pts[0..reps) and according to the display options.
 
-  { DAZZ_READ  *reads, *r;
+  { DAZZ_READ  *r;
     char       *read, *x;
-    int         c, b, e, i;
+    int         c, b, e, i, k;
     int         substr, sunits;
     int         len, fst, lst;
-    char        header[MAX_NAME];
     char       *nstring;
 
     nstring = Malloc(WIDTH+1,"Allocating write buffer\n");
@@ -310,10 +433,9 @@ int main(int argc, char *argv[])
         nstring[c] = 'n';
     nstring[WIDTH] = '\0';
 
-    read   = New_Read_Buffer(db);
+    read = New_Read_Buffer(db);
     if (read == NULL)
       exit (1);
-    reads  = db->reads;
     substr = 0;
 
     c = 2;
@@ -325,7 +447,7 @@ int main(int argc, char *argv[])
           { if (c > 2)
               break;
             b = 1;
-            e = ncontig;
+            e = NCONTIG;
             c = 3;
           }
         else
@@ -341,10 +463,10 @@ int main(int argc, char *argv[])
                 c += 1;
               }
 
-            i = range(x,rvals);       // Parse the entry
+            i = range(x,rvals,0);       // Parse the entry
 
-#ifdef DEBUG_RANGE
             printf(" %d: '%s' %d %d %d %d\n",i,x,rvals[0],rvals[1],rvals[2],rvals[3]);
+#ifdef DEBUG_RANGE
 #endif
 
             if (i == 0)
@@ -357,58 +479,76 @@ int main(int argc, char *argv[])
                 exit (1);
               }
 
-            sunits = (rvals[1] == -2);
+            sunits = (rvals[1] <= -2);
 
             //  Convert entry into an absolute contig range or an absolute contig and substring
 
-            b = e = interpret_address(rvals[0],rvals[1]);
-            if (i == 2)
-              { e = interpret_address(rvals[2],rvals[3]);
-                if (b > e)
-                  { fprintf(stderr,"%s: Read range in '%s' is empty\n",Prog_Name,x);
+            if (rvals[1] == -3)
+              { b = matches(x+rvals[0],&e);
+                if (i == 2)
+                  { matches(x+rvals[2],&e);
+                    if (b > e)
+                      { fprintf(stderr,"%s: Scaffold range in '%s' is empty\n",Prog_Name,x);
+                        exit (1);
+                      }
+                  }
+                if (e > b && i == 3)
+                  { fprintf(stderr,"%s: String in %s matches multiple scaffolds, so substring ambiguous.\n",Prog_Name,x);
                     exit (1);
                   }
               }
-            else if (i == 3)
-              { e = b;        //  Type 3: intepret rval[2] and rval[3] as the substring interval
-                substr = 1;
-                fst = rvals[2];
-                lst = rvals[3];
-                if (sunits)
-                  len = reads[smap[b]-1].fpulse + reads[smap[b]-1].rlen;
-                else
-                  len = reads[b-1].rlen;
-                if (lst == 0) 
-                  lst = len;
-                else if (lst > len)
-                  { fprintf(stderr,"%s: Substring interval in '%s' is out of bounds (max = %d)\n",
-                                   Prog_Name,x,len);
-                    exit (1);
+
+            else
+              { b = e = interpret_address(rvals[0],rvals[1]);
+                if (i == 2)
+                  { e = interpret_address(rvals[2],rvals[3]);
+                    if (b > e)
+                      { fprintf(stderr,"%s: Range in '%s' is empty\n",Prog_Name,x);
+                        exit (1);
+                      }
                   }
-                if (fst >= lst)
-                  { fprintf(stderr,"%s: Substring interval in '%s' is empty\n",Prog_Name,x);
-                    exit (1);
+                else if (i == 3)
+                  { e = b;        //  Type 3: intepret rval[2] and rval[3] as the substring interval
+                    substr = 1;
+                    fst = rvals[2];
+                    lst = rvals[3];
+                    if (sunits)
+                      len = READS[SMAP[b]-1].fpulse + READS[SMAP[b]-1].rlen;
+                    else
+                      len = READS[b-1].rlen;
+                    if (lst == 0) 
+                      lst = len;
+                    else if (lst > len)
+                      { fprintf(stderr,"%s: Substring interval in '%s' is out of bounds (max = %d)\n",
+                                       Prog_Name,x,len);
+                        exit (1);
+                      }
+                    if (fst >= lst)
+                      { fprintf(stderr,"%s: Substring interval in '%s' is empty\n",Prog_Name,x);
+                        exit (1);
+                      }
                   }
               }
           }
 
         if (sunits)
 
-          { for (i = b-1; i < e; i++)
+          { for (k = b-1; k < e; k++)
               { int cbeg, cend, wpos;
                 int j, u, w, f, l;
 
-                r   = reads + smap[i];
-                len = reads[smap[i+1]-1].fpulse + reads[smap[i+1]-1].rlen;
+                if (rvals[1] == -3)
+                  i = HPERM[k+1];
+                else
+                  i = k;
+                r   = READS + SMAP[i];
+                len = READS[SMAP[i+1]-1].fpulse + READS[SMAP[i+1]-1].rlen;
                 if (!substr)
                   { fst = 0;
                     lst = len;
                   }
 
-                fseeko(hdrs,r->coff,SEEK_SET);
-                fgets(header,MAX_NAME,hdrs);
-                header[strlen(header)-1] = '\0';
-                printf("> %s",header);
+                printf("> %s",HEADERS+r->coff);
                 if (substr)
                   printf(" :: [%d,%d]",fst,lst);
                 printf("\n");
@@ -416,7 +556,7 @@ int main(int argc, char *argv[])
                 if (DOSEQ)
                   { cend = 0;
                     wpos = 0;
-                    for (u = smap[i]; u < smap[i+1]; u++, r++)
+                    for (u = SMAP[i]; u < SMAP[i+1]; u++, r++)
                       { cbeg = r->fpulse;
                         if (cend < fst)
                           cend = fst;
@@ -463,7 +603,7 @@ int main(int argc, char *argv[])
         else
 
           { for (i = b-1; i < e; i++)
-              { r   = reads + i;
+              { r   = READS + i;
                 len = r->rlen;
                 if (!substr)
                   { fst = 0;
@@ -471,12 +611,8 @@ int main(int argc, char *argv[])
                   }
 
                 if (len > 0)
-                  { fseeko(hdrs,r->coff,SEEK_SET);
-                    fgets(header,MAX_NAME,hdrs);
-                    header[strlen(header)-1] = '\0';
-                    printf("> %s :: Contig %d[%d,%d]\n",
-                           header,r->origin+1,r->fpulse+fst,r->fpulse+lst);
-                  }
+                  printf("> %s :: Contig %d[%d,%d]\n",
+                         HEADERS+r->coff,r->origin+1,r->fpulse+fst,r->fpulse+lst);
 
                 if (DOSEQ)
                   { int j;
@@ -497,7 +633,8 @@ int main(int argc, char *argv[])
   if (input != NULL)
     fclose(input);
 
-  fclose(hdrs);
+  free(HEADERS);
+  free(HPERM);
   Close_DB(db);
 
   exit (0);

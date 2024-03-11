@@ -5,10 +5,13 @@
  *   merge of the sorted k-mer tables for each genome and seed position pairs are output for
  *   each adaptemer match.
  *
- *  Author:  Gene Myers
- *  Date  :  February 2023
+ *  Author  :  Gene Myers
+ *  Date    :  February 2023
+ *  Last Mod: March 2023 - RD replace .las with .1aln
  *
  *******************************************************************************************/
+
+#define VERSION "0.1"
 
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +25,7 @@
 #include "libfastk.h"
 #include "DB.h"
 #include "align.h"
+#include "alncode.h"
 
 #undef    DEBUG_SPLIT
 #undef    DEBUG_MERGE
@@ -60,8 +64,12 @@ static int    NTHREADS;    //  -T
 static char  *SORT_PATH;   //  -P
 static int    KEEP;        //  -k
 static int    SELF;        //  Comparing A to A, or A to B?
-static int    OUT_TYPE;    //  -paf = 0; -psl = 1; -las = 2; -one = 3
+static int    OUT_TYPE;    //  -paf = 0; -psl = 1; -one = 2
 static int    OUT_OPT;     //  -pafm = 1; -pafx = 2; all others = 0
+static char  *ONE_PATH;    //  -one option path
+static char  *ONE_ROOT;    //  -one option path
+
+static char  *CommandLine; //  Command line in toto
 
 static char *SPATH1, *SPATH2;   //  Sources are at SPATH/SROOT.suffix[SEXTN]
 static char *SROOT1, *SROOT2;
@@ -75,7 +83,6 @@ static int   KMER;         //  K-mer length and # of threads from genome indices
 static char *PAIR_NAME;    //  Prefixes for temporary files
 static char *ALGN_UNIQ;
 static char *ALGN_PAIR;
-static char *ALGN_OUTP;
 
 static int IBYTE;         // # of bytes for an entry in P1
 static int IPOST;         // # of bytes in post of a P1 entry
@@ -1523,7 +1530,7 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
     }
 
   if (VERBOSE)
-    { fprintf(stderr,"\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n\n",
+    { fprintf(stderr,"\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n",
                      nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
       fflush(stderr);
     }
@@ -1626,7 +1633,7 @@ static void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1)
     }
 
   if (VERBOSE)
-    { fprintf(stderr,"\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n\n",
+    { fprintf(stderr,"\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n",
                      nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
       fflush(stderr);
     }
@@ -2988,21 +2995,21 @@ static void ovl_reload(IO_block *in, int64 bsize)
   in->top += fread(in->top,1,bsize-remains,in->stream);
 }
 
-static int la_merge(TP *parm, FILE *output)
+static int la_merge(TP *parm)
 { IO_block *in;
   int64     bsize;
-  char     *block, *oblock;
-  int       i, c, nlen;
+  char     *block;
+  int       i, c;
   Overlap **heap;
   int       hsize;
   Overlap  *ovls;
   int64     totl;
-  char     *optr, *otop, *name;
+  OneFile  *of;
 
   //  Base level merge: Open all the input files and initialize their buffers
 
-  bsize  = (MEMORY*1000000ll)/(NTHREADS + 1);
-  block  = (char *) Malloc(bsize*(NTHREADS+1)+PTR_SIZE,"Allocating LAmerge blocks");
+  bsize  = (MEMORY*1000000ll)/NTHREADS;
+  block  = (char *) Malloc(bsize*NTHREADS+PTR_SIZE,"Allocating LAmerge blocks");
   in     = (IO_block *) Malloc(sizeof(IO_block)*NTHREADS,"Allocating LAmerge IO-reacords");
   if (block == NULL || in == NULL)
     return (1);
@@ -3043,44 +3050,26 @@ static int la_merge(TP *parm, FILE *output)
 
   //  Open the output file buffer and write (novl,tspace) header
 
-  if (fwrite(&totl,sizeof(int64),1,output) != 1)
-    goto output_error;
-  nlen = TSPACE;
-  if (fwrite(&nlen,sizeof(int),1,output) != 1)
-    goto output_error;
+  { char *db1_name;
+    char *db2_name;
+    char *cpath;
 
-  name = Catenate(SPATH1,"/",SROOT1,".gdb");
-  nlen = strlen(name);
-  if (fwrite(&nlen,sizeof(int),1,output) != 1)
-    goto output_error;
-  if (fwrite(name,nlen,1,output) != 1)
-    goto output_error;
+    db1_name = Strdup(Catenate(SPATH1,"/",SROOT1,".gdb"),"db1_name");
+    if (SPATH2 != NULL)
+      db2_name = Strdup(Catenate(SPATH2,"/",SROOT2,".gdb"), "db2_name");
+    else
+      db2_name = NULL;
+    cpath = getcwd(NULL,0);
 
-  if (SPATH2 == NULL)
-    { nlen = 0;
-      if (fwrite(&nlen,sizeof(int),1,output) != 1)
-        goto output_error;
-    }
-  else
-    { name = Catenate(SPATH2,"/",SROOT2,".gdb");
-      nlen = strlen(name);
-      if (fwrite(&nlen,sizeof(int),1,output) != 1)
-        goto output_error;
-      if (fwrite(name,nlen,1,output) != 1)
-        goto output_error;
-    }
+    of = open_Aln_Write(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"), 1,
+                        Prog_Name, VERSION, CommandLine,
+			TSPACE, db1_name, db2_name, cpath);
 
-  name = getcwd(NULL,0);
-  nlen = strlen(name);
-  if (fwrite(&nlen,sizeof(int),1,output) != 1)
-    goto output_error;
-  if (fwrite(name,nlen,1,output) != 1)
-    goto output_error;
-  free(name);
-
-  oblock = block+NTHREADS*bsize;
-  optr   = oblock;
-  otop   = oblock + bsize;
+    free(cpath);
+    if (db2_name != NULL)
+      free(db2_name);
+    free(db1_name);
+  }
 
   //  While the heap is not empty do
 
@@ -3100,16 +3089,9 @@ static int la_merge(TP *parm, FILE *output)
       span  = EXO_SIZE + tsize;
       if (src->ptr + span > src->top)
         ovl_reload(src,bsize);
-      if (optr + span > otop)
-        { if (fwrite(oblock,1,optr-oblock,output) != (size_t) (optr-oblock))
-            goto output_error;
-          optr = oblock;
-        }
 
-      memmove(optr,((void *) ov) + PTR_SIZE,EXO_SIZE);
-      optr += EXO_SIZE;
-      memmove(optr,src->ptr,tsize);
-      optr += tsize;
+      Write_Aln_Overlap (of, ov);
+      Write_Aln_Trace (of, src->ptr, tsize);
 
       src->ptr += tsize;
       if (src->ptr >= src->top)
@@ -3121,12 +3103,7 @@ static int la_merge(TP *parm, FILE *output)
       src->ptr += EXO_SIZE;
     }
 
-  //  Flush output buffer and wind up
-
-  if (optr > oblock)
-    { if (fwrite(oblock,1,optr-oblock,output) != (size_t) (optr-oblock))
-        goto output_error;
-    }
+  oneFileClose(of);
 
   for (i = 0; i < NTHREADS; i++)
     fclose(parm[i].ofile);
@@ -3134,8 +3111,8 @@ static int la_merge(TP *parm, FILE *output)
   for (i = 0; i < NTHREADS; i++)
     totl -= in[i].count;
   if (totl != 0)
-    { fprintf(stderr,"%s: Did not write all records to %s/%s.las (%lld)\n",
-                     Prog_Name,SORT_PATH,ALGN_OUTP,totl);
+    { fprintf(stderr,"%s: Did not write all records to %s/%s.1aln (%lld)\n",
+                     Prog_Name,ONE_PATH,ONE_ROOT,totl);
       return (1);
     }
 
@@ -3145,17 +3122,12 @@ static int la_merge(TP *parm, FILE *output)
   free(block-PTR_SIZE);
 
   return (0);
-
-output_error:
-  fprintf(stderr,"%s: Could not write to %s/%s.las\n",Prog_Name,SORT_PATH,ALGN_OUTP);
-  return (1);
 }
 
 static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
 { uint8 *sarray;
   int    swide;
   int64  nels;
-  FILE  *output;
 
   RP     rarm[NTHREADS];
   TP     tarm[NTHREADS];
@@ -3170,7 +3142,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
   int       i, p, j, u;
 
   if (VERBOSE)
-    { fprintf(stderr,"  Starting seed sort and alignment search, %d parts\n",2*NPARTS);
+    { fprintf(stderr,"\n  Starting seed sort and alignment search, %d parts\n",2*NPARTS);
       fflush(stderr);
     }
 
@@ -3403,16 +3375,8 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
     pthread_join(threads[p],NULL);
 #endif
 
-  output = Fopen(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"),"w");
-  if (output == NULL)
+  if (la_merge(tarm))
     Clean_Exit(1);
-
-  if (la_merge(tarm,output))
-    { fclose(output);
-      unlink(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"));
-      Clean_Exit(1);
-    }
-  fclose(output);
 }
 
 
@@ -3445,12 +3409,32 @@ int main(int argc, char *argv[])
   DAZZ_DB _DB1, *DB1 = &_DB1;
   DAZZ_DB _DB2, *DB2 = &_DB2;
 
+  { int   n, i;
+    char *c;
 
+    n = 0;
+    for (i = 1; i < argc; i++)
+      n += strlen(argv[i])+1;
+
+    CommandLine = Malloc(n+1,"Allocating command string");
+    if (CommandLine == NULL)
+      exit (1);
+
+    c = CommandLine;
+    if (argc >= 1)
+      { c += sprintf(c,"%s",argv[1]);
+        for (i = 2; i < argc; i++)
+          c += sprintf(c," %s",argv[i]);
+      }
+    *c = '\0';
+  }
+  
   //  Process options
 
   { int    i, j, k;
     int    flags[128];
     char  *eptr;
+    FILE  *test;
 
     ARG_INIT("FastGA");
 
@@ -3464,6 +3448,8 @@ int main(int argc, char *argv[])
 
     OUT_TYPE    = 0;
     OUT_OPT     = 0;
+    ONE_PATH    = NULL;
+    ONE_ROOT    = NULL;
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -3472,6 +3458,22 @@ int main(int argc, char *argv[])
         { default:
             ARG_FLAGS("vk")
             break;
+          case '1':
+            if (strncmp(argv[i]+1,"1:",2) == 0)
+              { OUT_TYPE = 2;
+                ONE_PATH = PathTo(argv[i]+3);
+                ONE_ROOT = Root(argv[i]+3,".1aln");
+                test = fopen(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"),"w");
+                if (test == NULL)
+                  { fprintf(stderr,"%s: Cannot open %s/%s.1aln for output\n",
+                                   Prog_Name,ONE_PATH,ONE_ROOT);
+                    exit (1);
+                  }
+                fclose(test);
+                break;
+              }
+            fprintf(stderr,"%s: Do not recognize option %s\n",Prog_Name,argv[i]);
+            exit (1);
           case 'a':
             ARG_NON_NEGATIVE(ALIGN_MIN,"minimum alignment length");
             break;
@@ -3493,13 +3495,6 @@ int main(int argc, char *argv[])
           case 'l':
             if (strncmp(argv[i]+1,"las",3) == 0)
               { OUT_TYPE = 2;
-                break;
-              }
-            fprintf(stderr,"%s: Do not recognize option %s\n",Prog_Name,argv[i]);
-            exit (1);
-          case 'o':
-            if (strncmp(argv[i]+1,"one",3) == 0)
-              { OUT_TYPE = 3;
                 break;
               }
             fprintf(stderr,"%s: Do not recognize option %s\n",Prog_Name,argv[i]);
@@ -3549,23 +3544,23 @@ int main(int argc, char *argv[])
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"         <format> = -paf[mx] | -psl | -one | -las\n");
+        fprintf(stderr,"         <format> = -paf[mx] | -psl | -1:<align:path>[.1aln]\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"         <precursor> = .gix | .gdb | <fa_extn>\n");
+        fprintf(stderr,"         <precursor> = .gix | .gdb | <fa_extn> | <1_extn>\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"             <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
+        fprintf(stderr,"             <1_extn>  = any valid 1-code sequence file type\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
         fprintf(stderr,"      -k: Keep any generated .gdb's and .gix's.\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"      -paf: Generate PAF output\n");
-        fprintf(stderr,"        -pafx: Generate PAF output with CIGAR sring with X's\n");
-        fprintf(stderr,"        -pafm: Generate PAF output with CIGAR sring with ='s\n");
-        fprintf(stderr,"      -psl: Generate PSL output\n");
-        fprintf(stderr,"      -one: Generate 1-code output\n");
-        fprintf(stderr,"      -las: Generate LAS output\n");
+        fprintf(stderr,"      -paf: Stream PAF output\n");
+        fprintf(stderr,"        -pafx: Stream PAF output with CIGAR sring with X's\n");
+        fprintf(stderr,"        -pafm: Stream PAF output with CIGAR sring with ='s\n");
+        fprintf(stderr,"      -psl: Stream PSL output\n");
+        fprintf(stderr,"      -1: Generate 1-code output to specified file\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         fprintf(stderr,"      -c: minimum seed chain coverage in both genomes\n");
@@ -3785,6 +3780,9 @@ int main(int argc, char *argv[])
       }
   }
 
+  if (VERBOSE)
+    StartTime();
+
   //  Get full path string for sorting subdirectory (in variable SORT_PATH)
 
   { char  *cpath, *spath;
@@ -3864,11 +3862,16 @@ int main(int argc, char *argv[])
       short_DB_fix(DB2);
     }
 
-  ALGN_OUTP = Strdup(Numbered_Suffix("_olas.",getpid(),""),"Allocating temp name");
+  if (OUT_TYPE != 2)
+    { ONE_ROOT = Strdup(Numbered_Suffix("_oaln.",getpid(),""),"Allocating temp name");
+      ONE_PATH = SORT_PATH;
+      if (ONE_ROOT == NULL)
+        Clean_Exit(1);
+    }
   ALGN_UNIQ = Strdup(Numbered_Suffix("_uniq.",getpid(),""),"Allocating temp name");
   PAIR_NAME = Strdup(Numbered_Suffix("_pair.",getpid(),""),"Allocating temp name");
   ALGN_PAIR = Strdup(Numbered_Suffix("_algn.",getpid(),""),"Allocating temp name");
-  if (ALGN_OUTP == NULL || ALGN_UNIQ == NULL || PAIR_NAME == NULL || ALGN_PAIR == NULL)
+  if (ALGN_UNIQ == NULL || PAIR_NAME == NULL || ALGN_PAIR == NULL)
     Clean_Exit(1);
 
   if (P1->freq < FREQ)
@@ -4057,6 +4060,9 @@ int main(int argc, char *argv[])
     else
       adaptamer_merge(T1,T2,P1,P2);
 
+    if (VERBOSE)
+      TimeTo(stderr,0);
+
     //  Transpose N_unit & C_unit matrices
 
     nfile = (int *) buffer;
@@ -4099,55 +4105,53 @@ int main(int argc, char *argv[])
   
     pair_sort_search(DB1,DB2);
 
+    if (VERBOSE)
+      TimeTo(stderr,0);
+
     free(N_Units->buck);
     free(N_Units->bufr);
     free(C_Units);
     free(N_Units);
 
-    { char *command;
+    if (OUT_TYPE != 2)
+      { char *command;
 
-      command = Malloc(strlen(ALGN_OUTP)+strlen(SORT_PATH)+100,"Allocating command buffer");
-      if (command == NULL)
-        { unlink(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"));
-          Clean_Exit(1);
-        }
-
-      switch (OUT_TYPE)
-      { case 0: // PAF
-          sprintf(command,"LAStoPAF%s %s/%s.las",
-                          OUT_OPT==2?" -x":(OUT_OPT==1?" -m":""),SORT_PATH,ALGN_OUTP);
-          break;
-        case 1: // PSL
-          sprintf(command,"LAStoPSL %s/%s.las",SORT_PATH,ALGN_OUTP);
-          break;
-        case 2: // LAS
-          sprintf(command,"cat %s/%s.las",SORT_PATH,ALGN_OUTP);
-          break;
-        case 3: // ONE
-          sprintf(command,"LAStoONE %s/%s.las",SORT_PATH,ALGN_OUTP);
-          break;
-      }
-
-      if (system(command) != 0)
-        { switch (OUT_TYPE)
-          { case 0:
-              fprintf(stderr,"\n%s: Call to LAStoPAF failed\n",Prog_Name);
-              break;
-            case 1:
-              fprintf(stderr,"\n%s: Call to LAStoPSL failed\n",Prog_Name);
-              break;
-            case 3:
-              fprintf(stderr,"\n%s: Call to LAStoONE failed\n",Prog_Name);
-              break;
+        command = Malloc(strlen(ONE_ROOT)+strlen(ONE_PATH)+100,"Allocating command buffer");
+        if (command == NULL)
+          { unlink(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"));
+            Clean_Exit(1);
           }
-          unlink(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"));
-          Clean_Exit(1);
+
+        switch (OUT_TYPE)
+        { case 0: // PAF
+            sprintf(command,"ALNtoPAF%s %s/%s",
+                            OUT_OPT==2?" -x":(OUT_OPT==1?" -m":""),ONE_PATH,ONE_ROOT);
+            break;
+          case 1: // PSL
+            sprintf(command,"ALNtoPSL %s/%s",ONE_PATH,ONE_ROOT);
+            break;
         }
 
-      free(command);
-      unlink(Catenate(SORT_PATH,"/",ALGN_OUTP,".las"));
-    }
+        if (system(command) != 0)
+          { switch (OUT_TYPE)
+            { case 0:
+                fprintf(stderr,"\n%s: Call to ALNtoPAF failed\n",Prog_Name);
+                break;
+              case 1:
+                fprintf(stderr,"\n%s: Call to ALNtoPSL failed\n",Prog_Name);
+                break;
+            }
+            unlink(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"));
+            Clean_Exit(1);
+          }
+
+        free(command);
+        unlink(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"));
+      }
   }
+
+  if (VERBOSE)
+    TimeTo(stderr,1);
 
   free(Select);
   free(IDBsplit);
@@ -4155,7 +4159,7 @@ int main(int argc, char *argv[])
   free(ALGN_PAIR);
   free(PAIR_NAME);
   free(ALGN_UNIQ);
-  free(ALGN_OUTP);
+  free(ONE_ROOT);
 
   if ( ! SELF)
     Close_DB(DB2);
@@ -4164,6 +4168,8 @@ int main(int argc, char *argv[])
   if ( ! SELF)
     Free_Post_List(P2);
   Free_Post_List(P1);
+
+  free(SORT_PATH);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

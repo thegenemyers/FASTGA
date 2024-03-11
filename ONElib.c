@@ -3,11 +3,12 @@
  *  file: ONElib.c
  *    implementation for ONElib.h
  *
- *  Author: Richard Durbin (rd109@cam.ac.uk)
+ *  Author: Richard Durbin (rd109@cam.ac.uk), Gene Myers (gene.myers@gmail.com)
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Dec  4 23:57 2022 (rd109)
+ * Last edited: Mar  6 22:24 2024 (rd109)
+ * * Dec 20 21:29 2022 (rd109): changed DNA compression to little-endian: natural on Intel, Apple
  * * Apr 23 00:31 2020 (rd109): global rename of VGP to ONE, Vgp to One, vgp to one
  * * Apr 20 11:27 2020 (rd109): added VgpSchema to make schema dynamic
  * * Dec 27 09:46 2019 (gene): style edits + compactify code
@@ -15,6 +16,10 @@
  * * Created: Thu Feb 21 22:40:28 2019 (rd109)
  *
  ****************************************************************************************/
+
+#ifdef LINUX
+#define _GNU_SOURCE  // needed for vasprintf() on Linux
+#endif
 
 #include <sys/errno.h>
 #include <sys/types.h>
@@ -158,17 +163,17 @@ static void schemaAddInfoFromArray (OneSchema *vs, int n, OneType *a, char t, ch
 	vi->listField = i ;
 	if (a[i] == oneDNA)
 	  { vi->listCodec = DNAcodec ; vi->isUseListCodec = true ; }
-	else
-	  vi->listCodec = vcCreate () ; // always make a listCodec for any list type
+	else if (t != '/') // make a listCodec for any list type except for commments
+	  vi->listCodec = vcCreate () ; 
       }
 
   if (t >= 'A' && t <= 'Z') vi->binaryTypePack = ((t-'A') << 1) | (char) 0x80 ;
   else if (t >= 'a' && t <= 'z') vi->binaryTypePack = ((26+t-'a') << 1) | (char) 0x80 ;
-  else if (t == ';') vi->binaryTypePack = (52 << 2) | (char) 0x80 ;
-  else if (t == '&') vi->binaryTypePack = (53 << 2) | (char) 0x80 ;
-  else if (t == '*') vi->binaryTypePack = (54 << 2) | (char) 0x80 ;
-  else if (t == '/') vi->binaryTypePack = (55 << 2) | (char) 0x80 ;
-  else if (t == '.') vi->binaryTypePack = (56 << 2) | (char) 0x80 ;
+  else if (t == ';') vi->binaryTypePack = (52 << 1) | (char) 0x80 ;
+  else if (t == '&') vi->binaryTypePack = (53 << 1) | (char) 0x80 ;
+  else if (t == '*') vi->binaryTypePack = (54 << 1) | (char) 0x80 ;
+  else if (t == '/') vi->binaryTypePack = (55 << 1) | (char) 0x80 ;
+  else if (t == '.') vi->binaryTypePack = (56 << 1) | (char) 0x80 ;
 
   vs->info[(int)t] = vi ;
 }
@@ -219,7 +224,7 @@ static OneSchema *schemaLoadRecord (OneSchema *vs, OneFile *vf)
       vs->nxt = vsNxt ;
       vs = vsNxt ;
       s = oneString(vf);
-      vs->primary = new (oneLen(vf)+1, char) ;
+      vs->primary = new0 (oneLen(vf)+1, char) ;
       strcpy (vs->primary, s) ;
       vs->nFieldMax = 4 ; // needed for header
       break ;
@@ -251,7 +256,7 @@ static OneSchema *schemaLoadRecord (OneSchema *vs, OneFile *vf)
 
 static void oneFileDestroy (OneFile *vf) ; // need a forward declaration here
 
-OneSchema *oneSchemaCreateFromFile (char *filename)
+OneSchema *oneSchemaCreateFromFile (const char *filename)
 {
   FILE *fs = fopen (filename, "r") ;
   if (!fs) return 0 ;
@@ -362,7 +367,7 @@ static char *schemaFixNewlines (const char *text)
   return newText ;
 }
   
-OneSchema *oneSchemaCreateFromText (char *text) // write to temp file and call CreateFromFile()
+OneSchema *oneSchemaCreateFromText (const char *text) // write to temp file and call CreateFromFile()
 {
   static char template[64] ;
   sprintf (template, "/tmp/OneTextSchema-%d.def", getpid()) ;
@@ -420,7 +425,7 @@ static inline void setCodecBuffer (OneInfo *vi)
   vi->buffer  = new (vi->bufSize, void);
 }
 
-static OneFile *oneFileCreate (OneSchema **vsp, char *type)
+static OneFile *oneFileCreate (OneSchema **vsp, const char *type)
 { // searches through the linked list of vs to find type, either as primary or a secondary
   // if found fills and returns vf, else returns 0
   
@@ -596,7 +601,7 @@ static inline void eatWhite (OneFile *vf)
 { char x = vfGetc(vf);
   if (x == ' ') // 200414: removed option to have tab instead of space
     return;
-  parseError (vf, "failed to find expected space separation character");
+  parseError (vf, "failed to find expected space separation character lineType %c", vf->lineType);
 }
 
 static inline char readChar(OneFile *vf)
@@ -1089,9 +1094,11 @@ char oneReadLine (OneFile *vf)
 	  peek = vf->binaryTypeUnpack[peek];
 	if (peek == '/') // a comment
 	  { OneField keepField0 = vf->field[0] ;
+	    I64 keepNbits = vf->nBits ; // will be reset in readLine
 	    oneReadLine (vf) ; // read comment line into vf->info['/']->buffer
 	    vf->lineType = t ;
 	    vf->field[0] = keepField0 ;
+	    vf->nBits = keepNbits ;
 	  }
       }
     }
@@ -1130,7 +1137,8 @@ void *_oneCompressedList (OneFile *vf)
   OneInfo *li = vf->info[(int) vf->lineType] ;
 
   if (!vf->nBits && oneLen(vf) > 0)      // need to compress
-    vcEncode (li->listCodec, oneLen(vf), vf->info[(int) vf->lineType]->buffer, vf->codecBuf);
+    vf->nBits = vcEncode (li->listCodec, oneLen(vf),
+			  vf->info[(int) vf->lineType]->buffer, vf->codecBuf);
 
   return (void*) vf->codecBuf ;
 }
@@ -1146,7 +1154,7 @@ void *_oneCompressedList (OneFile *vf)
  *
  **********************************************************************************/
 
-OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int nthreads)
+OneFile *oneFileOpenRead (const char *path, OneSchema *vs, const char *fileType, int nthreads)
 {
   OneFile   *vf ;
   off_t      startOff = 0, footOff;
@@ -1214,7 +1222,8 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
     vf = oneFileCreate (&vs, name) ;
     if (!vf)
       OPEN_ERROR1("failed to create OneFile object") ;
-    if (fileType && strcmp (fileType, vf->fileType) && strcmp (fileType, vf->subType))
+    if (fileType && strcmp (fileType, vf->fileType) &&
+	(!vf->subType || strcmp (fileType, vf->subType)))
       { oneFileDestroy (vf) ;
 	OPEN_ERROR3("fileType mismatch file %s != requested %s", vf->fileType, fileType) ;
       }
@@ -1239,7 +1248,7 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
       if (peek & 0x80)
         peek = vf->binaryTypeUnpack[peek];
 
-      if (isalpha(peek))
+      if (isalpha(peek) || peek == '\n')  // '\n' to check for end of binary file, i.e. empty file
         break;    // loop exit at standard data line
       
       oneReadLine(vf);  // can't fail because we checked file eof already
@@ -1251,8 +1260,6 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vs, char *fileType, int n
           break;
 
         case '2':
-	  if (oneLen(vf) != 3)
-	    parseError (vf, "secondary subType must have length 3") ;
 	  if (isDynamic)
             { char *s = oneString(vf);
               vf->subType = new (oneLen(vf)+1, char);
@@ -1576,7 +1583,7 @@ I64 oneGotoGroup (OneFile *vf, I64 i)
  *
  **********************************************************************************/
 
-OneFile *oneFileOpenWriteNew (const char *path, OneSchema *vs, char *fileType,
+OneFile *oneFileOpenWriteNew (const char *path, OneSchema *vs, const char *fileType,
                               bool isBinary, int nthreads)
 { OneFile   *vf ;
   FILE      *f ;
@@ -1661,6 +1668,7 @@ OneFile *oneFileOpenWriteFrom (const char *path, OneFile *vfIn, bool isBinary, i
   for (i = 'A' ; i <= 'z' ; ++i)
     if (isalpha(i) && vfIn->info[i] && i != vfIn->groupType && i != vfIn->objectType)
       infoCopy (vs, vfIn, (char)i, 'D') ;
+
   // use it to open the file
   OneFile *vf = oneFileOpenWriteNew (path, vs0, vfIn->subType ? vfIn->subType : vfIn->fileType,
 				     isBinary, nthreads);
@@ -1695,7 +1703,7 @@ OneFile *oneFileOpenWriteFrom (const char *path, OneFile *vfIn, bool isBinary, i
   return vf ;
 }
 
-bool oneFileCheckSchema (OneFile *vf, char *textSchema)
+bool oneFileCheckSchemaText (OneFile *vf, const char *textSchema)
 {
   char      *fixedText = schemaFixNewlines (textSchema) ;
   OneSchema *vs = oneSchemaCreateFromText (fixedText) ;
@@ -1703,7 +1711,7 @@ bool oneFileCheckSchema (OneFile *vf, char *textSchema)
   OneSchema *vs0 = vs ; // need to keep the root to destroy the full schema
 
   if (vs->nxt) // the textSchema contained at least one 'P' line to define a file type
-    { while (vs && strcmp (vs->primary, vf->fileType)) vs = vs->nxt ;
+    { while (vs && (!vs->primary || strcmp (vs->primary, vf->fileType))) vs = vs->nxt ;
       if (!vs)
 	{ fprintf (stderr, "OneSchema mismatch: file type %s not found in schema\n",
 		   vf->fileType) ;
@@ -1711,6 +1719,8 @@ bool oneFileCheckSchema (OneFile *vf, char *textSchema)
 	  return false ;
 	}
     }
+
+  // at this point vs->primary matches vf->fileType
 
   bool isMatch = true ;
   int  i, j ;
@@ -2253,9 +2263,14 @@ void oneWriteLine (OneFile *vf, char t, I64 listLen, void *listBuf)
     }
 }
 
-void oneWriteLineDNA2bit (OneFile *vf, char lineType, I64 listLen, U8 *dnaBuf)
-{ die ("not written yet") ;
-  oneWriteLine (vf, lineType, listLen, dnaBuf) ;
+int Uncompress_DNA(char *s, int len, char *t) ; // forward declaration for temp solution below
+
+void oneWriteLineDNA2bit (OneFile *vf, char lineType, I64 len, U8 *dnaBuf) // NB len in bp
+{ // temporary solution
+  char *s = new(len, char) ;
+  Uncompress_DNA ((char*)dnaBuf, len, s) ;
+  oneWriteLine (vf, lineType, len, s) ;
+  free (s) ;
 }
 
 void oneWriteComment (OneFile *vf, char *format, ...)
@@ -3171,6 +3186,8 @@ static uint8 Number[128] =
     };
 
   //  Compress DNA into 2-bits per base
+  //  Richard switched to little-endian December 2022 - big-endian remains in comments
+  //  should detect endianness and check and/or switch
 
 int Compress_DNA(int len, char *s, char *t)
 { int    i, j;
@@ -3183,16 +3200,20 @@ int Compress_DNA(int len, char *s, char *t)
 
   len -= 3;
   for (i = j = 0; i < len; i += 4)
-    t[j++] = (Number[s0[i]] << 6) | (Number[s1[i]] << 4) | (Number[s2[i]] << 2) | Number[s3[i]];
+    t[j++] = Number[s0[i]] | (Number[s1[i]] << 2) | (Number[s2[i]] << 4) | (Number[s3[i]] << 6) ;
+      // (Number[s0[i]] << 6) | (Number[s1[i]] << 4) | (Number[s2[i]] << 2) | Number[s3[i]];
   switch (i-len)
   { case 0:
-      t[j++] = (Number[s0[i]] << 6) | (Number[s1[i]] << 4) | (Number[s2[i]] << 2);
+      t[j++] = Number[s0[i]] | (Number[s1[i]] << 2) | (Number[s2[i]] << 4) ;
+	// (Number[s0[i]] << 6) | (Number[s1[i]] << 4) | (Number[s2[i]] << 2);
       break;
     case 1:
-      t[j++] = (Number[s0[i]] << 6) | (Number[s1[i]] << 4);
+      t[j++] = Number[s0[i]] | (Number[s1[i]] << 2) ;
+        // (Number[s0[i]] << 6) | (Number[s1[i]] << 4);
       break;
     case 2:
-      t[j++] = (Number[s0[i]] << 6);
+      t[j++] = Number[s0[i]] ;
+        // (Number[s0[i]] << 6);
       break;
     default:
       break;
@@ -3320,27 +3341,27 @@ int Uncompress_DNA(char *s, int len, char *t)
   tlen = len-3;
   for (i = 0; i < tlen; i += 4)
     { byte = *s++;
-      t0[i] = Base[(byte >> 6) & 0x3];
-      t1[i] = Base[(byte >> 4) & 0x3];
-      t2[i] = Base[(byte >> 2) & 0x3];
-      t3[i] = Base[byte & 0x3];
+      t0[i] = Base[byte & 0x3];        // Base[(byte >> 6) & 0x3];
+      t1[i] = Base[(byte >> 2) & 0x3]; // Base[(byte >> 4) & 0x3];
+      t2[i] = Base[(byte >> 4) & 0x3]; // Base[(byte >> 2) & 0x3];
+      t3[i] = Base[(byte >> 6) & 0x3]; // Base[byte & 0x3];
     }
 
   switch (i-tlen)
   { case 0:
       byte = *s++;
-      t0[i] = Base[(byte >> 6) & 0x3];
-      t1[i] = Base[(byte >> 4) & 0x3];
-      t2[i] = Base[(byte >> 2) & 0x3];
+      t0[i] = Base[byte & 0x3];        // Base[(byte >> 6) & 0x3];
+      t1[i] = Base[(byte >> 2) & 0x3]; // Base[(byte >> 4) & 0x3];
+      t2[i] = Base[(byte >> 4) & 0x3]; // Base[(byte >> 2) & 0x3];
       break;
     case 1:
       byte = *s++;
-      t0[i] = Base[(byte >> 6) & 0x3];
-      t1[i] = Base[(byte >> 4) & 0x3];
+      t0[i] = Base[byte & 0x3];        // Base[(byte >> 6) & 0x3];
+      t1[i] = Base[(byte >> 2) & 0x3]; // Base[(byte >> 4) & 0x3];
       break;
     case 2:
       byte = *s++;
-      t0[i] = Base[(byte >> 6) & 0x3];
+      t0[i] = Base[byte & 0x3];        // Base[(byte >> 6) & 0x3];
       break;
     default:
       break;
@@ -3905,7 +3926,8 @@ static void *myalloc(size_t size)
 { void *p;
 
   p = malloc(size);
-  if (p == NULL) die("myalloc failure requesting %d bytes", size);
+  if (p == NULL && size != 0 )
+    die("ONElib myalloc failure requesting %d bytes - totalAlloc %" PRId64 "", size, totalAlloc);
   nAlloc     += 1;
   totalAlloc += size;
   return (p);

@@ -1,11 +1,12 @@
 /*******************************************************************************************
  *
- *  Utility for displaying the overlaps in a .las file in a variety of ways including
- *    a minimal listing of intervals, a cartoon, and a full out alignment.
+ *  Utility for displaying the overlaps in a .1aln file in a variety of ways including
+ *    a minimal listing of intervals, and a full out alignment.
  *
  *  Author:    Gene Myers
+ *             Modified by Richard Durbin to work on .1aln files
  *  Creation:  July 2013
- *  Last Mod:  Feb 2023
+ *  Last Mod:  March 2023
  *
  *******************************************************************************************/
 
@@ -22,10 +23,11 @@
 
 #include "DB.h"
 #include "align.h"
+#include "alncode.h"
 
 static char *Usage[] =
     { "[-arU] [-i<int(4)>] [-w<int(100)>] [-b<int(10)>] ",
-      "    <alignments:path>[.las] [ <range> [<range>] ]"
+      "    <alignments:path>[.1aln] [ <range> [<range>] ]"
     };
 
 #define LAST_SYMBOL  '#'
@@ -352,9 +354,9 @@ int main(int argc, char *argv[])
   Alignment _aln, *aln = &_aln;
 
   char   *db1_name, *db2_name;
-  FILE   *input;
+  OneFile *input;
   int64   novl;
-  int     tspace, tbytes, small;
+  int     tspace;
 
   int     ALIGN, REFERENCE;
   int     INDENT, WIDTH, BORDER, UPPERCASE;
@@ -373,7 +375,7 @@ int main(int argc, char *argv[])
     int    flags[128];
     char  *eptr;
 
-    ARG_INIT("LASshow")
+    ARG_INIT("ALNshow")
 
     INDENT    = 4;
     WIDTH     = 100;
@@ -428,68 +430,17 @@ int main(int argc, char *argv[])
 
   //  Initiate .las file reading and read header information
   
-  { char  *over, *pwd, *root, *cpath;
+  { char  *pwd, *root, *cpath;
     FILE  *test;
-    int    nlen;
 
     pwd   = PathTo(argv[1]);
-    root  = Root(argv[1],".las");
-    over  = Catenate(pwd,"/",root,".las");
-    input = Fopen(over,"r");
+    root  = Root(argv[1],".1aln");
+    input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),1,
+			   &novl,&tspace,&db1_name,&db2_name,&cpath) ;
     if (input == NULL)
       exit (1);
-
-    if (fread(&novl,sizeof(int64),1,input) != 1)
-      SYSTEM_READ_ERROR
-    if (fread(&tspace,sizeof(int),1,input) != 1)
-      SYSTEM_READ_ERROR
-    if (tspace < 0)
-      { fprintf(stderr,"%s: Garbage .las file, trace spacing < 0 !\n",Prog_Name);
-        exit (1);
-      }
-
-    if (tspace <= TRACE_XOVR && tspace != 0)
-      { small  = 1;
-        tbytes = sizeof(uint8);
-      }
-    else
-      { small  = 0;
-        tbytes = sizeof(uint16);
-      }
-
-    free(pwd);
     free(root);
-
-    if (fread(&nlen,sizeof(int),1,input) != 1)
-      SYSTEM_READ_ERROR
-    db1_name = Malloc(nlen+1,"Allocating name 1\n");
-    if (db1_name == NULL)
-      exit (1);
-    if (fread(db1_name,nlen,1,input) != 1)
-      SYSTEM_READ_ERROR
-    db1_name[nlen] = '\0';
-
-    if (fread(&nlen,sizeof(int),1,input) != 1)
-      SYSTEM_READ_ERROR
-    if (nlen == 0)
-      db2_name = NULL;
-    else
-      { db2_name = Malloc(nlen+1,"Allocating name 2\n");
-        if (db2_name == NULL)
-          exit (1);
-        if (fread(db2_name,nlen,1,input) != 1)
-          SYSTEM_READ_ERROR
-        db2_name[nlen] = '\0';
-      }
-
-    if (fread(&nlen,sizeof(int),1,input) != 1)
-      SYSTEM_READ_ERROR
-    cpath = Malloc(nlen+1,"Allocating name 1\n");
-    if (cpath == NULL)
-      exit (1);
-    if (fread(cpath,nlen,1,input) != 1)
-      SYSTEM_READ_ERROR
-    cpath[nlen] = '\0';
+    free(pwd);
 
     test = fopen(db1_name,"r");
     if (test == NULL)
@@ -701,17 +652,13 @@ int main(int argc, char *argv[])
       alst = db1->reads[aend].rlen;
       blst = db2->reads[bend].rlen;
     }
-printf("  %d(%d) .. %d(%d)\n",abeg,afst,aend,alst);
-printf("  %d(%d) .. %d(%d)\n",bbeg,bfst,bend,blst);
   if (afst < 0)
     { abst = AHEAD(abeg);
       aest = AHEAD(aend);
-printf("  A %s to %s\n",abst,aest);
     }
   if (bfst < 0)
     { bbst = BHEAD(bbeg);
       best = BHEAD(bend);
-printf("  B %s to %s\n",bbst,best);
     }
 
   //  Read the file and display selected records
@@ -746,10 +693,11 @@ printf("  B %s to %s\n",bbst,best);
         work = NULL;
       }
 
-    tmax  = 1000;
-    trace = (uint16 *) Malloc(sizeof(uint16)*tmax,"Allocating trace vector");
+    tmax = input->info['T']->given.max;
+    trace = (uint16 *) Malloc(2*sizeof(uint16)*tmax,"Allocating trace vector");
     if (trace == NULL)
       exit (1);
+    ovl->path.trace = (void *) trace;
 
     ar_wide = Number_Digits((int64) nascaff);
     ai_wide = Number_Digits((int64) amaxlen);
@@ -794,15 +742,8 @@ printf("  B %s to %s\n",bbst,best);
 
        //  Read it in
 
-      { Read_Overlap(input,ovl);
-        if (ovl->path.tlen > tmax)
-          { tmax = ((int) 1.2*ovl->path.tlen) + 100;
-            trace = (uint16 *) Realloc(trace,sizeof(uint16)*tmax,"Allocating trace vector");
-            if (trace == NULL)
-              exit (1);
-          }
-        ovl->path.trace = (void *) trace;
-        Read_Trace(input,ovl,tbytes);
+      { Read_Aln_Overlap(input,ovl);
+        ovl->path.tlen = Read_Aln_Trace(input,(uint8 *) trace);
 
         aread = ovl->aread;
         bread = ovl->bread;
@@ -920,8 +861,7 @@ printf("  B %s to %s\n",bbst,best);
             int   bmin,  bmax;
             int   self;
 
-            if (small)
-              Decompress_TraceTo16(ovl);
+            Decompress_TraceTo16(ovl);
 
             self = (ISTWO == 0) && (aread == bread) && !COMP(ovl->flags);
 
@@ -1010,6 +950,8 @@ printf("  B %s to %s\n",bbst,best);
   Close_DB(db1);
   if (ISTWO)
     Close_DB(db2);
+
+  oneFileClose(input);
 
   exit (0);
 }

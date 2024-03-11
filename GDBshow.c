@@ -393,9 +393,6 @@ int main(int argc, char *argv[])
       }
 
     qsort(HPERM,NSCAFF,sizeof(int),HSORT);
-
-    for (s = 0; s < NSCAFF; s++)
-      printf(" %3d: %d %s\n",s,HPERM[s],HEADERS+READS[SMAP[HPERM[s]]].coff);
   }
 
   //  Determine if extra arg is a range or a file, and if a file then initialize it
@@ -465,8 +462,8 @@ int main(int argc, char *argv[])
 
             i = range(x,rvals,0);       // Parse the entry
 
-            printf(" %d: '%s' %d %d %d %d\n",i,x,rvals[0],rvals[1],rvals[2],rvals[3]);
 #ifdef DEBUG_RANGE
+            printf(" %d: '%s' %d %d %d %d\n",i,x,rvals[0],rvals[1],rvals[2],rvals[3]);
 #endif
 
             if (i == 0)

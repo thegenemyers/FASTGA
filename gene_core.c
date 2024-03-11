@@ -395,3 +395,95 @@ void Change_Read(char *s)
   for ( ; *s != '\0'; s++)
     *s = change[(int) *s];
 }
+
+/*******************************************************************************************
+ *
+ *  RESOURCE UTILITY
+ *
+ ********************************************************************************************/
+
+static struct rusage   Itime;
+static struct timespec Iwall;
+
+static struct rusage   Mtime;
+static struct timespec Mwall;
+
+void StartTime()
+{ getrusage(RUSAGE_SELF,&Itime);
+  clock_gettime(CLOCK_MONOTONIC,&Iwall);
+  Mtime = Itime;
+  Mwall = Iwall;
+}
+
+void TimeTo(FILE *f, int all)
+{ struct rusage    now;
+  struct timespec  today;
+  struct rusage   *t;
+  struct timespec *w;
+  int usecs, umics;
+  int ssecs, smics;
+  int tsecs, tmics;
+  int64 mem;
+
+  getrusage(RUSAGE_SELF, &now);
+  clock_gettime(CLOCK_MONOTONIC,&today);
+
+  if (all)
+    { t = &Itime;
+      w = &Iwall;
+      fprintf (f,"\nTotal Resources:");
+    }
+  else
+    { t = &Mtime;
+      w = &Mwall;
+      fprintf (f,"\n  Resources for phase:");
+    }
+
+
+  usecs = now.ru_utime.tv_sec  - t->ru_utime.tv_sec;
+  umics = now.ru_utime.tv_usec - t->ru_utime.tv_usec;
+  if (umics < 0)
+    { umics += 1000000;
+      usecs -= 1;
+    }
+  if (usecs >= 60)
+    fprintf (f,"  %d:%02d.%03du",usecs/60,usecs%60,umics/1000);
+  else
+    fprintf (f,"  %d.%03du",usecs,umics/1000);
+
+  ssecs = now.ru_stime.tv_sec  - t->ru_stime.tv_sec;
+  smics = now.ru_stime.tv_usec - t->ru_stime.tv_usec;
+  if (smics < 0)
+    { smics += 1000000;
+      ssecs -= 1;
+    }
+  if (ssecs >= 60)
+    fprintf (f,"  %d:%02d.%03ds",ssecs/60,ssecs%60,smics/1000);
+  else
+    fprintf (f,"  %d.%03ds",ssecs,smics/1000);
+
+  tsecs = today.tv_sec  - w->tv_sec;
+  tmics = today.tv_nsec/1000 - w->tv_nsec/1000;
+  if (tmics < 0)
+    { tmics += 1000000;
+      tsecs -= 1;
+    }
+  if (tsecs >= 60)
+    fprintf (f,"  %d:%02d.%03dw",tsecs/60,tsecs%60,tmics/1000);
+  else
+    fprintf (f,"  %d.%03dw",tsecs,tmics/1000);
+
+  fprintf(f,"  %.1f%%",(100.*(usecs+ssecs) + (umics+smics)/10000.)/(tsecs+tmics/1000000.));
+
+  if (all)
+    { mem = now.ru_maxrss/1000000;
+      fprintf(f,"  ");
+      Print_Number(mem,0,f);
+      fprintf(f,"MB");
+    }
+
+  fprintf(f,"\n");
+
+  Mtime = now;
+  Mwall = today;
+}

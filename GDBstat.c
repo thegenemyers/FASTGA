@@ -221,13 +221,17 @@ int main(int argc, char *argv[])
     Print_Number(totbps/(nctg-egap),awide,stdout);
     printf("bp\n");
 
-    printf("  ");
-    Print_Number(ngap,cwide,stdout);
-    printf(" gaps    containing ");
-    Print_Number(totgap,swide,stdout);
-    printf("bp, ave. = ");
-    Print_Number(totgap/ngap,awide,stdout);
-    printf("bp\n");
+    if (ngap == 0)
+      printf(" No gaps\n");
+    else
+      { printf("  ");
+        Print_Number(ngap,cwide,stdout);
+        printf(" gaps    containing ");
+        Print_Number(totgap,swide,stdout);
+        printf("bp, ave. = ");
+        Print_Number(totgap/ngap,awide,stdout);
+        printf("bp\n");
+      }
   }
 
   //  Output N<X> table

@@ -15,23 +15,49 @@
 #include <zlib.h>
 
 #include "DB.h"
+#include "alncode.h"
 
-static char *Usage = "[-vU] [-w<int(80)>] <source:path>[.gdb] [ @ | <target:path>[<fa_extn>] ]";
+static char *Usage =
+         "[-vU] [-w<int(80)>] <source:path>[.gdb] [ @ | <target:path>[<fa_extn>|<1_extn>] ]";
 
 int main(int argc, char *argv[])
 { DAZZ_DB    _db, *db = &_db;
-  void       *output;
   char       *SPATH, *SROOT;
   char       *TPATH, *TROOT;
   int         TEXTN;
+  int         is_one;
+  OneSchema  *schema;
+  OneFile    *outone;
   int         gzip;
+  void       *output;
+  char       *command;
 
   int UPPER;   // -U
   int WIDTH;   // -w
   int VERBOSE; // -v
 
-  char *suffix[6] = { ".fa", ".fna", ".fasta", ".fa.gz", ".fna.gz", ".fasta.gz" };
-  int   suflen[6] = { 3, 4, 6, 6, 7, 9 };
+  char *suffix[7] = { ".1seq", ".fa", ".fna", ".fasta", ".fa.gz", ".fna.gz", ".fasta.gz" };
+  int   suflen[7] = { 5, 3, 4, 6, 6, 7, 9 };
+
+  { int   n, i;
+    char *c;
+
+    n = 0;
+    for (i = 1; i < argc; i++)
+      n += strlen(argv[i])+1;
+
+    command = Malloc(n+1,"Allocating command string");
+    if (command == NULL)
+      exit (1);
+
+    c = command;
+    if (argc >= 1)
+      { c += sprintf(c,"%s",argv[1]);
+        for (i = 2; i < argc; i++)
+          c += sprintf(c," %s",argv[i]);
+      }
+    *c = '\0';
+  }
 
   //  Process arguments
 
@@ -63,6 +89,9 @@ int main(int argc, char *argv[])
 
     if (argc < 2 || argc > 3)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"           <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
+        fprintf(stderr,"           <1_extn>  = any valid 1-code sequence file type\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -U: Use upper case for DNA (default is lower case).\n");
         fprintf(stderr,"      -w: Print -w bp per line (default is 80).\n");
@@ -105,8 +134,24 @@ int main(int argc, char *argv[])
     opath  = stub->prolog[0];
 
     if (argc == 2)
-      { output = stdout;
-        gzip   = 0;
+      { if (strcmp(oname+(strlen(oname)-5),".1seq") == 0)
+          { is_one = 1;
+            schema = oneSchemaCreateFromText(alnSchemaText);
+            if (schema == NULL)
+              { fprintf(stderr,"%s: Failed to create ONEcode schema\n",Prog_Name);
+                exit (1);
+              }
+            outone = oneFileOpenWriteNew("-",schema,"seq",0,0);
+            if (outone == NULL)
+              { fprintf(stderr,"%s: Cannot open ONEcode for writing\n",Prog_Name);
+                exit (1);
+              }
+          }
+        else
+          { is_one = 0;
+            gzip   = 0;
+            output = stdout;
+          }
         TPATH  = NULL;
         TROOT  = NULL;
         TEXTN  = 0;
@@ -143,7 +188,7 @@ int main(int argc, char *argv[])
           }
 
         e = TROOT + strlen(TROOT);
-        for (i = 5; i >= 0; i--)
+        for (i = 6; i >= 0; i--)
           if (strcmp(e-suflen[i],suffix[i]) == 0)
             break;
 
@@ -153,30 +198,57 @@ int main(int argc, char *argv[])
           }
         else
           { e = oname + strlen(oname);
-            for (i = 5; i >= 0; i--)
+            for (i = 6; i >= 0; i--)
               if (strcmp(e-suflen[i],suffix[i]) == 0)
                 break;
             TEXTN = i;
           }
-        gzip = (TEXTN >= 3);
-        if (gzip)
-          output = gzopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
+        is_one = (TEXTN == 0);
+        gzip   = (TEXTN >= 3);
+        if (is_one)
+          { schema = oneSchemaCreateFromText(alnSchemaText);
+            if (schema == NULL)
+              { fprintf(stderr,"%s: Failed to create ONEcode schema\n",Prog_Name);
+                exit (1);
+              }
+            outone = oneFileOpenWriteNew(Catenate(TPATH,"/",TROOT,".1seq"),schema,"seq",1,0);
+            if (outone == NULL)
+              { fprintf(stderr,"%s: Cannot open %s/%s.%s for writing\n",
+                               Prog_Name,TPATH,TROOT,suffix[TEXTN]);
+                exit (1);
+              }
+          }
         else
-          output = fopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
-        if (output == NULL)
-          { fprintf(stderr,"%s: Cannot open %s/%s.%s for writing\n",
-                           Prog_Name,TPATH,TROOT,suffix[TEXTN]);
-            exit (1);
+          { if (gzip)
+              output = gzopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
+            else
+              output = fopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
+            if (output == NULL)
+              { fprintf(stderr,"%s: Cannot open %s/%s.%s for writing\n",
+                               Prog_Name,TPATH,TROOT,suffix[TEXTN]);
+                exit (1);
+              }
           }
       }
 
     if (VERBOSE && argc > 2)
-      { if (strcmp(TPATH,".") == 0)
-          fprintf(stderr,"\n  Creating %sfasta file %s%s at current directory\n",
-                         TEXTN>=3?"gzip'd ":" ",TROOT,suffix[TEXTN]);
+      { if (is_one)
+          { if (strcmp(TPATH,".") == 0)
+              fprintf(stderr,"\n  Creating 1-seq file %s%s at current directory\n",
+                             TROOT,suffix[TEXTN]);
+            else
+              fprintf(stderr,"\n  Creating 1-seq file %s%s at directory %s\n",
+                             TROOT,suffix[TEXTN],TPATH);
+          }
+
         else
-          fprintf(stderr,"\n  Creating %sfasta file %s%s at directory %s\n",
-                         TEXTN>=3?"gzip'd ":" ",TROOT,suffix[TEXTN],TPATH);
+          { if (strcmp(TPATH,".") == 0)
+              fprintf(stderr,"\n  Creating %sfasta file %s%s at current directory\n",
+                             TEXTN>=3?"gzip'd ":" ",TROOT,suffix[TEXTN]);
+            else
+              fprintf(stderr,"\n  Creating %sfasta file %s%s at directory %s\n",
+                             TEXTN>=3?"gzip'd ":" ",TROOT,suffix[TEXTN],TPATH);
+	  }
         fflush(stderr);
       }
   }
@@ -185,54 +257,115 @@ int main(int argc, char *argv[])
 
   { DAZZ_READ  *reads;
     char       *read;
+    int         nreads;
     FILE       *hdrs;
-    char       *nstring;
-    int         i, f, z, wpos;
     char        header[MAX_NAME];
 
     hdrs = Fopen(Catenate(db->path,".hdr","",""),"r");
     if (hdrs == NULL)
       exit (1);
 
-    nstring = Malloc(WIDTH+1,"Allocating write buffer\n");
-    if (nstring == NULL)
-      exit (1);
-
-    if (UPPER == 2)
-      for (f = 0; f < WIDTH; f++)
-        nstring[f] = 'N';
-    else
-      for (f = 0; f < WIDTH; f++)
-        nstring[f] = 'n';
-    nstring[WIDTH] = '\0';
-
     reads = db->reads;
     read  = New_Read_Buffer(db);
     if (read == NULL)
       exit (1);
 
-    //   For the relevant range of reads, write each to the file
-    //     recreating the original headers with the index meta-data about each read
+    nreads = db->nreads;
 
-    wpos = 0;
-    for (i = 0; i < db->ureads; i++)
-      { int        j, len, nlen, w;
-        DAZZ_READ *r;
+    if (is_one)
 
-        r     = reads + i;
-        len   = r->rlen;
+      { int64 last;
+        int   r, s;
 
-        if (r->origin == 0)
-          { if (i != 0 && wpos != 0)
-              { if (gzip)
-                  z = gzprintf(output,"\n");
-                else
-                  z = fprintf(output,"\n");
-                if (z < 0)
-                  goto out_error;
-                wpos = 0;
+        oneAddProvenance(outone,Prog_Name,"0.1",command);
+
+        if (!outone->isBinary)
+          { int64 seqcnt, seqmax, seqtot;
+            int64 gapcnt, gapmax, gaptot;
+            int64 scfcnt, scfmax, scftot;
+            int64 seqgrpcnt, gapgrpcnt, scnt, gcnt;
+            int64 seqgrptot, gapgrptot, stot, gtot;
+
+            seqcnt = seqmax = seqtot = 0;
+            gapcnt = gapmax = gaptot = 0;
+            scfcnt = scfmax = scftot = 0;
+            seqgrpcnt = gapgrpcnt = 0;
+            seqgrptot = gapgrptot = 0;
+
+            r = 0;
+            while (r < nreads)
+              { for (s = r+1; s < nreads; s++)
+                  if (reads[s].origin == 0)
+                    break;
+    
+                if (fseeko(hdrs,reads[r].coff,SEEK_SET) < 0)
+                  { fprintf(stderr,"%s: Cannot seek GDB header file\n",Prog_Name);
+                    goto clean_up;
+                  }
+                if (fgets(header,MAX_NAME,hdrs) == NULL)
+                  { fprintf(stderr,"%s: Failed to read from the GDB header file\n",Prog_Name);
+                    goto clean_up;
+                  }
+                if ((int64) strlen(header) >= scfmax)
+                  scfmax = strlen(header)-1;
+                scfcnt += 1;
+                scftot += strlen(header)-1;
+
+                gtot = gcnt = 0;
+                stot = scnt = 0;
+                last = 0;
+                while (r < s)
+                  { if (reads[r].fpulse - last > 0) 
+                      { if (reads[r].fpulse-last > gapmax)
+                          gapmax = reads[r].fpulse-last;
+                        gtot += reads[r].fpulse-last;
+                        gcnt += 1;
+                      }
+                    last = reads[r].fpulse + reads[r].rlen;
+                    if (reads[r].rlen > 0)
+                      { if (reads[r].rlen > seqmax)
+                          seqmax = reads[r].rlen;
+                        stot += reads[r].rlen;
+                        scnt += 1;
+                      }
+                    r += 1;
+                  }
+                if (stot > seqgrptot)
+                  seqgrptot = stot;
+                if (scnt > seqgrpcnt)
+                  seqgrpcnt = scnt;
+                seqcnt += scnt;
+                seqtot += stot;
+                if (gtot > gapgrptot)
+                  gapgrptot = gtot;
+                if (gcnt > gapgrpcnt)
+                  gapgrpcnt = gcnt;
+                gapcnt += gcnt;
+                gaptot += gtot;
               }
-            if (fseeko(hdrs,r->coff,SEEK_SET) < 0)
+
+            outone->info['S']->given.count = seqcnt;
+            outone->info['S']->given.max   = seqmax;
+            outone->info['S']->given.total = seqtot;
+            outone->info['S']->given.groupCount = seqgrpcnt;
+            outone->info['S']->given.groupTotal = seqgrptot;
+            outone->info['N']->given.count = gapcnt;
+            outone->info['N']->given.max   = gapmax;
+            outone->info['N']->given.total = gaptot;
+            outone->info['N']->given.groupCount = gapgrpcnt;
+            outone->info['N']->given.groupTotal = gapgrptot;
+            outone->info['s']->given.count = scfcnt;
+            outone->info['s']->given.max   = scfmax;
+            outone->info['s']->given.total = scftot;
+          }
+
+        r = 0;
+        while (r < nreads)
+          { for (s = r+1; s < nreads; s++)
+              if (reads[s].origin == 0)
+                break;
+
+            if (fseeko(hdrs,reads[r].coff,SEEK_SET) < 0)
               { fprintf(stderr,"%s: Cannot seek GDB header file\n",Prog_Name);
                 goto clean_up;
               }
@@ -240,83 +373,161 @@ int main(int argc, char *argv[])
               { fprintf(stderr,"%s: Failed to read from the GDB header file\n",Prog_Name);
                 goto clean_up;
               }
-            if (gzip)
-              z = gzprintf(output,"> %s",header);
+            header[strlen(header)-1] = '\0';
+
+            if (outone->isBinary)
+              oneInt(outone,0) = 0;
             else
-              z = fprintf(output,"> %s",header);
-            if (z < 0)
-              goto out_error;
+              oneInt(outone,0) = s-r;
+            oneInt(outone,1) = reads[s-1].fpulse + reads[s-1].rlen;
+            oneWriteLine(outone,'s',strlen(header),header);
+
+            last = 0;
+            while (r < s)
+              { if (reads[r].fpulse - last > 0) 
+                  { oneChar(outone,0) = 'n';
+                    oneInt(outone,1)  = reads[r].fpulse-last; 
+                    oneWriteLine(outone,'n',0,0);
+                  }
+                last = reads[r].fpulse + reads[r].rlen;
+                if (reads[r].rlen > 0)
+                  { if (Load_Read(db,r,read,1))
+                      exit (1);
+                    oneWriteLine(outone,'S',reads[r].rlen,read);
+                  }
+                r += 1;
+              }
           }
 
-        if (r->fpulse != 0)
-          { if (r->origin != 0)
-              nlen = r->fpulse - (reads[i-1].fpulse + reads[i-1].rlen);
-            else
-              nlen = r->fpulse;
+        oneFileClose(outone);
+        oneSchemaDestroy(schema);
+      }
 
-            for (j = 0; j+(w = WIDTH-wpos) <= nlen; j += w)
-              { if (gzip)
-                  z = gzprintf(output,"%.*s\n",w,nstring);
+    else
+
+      { char       *nstring;
+        int         i, f, z, wpos;
+    
+        nstring = Malloc(WIDTH+1,"Allocating write buffer\n");
+        if (nstring == NULL)
+          exit (1);
+    
+        if (UPPER == 2)
+          for (f = 0; f < WIDTH; f++)
+            nstring[f] = 'N';
+        else
+          for (f = 0; f < WIDTH; f++)
+            nstring[f] = 'n';
+        nstring[WIDTH] = '\0';
+    
+        //   For the relevant range of reads, write each to the file
+        //     recreating the original headers with the index meta-data about each read
+    
+        wpos = 0;
+        for (i = 0; i < nreads; i++)
+          { int        j, len, nlen, w;
+            DAZZ_READ *r;
+    
+            r     = reads + i;
+            len   = r->rlen;
+    
+            if (r->origin == 0)
+              { if (i != 0 && wpos != 0)
+                  { if (gzip)
+                      z = gzprintf(output,"\n");
+                    else
+                      z = fprintf(output,"\n");
+                    if (z < 0)
+                      goto out_error;
+                    wpos = 0;
+                  }
+                if (fseeko(hdrs,r->coff,SEEK_SET) < 0)
+                  { fprintf(stderr,"%s: Cannot seek GDB header file\n",Prog_Name);
+                    goto clean_up;
+                  }
+                if (fgets(header,MAX_NAME,hdrs) == NULL)
+                  { fprintf(stderr,"%s: Failed to read from the GDB header file\n",Prog_Name);
+                    goto clean_up;
+                  }
+                if (gzip)
+                  z = gzprintf(output,"> %s",header);
                 else
-                  z = fprintf(output,"%.*s\n",w,nstring);
+                  z = fprintf(output,"> %s",header);
+                if (z < 0)
+                  goto out_error;
+              }
+    
+            if (r->fpulse != 0)
+              { if (r->origin != 0)
+                  nlen = r->fpulse - (reads[i-1].fpulse + reads[i-1].rlen);
+                else
+                  nlen = r->fpulse;
+    
+                for (j = 0; j+(w = WIDTH-wpos) <= nlen; j += w)
+                  { if (gzip)
+                      z = gzprintf(output,"%.*s\n",w,nstring);
+                    else
+                      z = fprintf(output,"%.*s\n",w,nstring);
+                    if (z < 0)
+                      goto out_error;
+                    wpos = 0;
+                  }
+                if (j < nlen)
+                  { if (gzip)
+                      z = gzprintf(output,"%.*s",nlen-j,nstring);
+                    else
+                      z = fprintf(output,"%.*s",nlen-j,nstring);
+                    if (z < 0)
+                      goto out_error;
+                    if (j == 0)
+                      wpos += nlen;
+                    else
+                      wpos = nlen-j;
+                  }
+              }
+    
+            if (Load_Read(db,i,read,UPPER))
+              exit (1);
+    
+            for (j = 0; j+(w = WIDTH-wpos) <= len; j += w)
+              { if (gzip)
+                  z = gzprintf(output,"%.*s\n",w,read+j);
+                else
+                  z = fprintf(output,"%.*s\n",w,read+j);
                 if (z < 0)
                   goto out_error;
                 wpos = 0;
               }
-            if (j < nlen)
+            if (j < len)
               { if (gzip)
-                  z = gzprintf(output,"%.*s",nlen-j,nstring);
+                  z = gzprintf(output,"%s",read+j);
                 else
-                  z = fprintf(output,"%.*s",nlen-j,nstring);
+                  z = fprintf(output,"%s",read+j);
                 if (z < 0)
                   goto out_error;
                 if (j == 0)
-                  wpos += nlen;
+                  wpos += len;
                 else
-                  wpos = nlen-j;
+                  wpos = len-j;
               }
           }
-
-        if (Load_Read(db,i,read,UPPER))
-          exit (1);
-
-        for (j = 0; j+(w = WIDTH-wpos) <= len; j += w)
+        if (wpos > 0)
           { if (gzip)
-              z = gzprintf(output,"%.*s\n",w,read+j);
+              z = gzprintf(output,"\n");
             else
-              z = fprintf(output,"%.*s\n",w,read+j);
+              z = fprintf(output,"\n");
             if (z < 0)
               goto out_error;
-            wpos = 0;
           }
-        if (j < len)
+        if (output != stdout)
           { if (gzip)
-              z = gzprintf(output,"%s",read+j);
+              gzclose(output);
             else
-              z = fprintf(output,"%s",read+j);
-            if (z < 0)
-              goto out_error;
-            if (j == 0)
-              wpos += len;
-            else
-              wpos = len-j;
+              fclose(output);
           }
+        free(nstring);
       }
-    if (wpos > 0)
-      { if (gzip)
-          z = gzprintf(output,"\n");
-        else
-          z = fprintf(output,"\n");
-        if (z < 0)
-          goto out_error;
-      }
-    if (output != stdout)
-      { if (gzip)
-          gzclose(output);
-        else
-          fclose(output);
-      }
-    free(nstring);
+
     fclose(hdrs);
   }
 

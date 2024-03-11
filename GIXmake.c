@@ -26,9 +26,10 @@
 #include "libfastk.h"
 #include "DB.h"
 
-static char *Usage[] = { "[-v] [-T<int(8)>] [-P<dir(/tmp)>] [-k<int(40)] [-f<int(10)>]",
-                         "( <source:path>[.gdb]  |  <source:path>[<fa_extn>] [<target:path>[.gix]] )"
-                       };
+static char *Usage[] =
+    { "[-v] [-T<int(8)>] [-P<dir(/tmp)>] [-k<int(40)] [-f<int(10)>]",
+      "( <source:path>[.gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )"
+    };
 
 static int   FREQ;       //  -f
 static int   VERBOSE;    //  -v
@@ -1301,6 +1302,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"\n");
         fprintf(stderr,"           <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
+        fprintf(stderr,"           <1_extn>  = any valid 1-code sequence file type\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");

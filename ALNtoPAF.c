@@ -1,11 +1,10 @@
 /*******************************************************************************************
  *
- *  Utility for displaying the overlaps in a .las file in a variety of ways including
- *    a minimal listing of intervals, a cartoon, and a full out alignment.
+ *  Utility to convert a .1aln alignment file into a PAF formated file.
  *
  *  Author:    Gene Myers
  *  Creation:  Nov 2023
- *  Last Mod:  Dec 2023
+ *  Last Mod:  Feb 2023 - RD converted to .1aln (from .las)
  *
  *******************************************************************************************/
 
@@ -18,13 +17,15 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 #include "DB.h"
 #include "align.h"
+#include "alncode.h"
 
 #undef DEBUG_THREADS
 
-static char *Usage = " [-mx] [-T<int(8)>] <align:las>";
+static char *Usage = " [-mx] [-T<int(8)>] <alignment:path>[.1aln]";
 
 static int  CIGAR_M;   // -m
 static int  CIGAR_X;   // -x
@@ -38,98 +39,32 @@ static int  AMAX,  BMAX;   //  Max sequence length in A and B
 static int *AMAP, *BMAP;   //  Map contig to its scaffold
 static int *ALEN, *BLEN;   //  Map contig to its scaffold length
 
-static int PTR_SIZE = sizeof(void *);
-static int OVL_SIZE = sizeof(Overlap) - sizeof(void *);
-
-
-//   ROUTINES TO FIND AN OVERLAP RECORD WITHIN A .LAS FILE
-
-#define SEEK_BLOCK  0x100000
-
-  //  Is o possibly a valid Overlap record?
-
-static int plausible_record(Overlap *o)
-{ int l1, l2;
-
-  if (o->flags > 2)
-   return (0);
-  if (o->path.abpos < 0 || o->path.abpos > o->path.aepos || o->path.aepos > AMAX)
-    return (0);
-  if (2*(o->path.aepos/TSPACE - o->path.abpos/TSPACE + 1) != o->path.tlen)
-    return (0);
-  if (o->path.bbpos < 0 || o->path.bbpos > o->path.bepos || o->path.bepos > BMAX)
-    return (0);
-  l1 = o->path.aepos - o->path.abpos;
-  l2 = o->path.bepos - o->path.bbpos;
-  if (o->path.diffs < 0 || abs(l1-l2) > o->path.diffs)
-    return (0);
-  if (o->aread < 0 || o->bread < 0)
-    return (0);
-  return (o->path.tlen);
-}
-
-  //  Find first location after offset in input of an Overlap record
-
-static int64 find_ovl_boundary(int64 offset, FILE *input, void *buffer)
-{ void *bend, *off;
-  int   y, len;
-
-  bend = buffer + SEEK_BLOCK - (OVL_SIZE+PTR_SIZE);
-
-  fseek(input,offset,SEEK_SET);
-  fread(buffer,SEEK_BLOCK,1,input);
-  for (y = 0; 1; y += 2)
-    { off = (buffer+y) - PTR_SIZE;    //  3 linked plausibles very firm
-      if (off >= bend)
-        return (0);
-      len = plausible_record(off);
-      if (len == 0)
-        continue;
-      off += OVL_SIZE + len;
-      if (off >= bend)
-        return (0);
-      len = plausible_record(off);
-      if (len == 0)
-        continue;
-      off += OVL_SIZE + len;
-      if (off >= bend)
-        return (0);
-      len = plausible_record(off);
-      if (len == 0)
-        continue;
-      break;
-    }
-  return (offset+y);
-}
-
+static char *AHEADER, *BHEADER;  //  Tables of all headers
 
 //  THREAD ROUTINE TO GENERATE A SECTION OF THE DESIRED .PAF FILE
 
 typedef struct
-  { int64   beg;
-    int64   end;
-    DAZZ_DB db1;
-    DAZZ_DB db2;
-    FILE   *in;
-    FILE   *out;
+  { int64    beg;
+    int64    end;
+    DAZZ_DB  db1;
+    DAZZ_DB  db2;
+    OneFile *in;
+    FILE    *out;
   } Packet;
 
 void *gen_paf(void *args)
 { Packet *parm = (Packet *) args;
 
   int64    beg = parm->beg;
-  int64    tot = parm->end - beg;
+  int64    end = parm->end;
   DAZZ_DB *db1 = &(parm->db1);
   DAZZ_DB *db2 = &(parm->db2);
-  FILE    *in  = parm->in;
+  OneFile *in  = parm->in;
   FILE    *out = parm->out;
 
   Overlap   _ovl, *ovl = &_ovl;
   Alignment _aln, *aln = &_aln;
 
-  FILE   *ahdr, *bhdr;
-  
-  int64      bytes;
   uint16    *trace;
   int        tmax;
   DAZZ_READ *reads1, *reads2;
@@ -139,7 +74,6 @@ void *gen_paf(void *args)
   char      *aseq, *bseq;
   Path      *path;
   Work_Data *work;
-  char       aheader[MAX_NAME], bheader[MAX_NAME];
   int        blocksum, iid;
 
   work = New_Work_Data();
@@ -151,48 +85,26 @@ void *gen_paf(void *args)
   reads1 = db1->reads;
   reads2 = db2->reads;
 
-  tmax  = 1000;
-  trace = (uint16 *) Malloc(sizeof(uint16)*tmax,"Allocating trace vector");
-  if (trace == NULL)
-    exit (1);
-
   aln->path = path = &(ovl->path);
   aln->aseq = aseq;
-  path->trace = (void *) trace;
 
-  ahdr = fopen(Catenate(db1->path,".hdr","",""),"r");
-  if (ahdr == NULL)
-    { fprintf(stderr,"%s: Cannot open %s.hdr file for reading\n",Prog_Name,db1->path);
-      exit (1);
-    }
-  if (ISTWO)
-    { bhdr = fopen(Catenate(db2->path,".hdr","",""),"r");
-      if (bhdr == NULL)
-        { fprintf(stderr,"%s: Cannot open %s.hdr file for reading\n",Prog_Name,db2->path);
-          exit (1);
-        }
-    }
-  else
-    bhdr = ahdr;
+  tmax  = in->info['T']->given.max;
+  trace = (uint16 *) Malloc(2*sizeof(uint16)*tmax,"Allocating trace vector");
+  if (trace == NULL)
+    exit (1);
+  path->trace = (void *) trace;
 
   //  For each alignment do
 
-  fseek(in,beg,SEEK_SET);
+  if (!oneGotoObject (parm->in, beg))
+    { fprintf(stderr,"%s: Can't locate to object %lld in aln file\n",Prog_Name,beg) ;
+      exit (1);
+    }
+  oneReadLine(parm->in);
 
-  alast = -1;
-  bytes = 0;
-  while (bytes < tot)
-    { Read_Overlap(in,ovl);
-      if (ovl->path.tlen > tmax)
-        { tmax = ((int) 1.2*ovl->path.tlen) + 100;
-          trace = (uint16 *) Realloc(trace,sizeof(uint16)*tmax,"Allocating trace vector");
-          if (trace == NULL)
-            exit (1);
-        }
-      path->trace = (void *) trace;
-      Read_Trace(in,ovl,1);
-
-      bytes += OVL_SIZE + path->tlen;
+  for (alast = -1; beg < end; beg++)
+    { Read_Aln_Overlap(in,ovl);
+      path->tlen = Read_Aln_Trace(in,(uint8 *) trace);
 
       aread = ovl->aread;
       aln->alen = reads1[aread].rlen;
@@ -203,23 +115,13 @@ void *gen_paf(void *args)
       aoff = reads1[aread].fpulse;
       boff = reads2[bread].fpulse;
 
-      if (aread != alast)
-        { fseeko(ahdr,reads1[aread].coff,SEEK_SET);
-          fgets(aheader,MAX_NAME,ahdr);
-          aheader[strlen(aheader)-1] = '\0';
-        }
-      fprintf(out,"%s",aheader);
-
+      fprintf(out,"%s",AHEADER + reads1[aread].coff);
       fprintf(out,"\t%d",ALEN[aread]);
       fprintf(out,"\t%d",aoff + path->abpos);
       fprintf(out,"\t%d",aoff + path->aepos);
 
       fprintf(out,"\t%c",COMP(aln->flags)?'-':'+');
-
-      fseeko(bhdr,reads2[bread].coff,SEEK_SET);
-      fgets(bheader,MAX_NAME,bhdr);
-      bheader[strlen(bheader)-1] = '\0';
-      fprintf(out,"\t%s",bheader);
+      fprintf(out,"\t%s",BHEADER + reads2[bread].coff);
 
       fprintf(out,"\t%d",BLEN[bread]);
       if (COMP(aln->flags))
@@ -439,11 +341,6 @@ void *gen_paf(void *args)
       alast = aread;
     }
 
-  if (ISTWO)
-    fclose(bhdr);
-  fclose(ahdr);
-  fclose(in);
-
   free(trace);
   free(bseq-1);
   free(aseq-1);
@@ -452,15 +349,14 @@ void *gen_paf(void *args)
   return (NULL);
 }
 
-
 int main(int argc, char *argv[])
 { Packet    *parm;
   DAZZ_DB   _db1, *db1 = &_db1;
   DAZZ_DB   _db2, *db2 = &_db2;
   char      *db1_name;
   char      *db2_name;
-  FILE      *input;
-  char      *iname;
+  OneFile   *input;
+  int64      novl;
 
   //  Process options
 
@@ -468,7 +364,7 @@ int main(int argc, char *argv[])
     int    flags[128];
     char  *eptr;
 
-    ARG_INIT("LAStoPAF")
+    ARG_INIT("ALNtoPAF")
 
     NTHREADS = 8;
 
@@ -511,66 +407,24 @@ int main(int argc, char *argv[])
       exit (1);
   }
 
-  //  Initiate .las file reading and read header information
- 
+  //  Initiate .1aln file reading and read header information
+
   { char       *pwd, *root, *cpath;
     FILE       *test;
-    int64       novl;
-    int         nlen;
 
     pwd   = PathTo(argv[1]);
-    root  = Root(argv[1],".las");
-    iname = Strdup(Catenate(pwd,"/",root,".las"),"Allocating input name");
-    input = Fopen(iname,"r");
+    root  = Root(argv[1],".1aln");
+    input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),NTHREADS,
+                          &novl,&TSPACE,&db1_name,&db2_name,&cpath);
     if (input == NULL)
       exit (1);
-
-    if (fread(&novl,sizeof(int64),1,input) != 1)
-      SYSTEM_READ_ERROR
-    if (fread(&TSPACE,sizeof(int),1,input) != 1)
-      SYSTEM_READ_ERROR
-    if (TSPACE < 0)
-      { fprintf(stderr,"%s: Garbage .las file, trace spacing < 0 !\n",Prog_Name);
-        exit (1);
-      }
-
-    free(pwd);
     free(root);
-
-    if (fread(&nlen,sizeof(int),1,input) != 1)
-      SYSTEM_READ_ERROR
-    db1_name = Malloc(nlen+1,"Allocating name 1\n");
-    if (db1_name == NULL)
-      exit (1);
-    if (fread(db1_name,nlen,1,input) != 1)
-      SYSTEM_READ_ERROR
-    db1_name[nlen] = '\0';
-
-    if (fread(&nlen,sizeof(int),1,input) != 1)
-      SYSTEM_READ_ERROR
-    if (nlen == 0)
-      db2_name = NULL;
-    else
-      { db2_name = Malloc(nlen+1,"Allocating name 2\n");
-        if (db2_name == NULL)
-          exit (1);
-        if (fread(db2_name,nlen,1,input) != 1)
-          SYSTEM_READ_ERROR
-        db2_name[nlen] = '\0';
-      }
-
-    if (fread(&nlen,sizeof(int),1,input) != 1)
-      SYSTEM_READ_ERROR
-    cpath = Malloc(nlen+1,"Allocating name 1\n");
-    if (cpath == NULL)
-      exit (1);
-    if (fread(cpath,nlen,1,input) != 1)
-      SYSTEM_READ_ERROR
-    cpath[nlen] = '\0';
+    free(pwd);
 
     test = fopen(db1_name,"r");
     if (test == NULL)
-      { test = fopen(Catenate(cpath,db1_name,"",""),"r");
+      { if (*db1_name != '/')
+          test = fopen(Catenate(cpath,db1_name,"",""),"r");
         if (test == NULL)
           { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db1_name);
             exit (1);
@@ -584,7 +438,8 @@ int main(int argc, char *argv[])
     if (db2_name != NULL)
       { test = fopen(db2_name,"r");
         if (test == NULL)
-          { test = fopen(Catenate(cpath,db2_name,"",""),"r");
+          { if (*db2_name != '/')
+              test = fopen(Catenate(cpath,db2_name,"",""),"r");
             if (test == NULL)
               { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db2_name);
                 exit (1);
@@ -617,10 +472,10 @@ int main(int argc, char *argv[])
     else
       db2  = db1;
 
+    //  Build contig to scaffold maps in global vars
+
     AMAX = db1->maxlen;
     BMAX = db2->maxlen;
-
-    //  Build contig to scaffold maps in global vars
 
     if (ISTWO)
       AMAP = (int *) Malloc(sizeof(int)*2*(db1->treads+db2->treads),"Allocating scaffold map");
@@ -660,37 +515,76 @@ int main(int argc, char *argv[])
       }
   }
 
-  //  Divide .las into NTHREADS parts
+  //  Preload all scaffold headers
 
-  { int   i;
-    int64 p, x, ioff, ipar, size;
-    char *buffer;
-    struct stat info;
+  { int r, hdrs;
+    struct stat state;
 
-    stat(iname,&info);
-    size = info.st_size;
-    ioff = ftello(input);
-    size -= ioff;
-    ipar = (ioff % 2);
+    hdrs = open(Catenate(db1->path,".hdr","",""),O_RDONLY);
+    if (hdrs < 0)
+      { fprintf(stderr,"%s: Cannot open header file of %s\n",Prog_Name,argv[1]);
+        exit (1);
+      }
+    if (fstat(hdrs,&state) < 0)
+      { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,argv[1]);
+        exit (1);
+      }
 
-    buffer = Malloc(SEEK_BLOCK,"Allocating seek block");
-    parm[0].beg = ioff;
-    for (i = 1; i < NTHREADS; i++)
-      { p = (size*i)/NTHREADS + ioff;
-        if (p % 2 != ipar)
-          p += 1;
-        x = find_ovl_boundary(p,input,buffer);
-        if (x == 0)
-          { fprintf(stderr,"%s: Could not partition .las file ??\n",Prog_Name);
+    AHEADER = Malloc(state.st_size,"Allocating header table");
+    if (AHEADER == NULL)
+      exit (1);
+
+    if (read(hdrs,AHEADER,state.st_size) < 0)
+      { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[1]);
+        exit (1);
+      }
+    AHEADER[state.st_size-1] = '\0';
+    close(hdrs);
+
+    for (r = 1; r < db1->nreads; r++)
+      if (db1->reads[r].origin == 0)
+        AHEADER[db1->reads[r].coff-1] = '\0';
+
+    if (ISTWO)
+      { hdrs = open(Catenate(db2->path,".hdr","",""),O_RDONLY);
+        if (hdrs < 0)
+          { fprintf(stderr,"%s: Cannot open header file of %s\n",Prog_Name,argv[1]);
             exit (1);
           }
-        parm[i].beg = parm[i-1].end = x;
+        if (fstat(hdrs,&state) < 0)
+          { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,argv[1]);
+            exit (1);
+          }
+
+        BHEADER = Malloc(state.st_size,"Allocating header table");
+        if (BHEADER == NULL)
+          exit (1);
+
+        if (read(hdrs,BHEADER,state.st_size) < 0)
+          { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[1]);
+            exit (1);
+          }
+        BHEADER[state.st_size-1] = '\0';
+        close(hdrs);
+
+        for (r = 1; r < db2->nreads; r++)
+          if (db2->reads[r].origin == 0)
+            BHEADER[db2->reads[r].coff-1] = '\0';
       }
-    parm[NTHREADS-1].end = size;
+    else
+      BHEADER = AHEADER;
+  }
 
-    free(buffer);
+  //  Divide .1aln into NTHREADS parts
 
-    fclose(input);
+  { int p;
+
+    for (p = 0; p < NTHREADS ; p++)
+      { parm[p].beg = (p * novl) / NTHREADS;
+        if (p > 0)
+          parm[p-1].end = parm[p].beg;
+      }
+    parm[NTHREADS-1].end = novl;
   }
 
   //   Use NTHREADS to produce .paf for each part and then cat the parts to stdout
@@ -721,11 +615,7 @@ int main(int argc, char *argv[])
                 exit (1);
               }
           }
-        parm[p].in  = fopen(iname,"r");
-        if (parm[p].in == NULL)
-          { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,iname);
-            exit (1);
-          }
+        parm[p].in  = input + p ;
         parm[p].out = fopen(Numbered_Suffix(oprefix,p,".paf"),"w+");
         if (parm[p].out == NULL)
           { fprintf(stderr,"%s: Cannot open %s.%d.paf for reading & writing\n",
@@ -779,7 +669,8 @@ int main(int argc, char *argv[])
   Close_DB(db1);
   if (ISTWO)
     Close_DB(db2);
-  free(iname);
+
+  oneFileClose(input);
 
   exit (0);
 }

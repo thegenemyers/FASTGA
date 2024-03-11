@@ -3,6 +3,7 @@
 #define _CORE
 
 #include <stdio.h>
+#include <time.h>
 
 //  For interactive applications where it is inappropriate to simply exit with an error
 //    message to standard error, define the constant INTERACTIVE.  If set, then error
@@ -146,3 +147,12 @@ void Letter_Arrow(char *s);   //  Convert arrow pw's from numbers to uppercase l
 void Number_Arrow(char *s);   //  Convert arrow pw string from letters to numbers
 
 #endif // _CORE
+
+/*******************************************************************************************
+ *
+ *  RESOURCE UTILITY
+ *
+ ********************************************************************************************/
+
+void StartTime();
+void TimeTo(FILE *f, int all);

@@ -49,55 +49,54 @@ HAP1.fasta.gz	HAP2.fasta.gz
 H1vH2.1aln	HAP1.fasta.gz	HAP1.gdb	HAP1.gix	HAP2.fasta.gz	HAP2.gdb	HAP2.gix
 
 > ls -al
-total 4732760
-drwxr-xr-x  47 myersg  staff       1504 Feb 12 13:05 .
-drwxr-xr-x  51 myersg  staff       1632 Feb 12 13:00 ..
--rw-r--r--   1 myersg  staff   21559227 Feb 12 13:04 .HAP1.bps
--rw-r--r--   1 myersg  staff          9 Feb 12 13:04 .HAP1.hdr
--rw-r--r--   1 myersg  staff       3112 Feb 12 13:04 .HAP1.idx
--rwx------   1 myersg  staff   97442904 Feb 12 13:04 .HAP1.ktab.1
--rwx------   1 myersg  staff   86243871 Feb 12 13:04 .HAP1.ktab.2
--rwx------   1 myersg  staff   77481030 Feb 12 13:04 .HAP1.ktab.3
--rwx------   1 myersg  staff   78483207 Feb 12 13:04 .HAP1.ktab.4
--rwx------   1 myersg  staff   95928492 Feb 12 13:04 .HAP1.ktab.5
--rwx------   1 myersg  staff   72946911 Feb 12 13:04 .HAP1.ktab.6
--rwx------   1 myersg  staff   87480462 Feb 12 13:04 .HAP1.ktab.7
--rwx------   1 myersg  staff   86024541 Feb 12 13:04 .HAP1.ktab.8
--rwx------   1 myersg  staff   47340172 Feb 12 13:04 .HAP1.post.1
--rwx------   1 myersg  staff   42098780 Feb 12 13:04 .HAP1.post.2
--rwx------   1 myersg  staff   37790504 Feb 12 13:04 .HAP1.post.3
--rwx------   1 myersg  staff   38274640 Feb 12 13:04 .HAP1.post.4
--rwx------   1 myersg  staff   46878636 Feb 12 13:04 .HAP1.post.5
--rwx------   1 myersg  staff   35563080 Feb 12 13:04 .HAP1.post.6
--rwx------   1 myersg  staff   42685488 Feb 12 13:04 .HAP1.post.7
--rwx------   1 myersg  staff   41898152 Feb 12 13:04 .HAP1.post.8
--rw-r--r--   1 myersg  staff   21682925 Feb 12 13:04 .HAP2.bps
--rw-r--r--   1 myersg  staff          9 Feb 12 13:04 .HAP2.hdr
--rw-r--r--   1 myersg  staff       3152 Feb 12 13:04 .HAP2.idx
--rwx------   1 myersg  staff   97570056 Feb 12 13:05 .HAP2.ktab.1
--rwx------   1 myersg  staff   86279322 Feb 12 13:05 .HAP2.ktab.2
--rwx------   1 myersg  staff   77511873 Feb 12 13:05 .HAP2.ktab.3
--rwx------   1 myersg  staff   78555882 Feb 12 13:05 .HAP2.ktab.4
--rwx------   1 myersg  staff   95926575 Feb 12 13:05 .HAP2.ktab.5
--rwx------   1 myersg  staff   78016809 Feb 12 13:05 .HAP2.ktab.6
--rwx------   1 myersg  staff   82554537 Feb 12 13:05 .HAP2.ktab.7
--rwx------   1 myersg  staff   86082978 Feb 12 13:05 .HAP2.ktab.8
--rwx------   1 myersg  staff   47621016 Feb 12 13:05 .HAP2.post.1
--rwx------   1 myersg  staff   42304496 Feb 12 13:05 .HAP2.post.2
--rwx------   1 myersg  staff   37982820 Feb 12 13:05 .HAP2.post.3
--rwx------   1 myersg  staff   38479048 Feb 12 13:05 .HAP2.post.4
--rwx------   1 myersg  staff   47079240 Feb 12 13:05 .HAP2.post.5
--rwx------   1 myersg  staff   38193288 Feb 12 13:05 .HAP2.post.6
--rwx------   1 myersg  staff   40479740 Feb 12 13:05 .HAP2.post.7
--rwx------   1 myersg  staff   42104320 Feb 12 13:05 .HAP2.post.8
--rw-r--r--   1 myersg  staff   25604307 Feb 12 13:05 H1vH2.1aln
--rw-r--r--   1 myersg  staff   25779144 Feb 12 13:00 HAP1.fasta.gz
--rw-r--r--   1 myersg  staff        233 Feb 12 13:04 HAP1.gdb
--rwx------   1 myersg  staff  134742360 Feb 12 13:04 HAP1.gix
--rw-r--r--   1 myersg  staff   25932312 Feb 12 13:00 HAP2.fasta.gz
--rw-r--r--   1 myersg  staff        233 Feb 12 13:04 HAP2.gdb
--rwx------   1 myersg  staff  134742364 Feb 12 13:05 HAP2.gix
-
+total 4720712
+drwxr-xr-x  47 myersg  staff       1504 Mar 11 20:44 .
+drwxr-xr-x  89 myersg  staff       2848 Mar 11 20:41 ..
+-rw-r--r--   1 myersg  staff   21559227 Mar 11 20:42 .HAP1.bps
+-rw-r--r--   1 myersg  staff          9 Mar 11 20:42 .HAP1.hdr
+-rw-r--r--   1 myersg  staff       3112 Mar 11 20:42 .HAP1.idx
+-rwx------   1 myersg  staff   97442904 Mar 11 20:42 .HAP1.ktab.1
+-rwx------   1 myersg  staff   86243871 Mar 11 20:42 .HAP1.ktab.2
+-rwx------   1 myersg  staff   77481030 Mar 11 20:42 .HAP1.ktab.3
+-rwx------   1 myersg  staff   78483207 Mar 11 20:42 .HAP1.ktab.4
+-rwx------   1 myersg  staff   95928492 Mar 11 20:42 .HAP1.ktab.5
+-rwx------   1 myersg  staff   72946911 Mar 11 20:42 .HAP1.ktab.6
+-rwx------   1 myersg  staff   87480462 Mar 11 20:42 .HAP1.ktab.7
+-rwx------   1 myersg  staff   86024541 Mar 11 20:42 .HAP1.ktab.8
+-rwx------   1 myersg  staff   47340172 Mar 11 20:42 .HAP1.post.1
+-rwx------   1 myersg  staff   42098780 Mar 11 20:42 .HAP1.post.2
+-rwx------   1 myersg  staff   37790504 Mar 11 20:42 .HAP1.post.3
+-rwx------   1 myersg  staff   38274640 Mar 11 20:42 .HAP1.post.4
+-rwx------   1 myersg  staff   46878636 Mar 11 20:42 .HAP1.post.5
+-rwx------   1 myersg  staff   35563080 Mar 11 20:42 .HAP1.post.6
+-rwx------   1 myersg  staff   42685488 Mar 11 20:42 .HAP1.post.7
+-rwx------   1 myersg  staff   41898152 Mar 11 20:42 .HAP1.post.8
+-rw-r--r--   1 myersg  staff   21682925 Mar 11 20:42 .HAP2.bps
+-rw-r--r--   1 myersg  staff          9 Mar 11 20:42 .HAP2.hdr
+-rw-r--r--   1 myersg  staff       3152 Mar 11 20:42 .HAP2.idx
+-rwx------   1 myersg  staff   97570056 Mar 11 20:42 .HAP2.ktab.1
+-rwx------   1 myersg  staff   86279322 Mar 11 20:42 .HAP2.ktab.2
+-rwx------   1 myersg  staff   77511873 Mar 11 20:42 .HAP2.ktab.3
+-rwx------   1 myersg  staff   78555882 Mar 11 20:42 .HAP2.ktab.4
+-rwx------   1 myersg  staff   95926575 Mar 11 20:42 .HAP2.ktab.5
+-rwx------   1 myersg  staff   78016809 Mar 11 20:42 .HAP2.ktab.6
+-rwx------   1 myersg  staff   82554537 Mar 11 20:42 .HAP2.ktab.7
+-rwx------   1 myersg  staff   86082978 Mar 11 20:42 .HAP2.ktab.8
+-rwx------   1 myersg  staff   47621016 Mar 11 20:42 .HAP2.post.1
+-rwx------   1 myersg  staff   42304496 Mar 11 20:42 .HAP2.post.2
+-rwx------   1 myersg  staff   37982820 Mar 11 20:42 .HAP2.post.3
+-rwx------   1 myersg  staff   38479048 Mar 11 20:42 .HAP2.post.4
+-rwx------   1 myersg  staff   47079240 Mar 11 20:42 .HAP2.post.5
+-rwx------   1 myersg  staff   38193288 Mar 11 20:42 .HAP2.post.6
+-rwx------   1 myersg  staff   40479740 Mar 11 20:42 .HAP2.post.7
+-rwx------   1 myersg  staff   42104320 Mar 11 20:42 .HAP2.post.8
+-rw-r--r--   1 myersg  staff   19083937 Mar 11 20:42 H1vH2.1aln
+-rw-r--r--   1 myersg  staff   25779133 Mar 11 20:44 HAP1.fasta.gz
+-rw-r--r--   1 myersg  staff        228 Mar 11 20:42 HAP1.gdb
+-rwx------   1 myersg  staff  134742360 Mar 11 20:42 HAP1.gix
+-rw-r--r--   1 myersg  staff   25932301 Mar 11 20:45 HAP2.fasta.gz
+-rw-r--r--   1 myersg  staff        228 Mar 11 20:42 HAP2.gdb
+-rwx------   1 myersg  staff  134742364 Mar 11 20:42 HAP2.gix
 > ALNshow H1vH2 | more
 
 H1vH2: 321,791 records

@@ -37,7 +37,7 @@
 #ifdef DEBUG
 #include <assert.h>
 #else
-#define assert(x) 0
+#define assert(x) 
 #endif
 
 #include "ONElib.h"

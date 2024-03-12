@@ -139,7 +139,6 @@ int main(int argc, char *argv[])
         else
           { is_one = 0;
             gzip   = 0;
-            output = stdout;
           }
         TPATH  = NULL;
         TROOT  = NULL;
@@ -194,17 +193,6 @@ int main(int argc, char *argv[])
           }
         is_one = (TEXTN == 0);
         gzip   = (TEXTN >= 3);
-        if (!is_one)
-          { if (gzip)
-              output = gzopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
-            else
-              output = fopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
-            if (output == NULL)
-              { fprintf(stderr,"%s: Cannot open %s/%s.%s for writing\n",
-                               Prog_Name,TPATH,TROOT,suffix[TEXTN]);
-                exit (1);
-              }
-          }
       }
 
     if (VERBOSE && argc > 2)
@@ -404,6 +392,20 @@ int main(int argc, char *argv[])
 
       { char       *nstring;
         int         i, f, z, wpos;
+
+        if (argc == 2)
+          output = stdout;
+        else
+          { if (gzip)
+              output = gzopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
+            else
+              output = fopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
+            if (output == NULL)
+              { fprintf(stderr,"%s: Cannot open %s/%s.%s for writing\n",
+                               Prog_Name,TPATH,TROOT,suffix[TEXTN]);
+                exit (1);
+              }
+          }
     
         nstring = Malloc(WIDTH+1,"Allocating write buffer\n");
         if (nstring == NULL)

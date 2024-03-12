@@ -2074,6 +2074,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
     { e += swide;
       memcpy(_ndiag,e,DBYTE);
     }
+  new = 1;
 
 #if defined(DEBUG_SEARCH) || defined(DEBUG_HIT)
   repgo = (ctg1 == 53) && (ctg2 == 11);
@@ -2106,8 +2107,8 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
             }
 #endif
 
-          //  Have triple b,m,e, b > m, to examine.  Capture the ipost-ordered merge of [b,m) and
-          //    [m,e) in list[0..len) and process any above-threshold chains encountered while
+	  //  Have triple b,m,e, b > m, to examine.  Capture the ipost-ordered merge of [b,m) and
+	  //    [m,e) in list[0..len) and process any above-threshold chains encountered while
           //    doing the merge.
 
           alast = -1;
@@ -3282,6 +3283,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
 
         bzero(panel,sizeof(int64)*NCONTS);
         prev = 0;
+        next = 0;
         for (j = IDBsplit[i]; j < IDBsplit[i+1]; j++)
           { next = nu[NTHREADS-1].buck[j];
             panel[j] = (next - prev)*swide;

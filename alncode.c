@@ -15,6 +15,34 @@
 
 #include "alncode.h"
 
+static char *alnSchemaText =
+  "1 3 def 1 0                 schema for aln and FastGA\n"
+  ".\n"
+  "P 3 seq                     SEQUENCE\n"
+  "G s 3 3 INT 3 INT 6 STRING  count, length, and id for group of sequences = a scaffold\n"
+  "D n 2 4 CHAR 3 INT          non-acgt chars outside (between) sequences within scaffold\n"
+  "O S 1 3 DNA                 sequence\n"
+  "D I 1 6 STRING              identifier of sequence\n"
+  ".\n"
+  "P 3 aln                     ALIGNMENTS\n"
+  "D t 1 3 INT                 trace point spacing in a - global\n"
+  "G a 0                       a colinear group of alignments (chain)\n"
+  "D p 2 3 INT 3 INT           spacing in a,b between end of previous alignment and start of next\n"
+  ".                           alignment: a_read[beg..end] b_read[beg..end], 0-indexing\n"
+  "O A 6 3 INT 3 INT 3 INT 3 INT 3 INT 3 INT\n"
+  "D L 2 3 INT 3 INT           lengths of sequences a and b\n"
+  "D R 0                       flag: reverse-complement sequence b\n"
+  "D Q 1 3 INT                 quality: alignment confidence in phred units\n"
+  "D M 1 3 INT                 match: number of matching bases\n"
+  "D D 1 3 INT                 differences: number of diffs = substitions + indels\n"
+  "D C 1 6 STRING              cigar string: encodes precise alignment\n"
+  "D T 1 8 INT_LIST            trace points in b\n"
+  "D X 1 8 INT_LIST            number of differences in alignment per trace interval\n"
+;
+
+OneSchema *make_Aln_Schema ()
+{ return (oneSchemaCreateFromText(alnSchemaText)); }
+
   // Open the .1aln file for reading and read the header
 
 OneFile *open_Aln_Read (char *filename, int nThreads,

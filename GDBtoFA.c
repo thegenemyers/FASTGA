@@ -135,18 +135,7 @@ int main(int argc, char *argv[])
 
     if (argc == 2)
       { if (strcmp(oname+(strlen(oname)-5),".1seq") == 0)
-          { is_one = 1;
-            schema = oneSchemaCreateFromText(alnSchemaText);
-            if (schema == NULL)
-              { fprintf(stderr,"%s: Failed to create ONEcode schema\n",Prog_Name);
-                exit (1);
-              }
-            outone = oneFileOpenWriteNew("-",schema,"seq",0,0);
-            if (outone == NULL)
-              { fprintf(stderr,"%s: Cannot open ONEcode for writing\n",Prog_Name);
-                exit (1);
-              }
-          }
+          is_one = 1;
         else
           { is_one = 0;
             gzip   = 0;
@@ -205,20 +194,7 @@ int main(int argc, char *argv[])
           }
         is_one = (TEXTN == 0);
         gzip   = (TEXTN >= 3);
-        if (is_one)
-          { schema = oneSchemaCreateFromText(alnSchemaText);
-            if (schema == NULL)
-              { fprintf(stderr,"%s: Failed to create ONEcode schema\n",Prog_Name);
-                exit (1);
-              }
-            outone = oneFileOpenWriteNew(Catenate(TPATH,"/",TROOT,".1seq"),schema,"seq",1,0);
-            if (outone == NULL)
-              { fprintf(stderr,"%s: Cannot open %s/%s.%s for writing\n",
-                               Prog_Name,TPATH,TROOT,suffix[TEXTN]);
-                exit (1);
-              }
-          }
-        else
+        if (!is_one)
           { if (gzip)
               output = gzopen(Catenate(TPATH,"/",TROOT,suffix[TEXTN]),"w");
             else
@@ -277,6 +253,27 @@ int main(int argc, char *argv[])
       { int64 last;
         int   r, s;
 
+        schema = make_Aln_Schema();
+        if (schema == NULL)
+          { fprintf(stderr,"%s: Failed to create ONEcode schema\n",Prog_Name);
+            exit (1);
+          }
+        if (argc == 2)
+          { outone = oneFileOpenWriteNew("-",schema,"seq",0,0);
+            if (outone == NULL)
+              { fprintf(stderr,"%s: Cannot open ONEcode for writing to stdout\n",Prog_Name);
+                exit (1);
+              }
+          }
+        else
+          { outone = oneFileOpenWriteNew(Catenate(TPATH,"/",TROOT,".1seq"),schema,"seq",1,0);
+            if (outone == NULL)
+              { fprintf(stderr,"%s: Cannot open %s/%s.%s for writing\n",
+                               Prog_Name,TPATH,TROOT,suffix[TEXTN]);
+                exit (1);
+              }
+          }
+
         oneAddProvenance(outone,Prog_Name,"0.1",command);
 
         if (!outone->isBinary)
@@ -300,11 +297,11 @@ int main(int argc, char *argv[])
     
                 if (fseeko(hdrs,reads[r].coff,SEEK_SET) < 0)
                   { fprintf(stderr,"%s: Cannot seek GDB header file\n",Prog_Name);
-                    goto clean_up;
+                    goto clean_up2;
                   }
                 if (fgets(header,MAX_NAME,hdrs) == NULL)
                   { fprintf(stderr,"%s: Failed to read from the GDB header file\n",Prog_Name);
-                    goto clean_up;
+                    goto clean_up2;
                   }
                 if ((int64) strlen(header) >= scfmax)
                   scfmax = strlen(header)-1;
@@ -367,11 +364,11 @@ int main(int argc, char *argv[])
 
             if (fseeko(hdrs,reads[r].coff,SEEK_SET) < 0)
               { fprintf(stderr,"%s: Cannot seek GDB header file\n",Prog_Name);
-                goto clean_up;
+                goto clean_up2;
               }
             if (fgets(header,MAX_NAME,hdrs) == NULL)
               { fprintf(stderr,"%s: Failed to read from the GDB header file\n",Prog_Name);
-                goto clean_up;
+                goto clean_up2;
               }
             header[strlen(header)-1] = '\0';
 
@@ -392,7 +389,7 @@ int main(int argc, char *argv[])
                 last = reads[r].fpulse + reads[r].rlen;
                 if (reads[r].rlen > 0)
                   { if (Load_Read(db,r,read,1))
-                      goto clean_up;
+                      goto clean_up2;
                     oneWriteLine(outone,'S',reads[r].rlen,read);
                   }
                 r += 1;
@@ -539,13 +536,12 @@ out_error:
   fprintf(stderr,"%s: Failed to write to fasta file\n",Prog_Name);
 
 clean_up:
-  if (output != stdout)
-    { if (is_one)
-        fclose(output);
-      else
-        oneFileClose(outone);
-      unlink(Catenate(TPATH,"/",TROOT,suffix[TEXTN]));
-    }
+  fclose(output);
+  unlink(Catenate(TPATH,"/",TROOT,suffix[TEXTN]));
+  exit (1);
 
+clean_up2:
+  oneFileClose(outone);
+  unlink(Catenate(TPATH,"/",TROOT,suffix[TEXTN]));
   exit (1);
 }

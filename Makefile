@@ -53,8 +53,8 @@ ALNtoPAF: ALNtoPAF.c align.h align.c DB.c DB.h alncode.c alncode.h ONElib.c ONEl
 ALNtoPSL: ALNtoPSL.c align.h align.c DB.c DB.h alncode.c alncode.h ONElib.c ONElib.h
 	$(CC) $(CFLAGS) -o ALNtoPSL ALNtoPSL.c align.c DB.c alncode.c gene_core.c ONElib.c -lpthread -lm
 
-ALNreset: ALNreset.c DB.c DB.h ONElib.c ONElib.h alncode.h
-	$(CC) $(CFLAGS) -o ALNreset ALNreset.c DB.c gene_core.c ONElib.c -lpthread -lm
+ALNreset: ALNreset.c DB.c DB.h ONElib.c ONElib.h alncode.c alncode.h
+	$(CC) $(CFLAGS) -o ALNreset ALNreset.c DB.c alncode.c gene_core.c ONElib.c -lpthread -lm
 
 clean:
 	rm -f $(ALL)

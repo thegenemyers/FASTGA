@@ -369,8 +369,6 @@ int main(int argc, char *argv[])
   char   *abst, *aest;
   char   *bbst, *best;
 
-  (void) alnSchemaText;
-
   //  Process options
 
   { int    i, j, k;
@@ -658,10 +656,14 @@ int main(int argc, char *argv[])
     { abst = AHEAD(abeg);
       aest = AHEAD(aend);
     }
+  else
+    abst = aest = "";
   if (bfst < 0)
     { bbst = BHEAD(bbeg);
       best = BHEAD(bend);
     }
+  else
+    bbst = best = "";
 
   //  Read the file and display selected records
   

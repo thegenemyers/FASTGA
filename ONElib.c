@@ -3554,6 +3554,7 @@ static inline I64 ltfRead (FILE *f)
   unsigned char u[16] ;
   I64 val ;
 
+  val = 0;
   u[0] = getc (f) ;
   if (u[0] & 0x40)
     val = (I64) (u[0] & 0x3f) ;

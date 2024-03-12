@@ -358,8 +358,6 @@ int main(int argc, char *argv[])
   OneFile   *input;
   int64      novl;
 
-  (void) alnSchemaText;
-
   //  Process options
 
   { int    i, j, k;

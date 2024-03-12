@@ -144,7 +144,7 @@ int main(int argc, char *argv[])
         SROOT = p;
       }
 
-    Schema = oneSchemaCreateFromText (alnSchemaText);
+    Schema = make_Aln_Schema();
     if (Schema == NULL)
       { fprintf(stderr,"%s: Failed to create onecode schema\n",Prog_Name);
         exit (1);

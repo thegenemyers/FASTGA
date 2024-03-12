@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
     if (inFileName == NULL || tmpFileName == NULL)
       exit (1);
     
-    schema = oneSchemaCreateFromText(alnSchemaText);
+    schema = make_Aln_Schema();
     if (schema == NULL) 
       { fprintf(stderr,"%s: Failed to create 1aln schema\n",Prog_Name);
         exit (1);

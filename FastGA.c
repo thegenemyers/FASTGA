@@ -1127,6 +1127,13 @@ static void *self_merge_thread(void *args)
       GoTo_Kmer_Index(T1,T1->index[(parm->pbeg<<8) | 0xff]);
     }
 
+  vlcp[11] = rcur = rend = suf1 = cache;   //  Keep the dumb compiler happy
+  vlow  = cache-KBYTE;
+  vhgh  = cache;
+  pdx   = POST_BUF_MASK;
+  cdx   = 0;
+  odx   = 0;
+
   qcnt = -1;
   tend = T1->index[(parm->pend<<8) | 0xff];
   tbeg = T1->cidx;

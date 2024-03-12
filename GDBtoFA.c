@@ -392,7 +392,7 @@ int main(int argc, char *argv[])
                 last = reads[r].fpulse + reads[r].rlen;
                 if (reads[r].rlen > 0)
                   { if (Load_Read(db,r,read,1))
-                      exit (1);
+                      goto clean_up;
                     oneWriteLine(outone,'S',reads[r].rlen,read);
                   }
                 r += 1;
@@ -540,7 +540,10 @@ out_error:
 
 clean_up:
   if (output != stdout)
-    { fclose(output);
+    { if (is_one)
+        fclose(output);
+      else
+        oneFileClose(outone);
       unlink(Catenate(TPATH,"/",TROOT,suffix[TEXTN]));
     }
 

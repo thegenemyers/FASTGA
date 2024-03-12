@@ -34,11 +34,11 @@
 #ifndef U8_DEFINED
 #define U8_DEFINED
 
-typedef int8_t        I8;
-typedef int16_t       I16;
-typedef int32_t       I32;
-typedef int64_t       I64;
-typedef unsigned char U8;
+typedef signed char       I8;
+typedef signed short     I16;
+typedef signed int       I32;
+typedef signed long long I64;
+typedef unsigned char     U8;
 
 #endif // U8_DEFINED
 

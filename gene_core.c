@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <zlib.h>
+#include <sys/resource.h>
 
 #include "gene_core.h"
 

@@ -647,6 +647,15 @@ static void *merge_thread(void *args)
     }
   tend = T1->index[(parm->pend << 8) | 0xff];
 
+
+  plen = 12;                         //  Keep the dumb compiler happy
+  vlcp[plen] = rcur = rend = cache;
+  vlow  = cache-KBYTE;
+  vhgh  = cache;
+  pdx   = POST_BUF_MASK;
+  cdx   = 0;
+  eorun = 0;
+
   qcnt = -1;
   tbeg = T1->cidx;
   while (T1->cidx < tend)
@@ -2133,6 +2142,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
             alow = ipost;
           cov  = 0;
           go   = 1;
+          mix  = 0;
           while (go)
             { if (apost < ipost)
                 { lcp   = t[-2];

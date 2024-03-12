@@ -1133,6 +1133,8 @@ static void *self_merge_thread(void *args)
   pdx   = POST_BUF_MASK;
   cdx   = 0;
   odx   = 0;
+  plen  = 0;
+  eorun = 0;
 
   qcnt = -1;
   tend = T1->index[(parm->pend<<8) | 0xff];

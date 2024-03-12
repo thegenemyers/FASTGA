@@ -320,7 +320,7 @@ bool oneInheritDeferred   (OneFile *vf, OneFile *source);
   // Add all provenance/reference/deferred entries in source to header of vf.  Must be
   //   called before first call to oneWriteLine.
 
-bool oneAddProvenance (OneFile *vf, char *prog, char *version, char *format, ...);
+bool oneAddProvenance (OneFile *vf, char *prog, char *version, char *command);
 bool oneAddReference  (OneFile *vf, char *filename, I64 count);
 bool oneAddDeferred   (OneFile *vf, char *filename);
 
@@ -345,7 +345,7 @@ void oneWriteLineDNA2bit (OneFile *vf, char lineType, I64 listLen, U8 *dnaBuf);
 // Minor variants of oneWriteLine().
 // Use oneWriteLineDNA2bit for DNA lists if your DNA is already 2-bit compressed.
 
-void oneWriteComment (OneFile *vf, char *format, ...); // can not include newline \n chars
+void oneWriteComment (OneFile *vf, char *comment); // can not include newline \n chars
 
   // Adds a comment to the current line. Extends line in ascii, adds special line type in binary.
 

@@ -391,7 +391,7 @@ OneSchema *oneSchemaCreateFromText (const char *text) // write to temp file and 
 
 static OneSchema *oneSchemaCreateDynamic (char *fileType, char *subType)
 { // this is clean, but it seems a bit wasteful to create a temp file
-  char text[32] ;
+  char text[64] ;
   assert (fileType && strlen(fileType) > 0) ;
   assert (!subType || strlen(subType) > 0) ;
   if (subType)
@@ -1792,14 +1792,13 @@ static bool addProvenance(OneFile *vf, OneProvenance *from, int n)
 bool oneInheritProvenance(OneFile *vf, OneFile *source)
 { return (addProvenance(vf, source->provenance, source->info['!']->accum.count)); }
 
-bool oneAddProvenance(OneFile *vf, char *prog, char *version, char *format, ...)
-{ va_list args ;
-  OneProvenance p;
+bool oneAddProvenance(OneFile *vf, char *prog, char *version, char *command)
+{ OneProvenance p;
   time_t t = time(NULL);
 
   p.program = prog;
   p.version = version;
-  va_start (args, format) ; vasprintf (&p.command, format, args) ; va_end (args) ;
+  p.version = command;
   p.date = new (20, char);
   strftime(p.date, 20, "%F_%T", localtime(&t));
   addProvenance (vf, &p, 1);
@@ -1883,7 +1882,7 @@ static void writeInfoSpec (OneFile *vf, char ci)
     fprintf (vf->f, " %d %s",
 	     (int)strlen(oneTypeString[vi->fieldType[i]]), oneTypeString[vi->fieldType[i]]) ;
   if (vi->comment)
-    oneWriteComment (vf, "%s", vi->comment) ;
+    oneWriteComment (vf, vi->comment) ;
 }
 
 static void writeHeader (OneFile *vf)
@@ -2273,27 +2272,18 @@ void oneWriteLineDNA2bit (OneFile *vf, char lineType, I64 len, U8 *dnaBuf) // NB
   free (s) ;
 }
 
-void oneWriteComment (OneFile *vf, char *format, ...)
-{
-  va_list args ;
-
-  if (vf->isCheckString) // then check no newlines in format
-    { char *s = format ;
-      while (*s) if (*s++ == '\n') die ("newline in comment format string: %s", format) ;
+void oneWriteComment (OneFile *vf, char *comment)
+{ if (vf->isCheckString) // then check no newlines in format
+    { char *s = comment ;
+      while (*s) if (*s++ == '\n') die ("newline in comment string: %s", comment) ;
     }
 
-  va_start (args, format) ; 
   if (vf->isLastLineBinary) // write a comment line
-    { char *comment ;
-      vasprintf (&comment, format, args) ; 
-      oneWriteLine (vf, '/', strlen(comment), comment) ;
-      free (comment) ;
-    }
+    oneWriteLine (vf, '/', strlen(comment), comment) ;
   else // write on same line after space
     { fputc (' ', vf->f) ;
-      vfprintf (vf->f, format, args) ;
+      fprintf (vf->f, "%s", comment) ;
     }
-  va_end (args) ;
 }
 
 /***********************************************************************************
@@ -2592,10 +2582,10 @@ int       vcMaxSerialSize();
 int       vcSerialize(OneCodec *vc, void *out);
 OneCodec *vcDeserialize(void *in);
 
-typedef uint64_t  uint64;
-typedef uint32_t  uint32;
-typedef uint16_t  uint16;
-typedef uint8_t   uint8;
+typedef unsigned long long uint64;
+typedef unsigned int    uint32;
+typedef unsigned short  uint16;
+typedef unsigned char   uint8;
 
 #define HUFF_CUTOFF  12     //  This cannot be larger than 16 !
 
@@ -3506,7 +3496,7 @@ static inline int intGet (unsigned char *u, I64 *pval)
     case 0:
       switch (u[0] & 0x07)
 	{
-	case 0: die ("int packing error") ;
+	case 0: die ("int packing error") ; break;
 	case 1: *pval = *(I64*)(u+1) & 0x0000000000ffff ; return 3 ;
 	case 2: *pval = *(I64*)(u+1) & 0x00000000ffffff ; return 4 ;
 	case 3: *pval = *(I64*)(u+1) & 0x000000ffffffff ; return 5 ;
@@ -3515,10 +3505,11 @@ static inline int intGet (unsigned char *u, I64 *pval)
 	case 6: *pval = *(I64*)(u+1) & 0xffffffffffffff ; return 8 ;
 	case 7: *pval = *(I64*)(u+1) ; return 9 ;
 	}
+      break;
     case 4:
       switch (u[0] & 0x07)
 	{
-	case 0: die ("int packing error") ;
+	case 0: die ("int packing error") ; break;
 	case 1: *pval = *(I64*)(u+1) | 0xffffffffffff0000 ; return 3 ;
 	case 2: *pval = *(I64*)(u+1) | 0xffffffffff000000 ; return 4 ;
 	case 3: *pval = *(I64*)(u+1) | 0xffffffff00000000 ; return 5 ;
@@ -3527,6 +3518,7 @@ static inline int intGet (unsigned char *u, I64 *pval)
 	case 6: *pval = *(I64*)(u+1) | 0xff00000000000000 ; return 8 ;
 	case 7: *pval = *(I64*)(u+1) ; return 9 ;
 	}
+      break;
     }
   return 0 ; // shouldn't get here, but needed for compiler happiness
 }
@@ -3564,9 +3556,10 @@ static inline I64 ltfRead (FILE *f)
 
   u[0] = getc (f) ;
   if (u[0] & 0x40)
-    { intGet (u, &val) ;
+    val = (I64) (u[0] & 0x3f) ;
+    // { intGet (u, &val) ;
       //      printf ("read %d n 1 u %02x\n", (int)val, u[0]) ;
-    }
+    // }
   else if (u[0] & 0x20)
     { u[1] = getc (f) ; intGet (u, &val) ;
       //      printf ("read %d n 2 u %02x %02x\n", (int)val, u[0], u[1]) ;

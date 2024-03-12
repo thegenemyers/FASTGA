@@ -286,6 +286,8 @@ int main(int argc, char *argv[])
   OneFile   *input;
   int64      novl; // RD need this out of scope below so I can use it when setting up threads
 
+  (void) alnSchemaText;
+
   //  Process options
 
   { int    i, j, k;

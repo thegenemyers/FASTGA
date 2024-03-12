@@ -369,6 +369,8 @@ int main(int argc, char *argv[])
   char   *abst, *aest;
   char   *bbst, *best;
 
+  (void) alnSchemaText;
+
   //  Process options
 
   { int    i, j, k;

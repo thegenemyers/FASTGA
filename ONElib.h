@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Gene Myers, 2019-
  *
  * HISTORY:
- * Last edited: Mar 18 17:25 2024 (rd109)
+ * Last edited: Mar 18 17:48 2024 (rd109)
  * * Dec  3 06:01 2022 (rd109): remove oneWriteHeader(), switch to stdarg for oneWriteComment etc.
  *   * Dec 27 09:46 2019 (gene): style edits
  *   * Created: Sat Feb 23 10:12:43 2019 (rd109)
@@ -34,11 +34,11 @@
 #ifndef U8_DEFINED
 #define U8_DEFINED
 
-typedef int8_t        I8;
-typedef int16_t       I16;
-typedef int32_t       I32;
-typedef int64_t       I64;
-typedef unsigned char U8;
+typedef signed char       I8 ;
+typedef signed short      I16 ;
+typedef signed int        I32 ;
+typedef signed long long  I64 ;
+typedef unsigned char     U8 ;
 
 #endif // U8_DEFINED
 

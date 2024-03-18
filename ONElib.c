@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Mar 18 17:43 2024 (rd)
+ * Last edited: Mar 18 17:51 2024 (rd109)
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
  * * Mar 11 02:48 2024 (rd109): added oneFileWriteSchema() to write schema files for bare text parsing
  * * Mar 10 07:16 2024 (rd109): changed oneOpenFileRead semantics to prioritize file schema
@@ -635,7 +635,7 @@ void parseError (OneFile *vf, char *format, ...)
   va_end (args);
 
   vf->lineBuf[vf->linePos] = '\0';
-  fprintf (stderr, ", line %" PRId64 ": %s\n", vf->line, vf->lineBuf);
+  fprintf (stderr, ", line %lld: %s\n", vf->line, vf->lineBuf);
 
   exit (1);
 }
@@ -1025,7 +1025,7 @@ char oneReadLine (OneFile *vf)
   if (t == vf->groupType)
     updateGroupCount (vf, true);
 
-  // fprintf (stderr, "reading line %" PRId64 " type %c nField %d listElt %d\n", vf->line, t, li->nField, li->listEltSize) ;
+  // fprintf (stderr, "reading line %lld type %c nField %d listElt %d\n", vf->line, t, li->nField, li->listEltSize) ;
 
   if (vf->info['/']->bufSize) // clear the comment buffer
     *(char*)(vf->info['/']->buffer) = 0 ;
@@ -1122,13 +1122,13 @@ char oneReadLine (OneFile *vf)
               else if (li->fieldType[li->listField] == oneINT_LIST)
                 { I64 listSize  = (listLen-1) * vf->intListBytes ;
                   if ((I64) fread (&(((I64*)li->buffer)[1]), 1, listSize, vf->f) != listSize)
-                    die ("ONE read error: failed to read list size %" PRId64 "", listSize);
+                    die ("ONE read error: failed to read list size %lld", listSize);
 		  decompactIntList (vf, listLen, li->buffer, vf->intListBytes);
                 }
 	      else
                 { I64 listSize  = listLen * li->listEltSize ;
                   if ((I64) fread (li->buffer, 1, listSize, vf->f) != listSize)
-                    die ("ONE read error: failed to read list size %" PRId64 "", listSize);
+                    die ("ONE read error: failed to read list size %lld", listSize);
                 }
             }
 
@@ -1931,22 +1931,22 @@ static bool writeCounts (OneFile *vf, int i)
   OneInfo *li = vf->info[i] ;
     
   if (li != NULL && li->given.count > 0)
-    { fprintf (vf->f, "\n# %c %" PRId64 "", i, li->given.count);
+    { fprintf (vf->f, "\n# %c %lld", i, li->given.count);
       vf->line += 1;
       if (li->given.max > 0)
-	{ fprintf (vf->f, "\n@ %c %" PRId64 "", i, li->given.max);
+	{ fprintf (vf->f, "\n@ %c %lld", i, li->given.max);
 	  vf->line += 1;
 	}
       if (li->given.total > 0)
-	{ fprintf (vf->f, "\n+ %c %" PRId64 "", i, li->given.total);
+	{ fprintf (vf->f, "\n+ %c %lld", i, li->given.total);
 	  vf->line += 1;
 	}
       if (li->given.groupCount > 0)
-	{ fprintf (vf->f, "\n%% %c # %c %" PRId64 "", vf->groupType, i, li->given.groupCount);
+	{ fprintf (vf->f, "\n%% %c # %c %lld", vf->groupType, i, li->given.groupCount);
 	  vf->line += 1;
 	}
       if (li->given.groupTotal > 0)
-	{ fprintf (vf->f, "\n%% %c + %c %" PRId64 "", vf->groupType, i, li->given.groupTotal);
+	{ fprintf (vf->f, "\n%% %c + %c %lld", vf->groupType, i, li->given.groupTotal);
 	  vf->line += 1;
 	}
       return true ;
@@ -1990,7 +1990,7 @@ static void writeHeader (OneFile *vf)
     { OneReference *r = vf->reference;
       n = vf->info['<']->accum.count;
       for (i = 0; i < n; i++, r++)
-	{ fprintf (vf->f, "\n< %lu %s %" PRId64 "", strlen(r->filename), r->filename, r->count);
+	{ fprintf (vf->f, "\n< %lu %s %lld", strlen(r->filename), r->filename, r->count);
 	  vf->line += 1;
 	}
       
@@ -2063,7 +2063,7 @@ static int writeStringList (OneFile *vf, char t, int len, char *buf)
   for (j = 0; j < len; j++)
     { sLen = strlen (buf);
       totLen += sLen;
-      nByteWritten += fprintf (vf->f, " %" PRId64 " %s", sLen, buf);
+      nByteWritten += fprintf (vf->f, " %lld %s", sLen, buf);
       buf += sLen + 1;
     }
 
@@ -2198,7 +2198,7 @@ void oneWriteLine (OneFile *vf, char t, I64 listLen, void *listBuf)
 	    }
 	  else
 	    { if (fwrite (listBuf, listSize, 1, vf->f) != 1)
-		die ("ONE write error line %" PRId64 ": failed to write list field %d listLen %" PRId64 " listSize %" PRId64 " listBuf %lx",
+		die ("ONE write error line %lld: failed to write list field %d listLen %lld listSize %lld listBuf %lx",
 		     vf->line, li->listField, listLen, listSize, listBuf);
 	      vf->byte += listSize;
 	      if (li->listCodec != NULL)
@@ -2273,7 +2273,7 @@ void oneWriteLine (OneFile *vf, char t, I64 listLen, void *listBuf)
         switch (li->fieldType[i])
 	  {
 	  case oneINT:
-            fprintf (vf->f, " %" PRId64 "", vf->field[i].i);
+            fprintf (vf->f, " %lld", vf->field[i].i);
             break;
           case oneREAL:
             fprintf (vf->f, " %f", vf->field[i].r);
@@ -2290,16 +2290,16 @@ void oneWriteLine (OneFile *vf, char t, I64 listLen, void *listBuf)
             if (listLen > li->accum.max)
               li->accum.max = listLen;
 
-	    fprintf (vf->f, " %" PRId64 "", listLen);
+	    fprintf (vf->f, " %lld", listLen);
             if (li->fieldType[i] == oneSTRING || li->fieldType[i] == oneDNA)
               { if (listLen > INT_MAX)
-                  die ("ONE write error: string length %" PRId64 " > current max %d", listLen, INT_MAX);
+                  die ("ONE write error: string length %lld > current max %d", listLen, INT_MAX);
                 fprintf (vf->f, " %.*s", (int) listLen, (char *) listBuf);
               }
             else if (li->fieldType[i] == oneINT_LIST)
               { I64 *b = (I64 *) listBuf;
                 for (j = 0; j < listLen ; ++j)
-                  fprintf (vf->f, " %" PRId64 "", b[j]);
+                  fprintf (vf->f, " %lld", b[j]);
               }
             else if (li->fieldType[i] == oneREAL_LIST)
               { double *b = (double *) listBuf;
@@ -2367,15 +2367,15 @@ static void oneWriteFooter (OneFile *vf)
   for (i = 'A'; i <= 'z' ; i++)
     { li = vf->info[i];
       if (li != NULL && li->accum.count > 0)
-        { fprintf (vf->f, "# %c %" PRId64 "\n", i, li->accum.count);
+        { fprintf (vf->f, "# %c %lld\n", i, li->accum.count);
 	  if (li->listEltSize)
-            { fprintf (vf->f, "@ %c %" PRId64 "\n", i, li->accum.max);
-	      fprintf (vf->f, "+ %c %" PRId64 "\n", i, li->accum.total);
+            { fprintf (vf->f, "@ %c %lld\n", i, li->accum.max);
+	      fprintf (vf->f, "+ %c %lld\n", i, li->accum.total);
 	    }
 	  if (vf->groupType && i != vf->groupType && vf->group > 0)
-	    { fprintf (vf->f, "%% %c # %c %" PRId64 "\n", vf->groupType, i, li->accum.groupCount);
+	    { fprintf (vf->f, "%% %c # %c %lld\n", vf->groupType, i, li->accum.groupCount);
 	      if (li->listEltSize)
-		fprintf (vf->f, "%% %c + %c %" PRId64 "\n", vf->groupType, i, li->accum.groupTotal);
+		fprintf (vf->f, "%% %c + %c %lld\n", vf->groupType, i, li->accum.groupTotal);
 	    }
           if (li->isUseListCodec && li->listCodec != DNAcodec)
             { oneChar(vf,0) = i;
@@ -2850,7 +2850,7 @@ void vcCreateCodec(OneCodec *vc, int partial)
     fprintf(stderr,"\nCoin Filter:\n");
     fprintf(stderr,"  Row %2d:",HUFF_CUTOFF);
     for (n = 0; n < ncode; n++)
-      fprintf(stderr," %" PRId64 "*",countb[n]);
+      fprintf(stderr," %lld*",countb[n]);
     fprintf(stderr,"\n");
 #endif
 
@@ -2880,7 +2880,7 @@ void vcCreateCodec(OneCodec *vc, int partial)
 #ifdef DEBUG
         fprintf(stderr,"  Row %2d:",L);
         for (n = 0; n <= llen; n++)
-          fprintf(stderr," %" PRId64 "%c",lcnt[n],matrix[L][n]?'*':'+');
+          fprintf(stderr," %lld%c",lcnt[n],matrix[L][n]?'*':'+');
         fprintf(stderr,"\n");
 #endif
       }
@@ -3024,9 +3024,9 @@ void vcPrint(OneCodec *vc, FILE *to)
       for (i = 0; i < 256; i++)
         if (hist[i] > 0)
           { if (isprint(i))
-              fprintf(to,"      %c: %12" PRIu64 " %5.1f%%\n",i,hist[i],(hist[i]*100.)/count);
+              fprintf(to,"      %c: %12llu %5.1f%%\n",i,hist[i],(hist[i]*100.)/count);
             else
-              fprintf(to,"    %3d: %12" PRIu64 " %5.1f%%\n",i,hist[i],(hist[i]*100.)/count);
+              fprintf(to,"    %3d: %12llu %5.1f%%\n",i,hist[i],(hist[i]*100.)/count);
           }
     }
 
@@ -3061,7 +3061,7 @@ void vcPrint(OneCodec *vc, FILE *to)
         }
     }
   if (hashist)
-    fprintf(to,"\nTotal Bytes = %" PRIu64 " (%.2f%%)\n",(total_bits-1)/8+1,(100.*total_bits)/ucomp_bits);
+    fprintf(to,"\nTotal Bytes = %llu (%.2f%%)\n",(total_bits-1)/8+1,(100.*total_bits)/ucomp_bits);
 }
 
 
@@ -3897,7 +3897,7 @@ int main (int argc, char *argv[])
 	}
     }
   fclose (f) ;
-  printf ("wrote %" PRId64 " bytes: ", tot) ;
+  printf ("wrote %lld bytes: ", tot) ;
   timeUpdate (stdout) ;
 
   x = atoi(argv[1]) ;
@@ -3940,7 +3940,7 @@ int main (int argc, char *argv[])
     }
   fclose (f) ;
 
-  printf ("read  %" PRId64 " bytes: ", tot) ;
+  printf ("read  %lld bytes: ", tot) ;
   timeUpdate (stdout) ;
 }
 #endif // TEST_LTF
@@ -3971,7 +3971,7 @@ static void *myalloc(size_t size)
 
   p = malloc(size);
   if (p == NULL && size != 0 )
-    die("ONElib myalloc failure requesting %d bytes - totalAlloc %" PRId64 "", size, totalAlloc);
+    die("ONElib myalloc failure requesting %d bytes - totalAlloc %lld", size, totalAlloc);
   nAlloc     += 1;
   totalAlloc += size;
   return (p);

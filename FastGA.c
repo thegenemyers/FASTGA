@@ -1,3 +1,4 @@
+/*  Last edited: Mar 18 20:34 2024 (rd109) */
  /*******************************************************************************************
  *
  *  Adaptamer merge phase of a WGA.  Given indices of two genomes (at a specified frequency
@@ -3433,7 +3434,7 @@ int main(int argc, char *argv[])
   { int   n, i;
     char *c;
 
-    n = 0;
+    n = 1; // need to be at least one to accommodate final '\0'
     for (i = 1; i < argc; i++)
       n += strlen(argv[i])+1;
 
@@ -3442,7 +3443,7 @@ int main(int argc, char *argv[])
       exit (1);
 
     c = CommandLine;
-    if (argc >= 1)
+    if (argc > 1)
       { c += sprintf(c,"%s",argv[1]);
         for (i = 2; i < argc; i++)
           c += sprintf(c," %s",argv[i]);

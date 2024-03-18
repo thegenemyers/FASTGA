@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Mar 18 17:58 2024 (rd109)
+ * Last edited: Mar 18 20:19 2024 (rd109)
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
  * * Mar 11 02:48 2024 (rd109): added oneFileWriteSchema() to write schema files for bare text parsing
  * * Mar 10 07:16 2024 (rd109): changed oneOpenFileRead semantics to prioritize file schema
@@ -370,12 +370,13 @@ OneSchema *oneSchemaCreateFromText (const char *text) // write to temp file and 
   FILE *f = fopen (template, "w") ;
   if (!f) die ("failed to open temporary file %s for writing schema to", template) ;
   char *fixedText = schemaFixNewlines (text) ;
-  while (*fixedText && *fixedText != 'P')
-    { while (*fixedText && *fixedText != '\n') ++fixedText ;
-      if (*fixedText == '\n') ++fixedText ;
+  char *trueStart = fixedText ; // need this so can free fixedText
+  while (*trueStart && *trueStart != 'P') // need this to remove schema header
+    { while (*trueStart && *trueStart != '\n') ++trueStart ;
+      if (*trueStart == '\n') ++trueStart ;
     }
-  if (!*fixedText) die ("no P line in schema text") ;
-  fprintf (f, "%s\n", fixedText) ;
+  if (!*trueStart) die ("no P line in schema text") ;
+  fprintf (f, "%s\n", trueStart) ;
   free (fixedText) ;
   fclose (f) ;
   if (errno) die ("failed to write temporary file %s errno %d\n", template, errno) ;

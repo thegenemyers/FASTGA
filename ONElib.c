@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Mar 18 17:19 2024 (rd109)
+ * Last edited: Mar 18 17:43 2024 (rd)
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
  * * Mar 11 02:48 2024 (rd109): added oneFileWriteSchema() to write schema files for bare text parsing
  * * Mar 10 07:16 2024 (rd109): changed oneOpenFileRead semantics to prioritize file schema
@@ -20,7 +20,7 @@
  *
  ****************************************************************************************/
 
-#ifdef LINUX
+#ifdef __linux__
 #define _GNU_SOURCE  // needed for vasprintf() on Linux
 #endif
 
@@ -40,7 +40,7 @@
 #ifdef DEBUG
 #include <assert.h>
 #else
-#define assert(x) 0
+#define assert(x)
 #endif
 
 #include "ONElib.h"

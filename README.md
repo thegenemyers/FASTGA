@@ -49,7 +49,7 @@ Try it for yourself.
 
 Under the surface, a number of intermediate steps take place.  First, the FASTA files
 are converted to **genome databases** with extension **.gdb** that compress and index the ASCII DNA sequences into 2-bit compressed form.  This allows FastGA to randomly access contigs
-and do so with four times less IO and not text parsing.  Second, a **genome index**
+and do so with four times less IO and no text parsing.  Second, a **genome index**
 with extension **.gidx** is then built for each genome that is basically a truncated suffix array.
 One of the things that makes FastGA fast is that it compares these two indices against
 each other directly rather than looking up sequences of one genome in the index of the
@@ -116,7 +116,7 @@ Note carefully however, that the ONEcode -1 option produces binary output and th
 The -paf option can further be modulated with an 'x' or 'm', e.g. -pafx, which further requests that CIGAR
 strings detailing the alignments be output (see [ALNtoPAF](#ALNtoPAF) below).
 
-You can also call FastGA on a single source, e.g. ```FastGA A```, in which FastGA compares A against
+You can also call FastGA on a single source, e.g. ```FastGA A```, in which case FastGA compares A against
 itself, carefully avoiding self matches.  This is useful for detecting repetititve regions of a
 genome (and their degree of repetitiveness), and for finding homologous regions between haplotypes in an unphased genome assembly, or one that is phased but not split into separate haplotype files.
 

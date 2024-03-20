@@ -5,7 +5,7 @@
  * Description: IO for ONEcode .1aln files for Myers FASTGA package
  * Exported functions:
  * HISTORY:
- * Last edited: Feb 25 03:38 2024 (rd109)
+ * Last edited: Mar 18 22:22 2024 (rd)
  * Created: Sat Feb 24 12:19:16 2024 (rd109)
  *-------------------------------------------------------------------
  */
@@ -26,7 +26,7 @@ static char *alnSchemaText =
   ".\n"
   "P 3 aln                     ALIGNMENTS\n"
   "D t 1 3 INT                 trace point spacing in a - global\n"
-  "G a 0                       a colinear group of alignments (chain)\n"
+  "G a 1 3 INT                 a colinear group of alignments (chain)\n"
   "D p 2 3 INT 3 INT           spacing in a,b between end of previous alignment and start of next\n"
   ".                           alignment: a_read[beg..end] b_read[beg..end], 0-indexing\n"
   "O A 6 3 INT 3 INT 3 INT 3 INT 3 INT 3 INT\n"

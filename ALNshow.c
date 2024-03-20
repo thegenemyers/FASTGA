@@ -254,7 +254,8 @@ static int interpret_address(int s, int c, int ncontig, int nscaff, int *map)
 
   //  Interpret argument x as a range and map to contig level ranges
 
-static void contig_range(char *x, DAZZ_DB *db, int ncontig, int nscaff, int *map, char *(*head)(int), int *hperm,
+static void contig_range(char *x, DAZZ_DB *db, int ncontig, int nscaff, int *map,
+                         char *(*head)(int), int *hperm,
                          int *pbeg, int *pend, int *pfst, int *plst)
 { int t, vals[4], len, sunit;
   int beg, end, fst, lst;
@@ -278,7 +279,8 @@ static void contig_range(char *x, DAZZ_DB *db, int ncontig, int nscaff, int *map
         }
       if (t == 3)
         { if (end > beg)
-            { fprintf(stderr,"%s: String in %s matches multiple scaffolds, so substring ambiguous.\n",Prog_Name,x);
+            { fprintf(stderr,"%s: String in %s matches multiple scaffolds,",Prog_Name,x);
+              fprintf(stderr," so substring ambiguous.\n");
               exit (1);
             }
           beg = end = hperm[beg];
@@ -742,15 +744,21 @@ int main(int argc, char *argv[])
 
     //  For each record do
 
+printf("s = %d  c = %d\n",bscf[23],bctg[23]);
+printf("Abeg = %d  Aend = %d  Bbeg = %d  Bend = %d\n",abeg,aend,bbeg,bend);
+printf("Afst = %d  Alst = %d  Bfst = %d  Blst = %d\n",afst,alst,bfst,blst);
     for (j = 0; j < novl; j++)
 
        //  Read it in
 
       { Read_Aln_Overlap(input,ovl);
-        ovl->path.tlen = Read_Aln_Trace(input,(uint8 *) trace);
+        ovl->path.tlen  = Read_Aln_Trace(input,(uint8 *) trace);
+        ovl->path.trace = trace;
 
         aread = ovl->aread;
         bread = ovl->bread;
+printf(" a = %d b = %d\n",aread,bread);
+fflush(stdout);
 
         if (aread >= db1->nreads)
           { fprintf(stderr,"%s: A-read is out-of-range of DB %s\n",Prog_Name,argv[1]);

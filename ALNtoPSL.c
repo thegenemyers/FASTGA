@@ -101,7 +101,8 @@ void *gen_psl(void *args)
   aoff = 0;
   for (aread = -1; beg < end; beg++)
     { Read_Aln_Overlap(in,ovl);
-      path->tlen = Read_Aln_Trace(in,(uint8 *) trace);
+      path->tlen  = Read_Aln_Trace(in,(uint8 *) trace);
+      path->trace = trace;
 
       Decompress_TraceTo16(ovl);
 

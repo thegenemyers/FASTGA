@@ -744,9 +744,6 @@ int main(int argc, char *argv[])
 
     //  For each record do
 
-printf("s = %d  c = %d\n",bscf[23],bctg[23]);
-printf("Abeg = %d  Aend = %d  Bbeg = %d  Bend = %d\n",abeg,aend,bbeg,bend);
-printf("Afst = %d  Alst = %d  Bfst = %d  Blst = %d\n",afst,alst,bfst,blst);
     for (j = 0; j < novl; j++)
 
        //  Read it in
@@ -757,8 +754,6 @@ printf("Afst = %d  Alst = %d  Bfst = %d  Blst = %d\n",afst,alst,bfst,blst);
 
         aread = ovl->aread;
         bread = ovl->bread;
-printf(" a = %d b = %d\n",aread,bread);
-fflush(stdout);
 
         if (aread >= db1->nreads)
           { fprintf(stderr,"%s: A-read is out-of-range of DB %s\n",Prog_Name,argv[1]);

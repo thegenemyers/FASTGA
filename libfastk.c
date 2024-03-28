@@ -1232,7 +1232,7 @@ uint8 *Current_Entry(Kmer_Stream *_S, uint8 *ent)
   int    pbyte = S->pbyte;
 
   if (ent == NULL)
-    { ent = (uint8 *) Malloc(S->pbyte,"Reallocating k-mer buffer");
+    { ent = (uint8 *) Malloc(S->tbyte,"Reallocating k-mer buffer");
       if (ent == NULL)
         exit (1);
       if (S->csuf == NULL)

@@ -677,7 +677,7 @@ int main(int argc, char *argv[])
 
     int        aread, bread;
     int        aoffs, boffs;
-    int        alens, blens;
+    int        alens, blens, bclen;
     char      *abuffer, *bbuffer, *root;
     int        ar_wide, br_wide;
     int        ai_wide, bi_wide;
@@ -801,8 +801,9 @@ int main(int argc, char *argv[])
         aln->blen  = db2->reads[bread].rlen;
         aoffs = db1->reads[aread].fpulse;
         alens = alen[aread];
-        boffs = db2->reads[bread].fpulse;
-        blens = blen[bread];
+	boffs = db2->reads[bread].fpulse;
+	bclen = db2->reads[bread].rlen;
+	blens = blen[bread];
         aln->flags = ovl->flags;
         tps        = ovl->path.tlen/2;
 
@@ -831,24 +832,32 @@ int main(int argc, char *argv[])
           printf("> x ");
         else
           printf("] x ");
-        if (ovl->path.bbpos+boffs == 0)
-          printf("<");
-        else
-          printf("[");
         if (COMP(ovl->flags))
-          { Print_Number((int64) (blens - (ovl->path.bbpos+boffs)),bi_wide,stdout);
+          { if ((bclen-ovl->path.bbpos)+boffs == blens)
+              printf("<");
+            else
+              printf("[");
+            Print_Number((int64) boffs+(bclen-ovl->path.bbpos),bi_wide,stdout);
             printf("..");
-            Print_Number((int64) (blens - (ovl->path.bepos+boffs)),bi_wide,stdout);
+            Print_Number((int64) boffs+(bclen-ovl->path.bepos),bi_wide,stdout);
+            if ((bclen-ovl->path.bepos)+boffs == 0)
+              printf(">");
+            else
+              printf("]");
           }
         else
-          { Print_Number((int64) ovl->path.bbpos+boffs,bi_wide,stdout);
+          { if (ovl->path.bbpos+boffs == 0)
+              printf("<");
+            else
+              printf("[");
+            Print_Number((int64) ovl->path.bbpos+boffs,bi_wide,stdout);
             printf("..");
             Print_Number((int64) ovl->path.bepos+boffs,bi_wide,stdout);
+            if (ovl->path.bepos+boffs == blens)
+              printf(">");
+            else
+              printf("]");
           }
-        if (ovl->path.bepos+boffs == blens)
-          printf(">");
-        else
-          printf("]");
 
         printf("  ~  %5.2f%% ",(200.*ovl->path.diffs) /
                ((ovl->path.aepos - ovl->path.abpos) + (ovl->path.bepos - ovl->path.bbpos)) );

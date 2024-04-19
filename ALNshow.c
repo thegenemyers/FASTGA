@@ -446,12 +446,12 @@ int main(int argc, char *argv[])
 
     test = fopen(db1_name,"r");
     if (test == NULL)
-      { test = fopen(Catenate(cpath,db1_name,"",""),"r");
+      { test = fopen(Catenate(cpath,"/",db1_name,""),"r");
         if (test == NULL)
           { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,db1_name);
             exit (1);
           }
-        pwd = Strdup(Catenate(cpath,db1_name,"",""),"Allocating expanded name");
+        pwd = Strdup(Catenate(cpath,"/",db1_name,""),"Allocating expanded name");
 	free(db1_name);
         db1_name = pwd;
       }
@@ -460,12 +460,12 @@ int main(int argc, char *argv[])
     if (db2_name != NULL)
       { test = fopen(db2_name,"r");
         if (test == NULL)
-          { test = fopen(Catenate(cpath,db2_name,"",""),"r");
+          { test = fopen(Catenate(cpath,"/",db2_name,""),"r");
             if (test == NULL)
               { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,db2_name);
                 exit (1);
               }
-            pwd = Strdup(Catenate(cpath,db2_name,"",""),"Allocating expanded name");
+            pwd = Strdup(Catenate(cpath,"/",db2_name,""),"Allocating expanded name");
             free(db2_name);
             db2_name = pwd;
           }

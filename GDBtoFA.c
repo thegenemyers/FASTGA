@@ -449,9 +449,9 @@ int main(int argc, char *argv[])
                     goto clean_up;
                   }
                 if (gzip)
-                  z = gzprintf(output,"> %s",header);
+                  z = gzprintf(output,">%s",header);
                 else
-                  z = fprintf(output,"> %s",header);
+                  z = fprintf(output,">%s",header);
                 if (z < 0)
                   goto out_error;
               }

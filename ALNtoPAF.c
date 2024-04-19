@@ -519,6 +519,7 @@ int main(int argc, char *argv[])
   //  Preload all scaffold headers
 
   { int r, hdrs;
+    char *eptr;
     struct stat state;
 
     hdrs = open(Catenate(db1->path,".hdr","",""),O_RDONLY);
@@ -546,6 +547,15 @@ int main(int argc, char *argv[])
       if (db1->reads[r].origin == 0)
         AHEADER[db1->reads[r].coff-1] = '\0';
 
+    for (r = 0; r < db1->nreads; r++)
+      { eptr = AHEADER + db1->reads[r].coff;
+        do
+          { if (isspace(*eptr))
+              *eptr = '\0';
+          }
+        while(*eptr++ != '\0');
+      }
+
     if (ISTWO)
       { hdrs = open(Catenate(db2->path,".hdr","",""),O_RDONLY);
         if (hdrs < 0)
@@ -571,6 +581,15 @@ int main(int argc, char *argv[])
         for (r = 1; r < db2->nreads; r++)
           if (db2->reads[r].origin == 0)
             BHEADER[db2->reads[r].coff-1] = '\0';
+
+        for (r = 0; r < db2->nreads; r++)
+          { eptr = BHEADER + db2->reads[r].coff;
+            do
+              { if (isspace(*eptr))
+                  *eptr = '\0';
+              }
+            while(*eptr++ != '\0');
+          }
       }
     else
       BHEADER = AHEADER;

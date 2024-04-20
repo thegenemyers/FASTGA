@@ -540,21 +540,15 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[1]);
         exit (1);
       }
-    AHEADER[state.st_size-1] = '\0';
     close(hdrs);
 
-    for (r = 1; r < db1->nreads; r++)
-      if (db1->reads[r].origin == 0)
-        AHEADER[db1->reads[r].coff-1] = '\0';
-
     for (r = 0; r < db1->nreads; r++)
-      { eptr = AHEADER + db1->reads[r].coff;
-        do
-          { if (isspace(*eptr))
-              *eptr = '\0';
-          }
-        while(*eptr++ != '\0');
-      }
+      if (db1->reads[r].origin == 0)
+        { for (eptr = AHEADER + db1->reads[r].coff; *eptr != '\n'; eptr++)
+            if (isspace(*eptr))
+              break;
+          *eptr = '\0';
+        }
 
     if (ISTWO)
       { hdrs = open(Catenate(db2->path,".hdr","",""),O_RDONLY);
@@ -575,21 +569,15 @@ int main(int argc, char *argv[])
           { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[1]);
             exit (1);
           }
-        BHEADER[state.st_size-1] = '\0';
         close(hdrs);
 
-        for (r = 1; r < db2->nreads; r++)
-          if (db2->reads[r].origin == 0)
-            BHEADER[db2->reads[r].coff-1] = '\0';
-
         for (r = 0; r < db2->nreads; r++)
-          { eptr = BHEADER + db2->reads[r].coff;
-            do
-              { if (isspace(*eptr))
-                  *eptr = '\0';
-              }
-            while(*eptr++ != '\0');
-          }
+          if (db2->reads[r].origin == 0)
+            { for (eptr = BHEADER + db2->reads[r].coff; *eptr != '\n'; eptr++)
+                if (isspace(*eptr))
+                  break;
+              *eptr = '\0';
+            }
       }
     else
       BHEADER = AHEADER;

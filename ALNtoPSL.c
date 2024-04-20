@@ -344,7 +344,7 @@ int main(int argc, char *argv[])
     test = fopen(db1_name,"r");
     if (test == NULL)
       { if (*db1_name != '/')
-          test = fopen(Catenate(cpath,db1_name,"",""),"r");
+          test = fopen(Catenate(cpath,"/",db1_name,""),"r");
         if (test == NULL)
           { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db1_name);
             exit (1);
@@ -359,7 +359,7 @@ int main(int argc, char *argv[])
       { test = fopen(db2_name,"r");
         if (test == NULL)
           { if (*db2_name != '/')
-              test = fopen(Catenate(cpath,db2_name,"",""),"r");
+              test = fopen(Catenate(cpath,"/",db2_name,""),"r");
             if (test == NULL)
               { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db2_name);
                 exit (1);

@@ -545,7 +545,7 @@ int main(int argc, char *argv[])
                     lst = len;
                   }
 
-                printf("> %s",HEADERS+r->coff);
+                printf(">%s",HEADERS+r->coff);
                 if (substr)
                   printf(" :: [%d,%d]",fst,lst);
                 printf("\n");
@@ -608,7 +608,7 @@ int main(int argc, char *argv[])
                   }
 
                 if (len > 0)
-                  printf("> %s :: Contig %d[%d,%d]\n",
+                  printf(">%s :: Contig %d[%d,%d]\n",
                          HEADERS+r->coff,r->origin+1,r->fpulse+fst,r->fpulse+lst);
 
                 if (DOSEQ)

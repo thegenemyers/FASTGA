@@ -4,7 +4,7 @@ CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
 CC = gcc
 
-ALL = FAtoGDB GDBtoFA GDBstat GDBshow GIXmake GIXshow GIXrm GIXmv GIXcp FastGA ALNshow ALNtoPAF ALNtoPSL ALNreset
+ALL = FAtoGDB GDBtoFA GDBstat GDBshow GIXmake GIXshow GIXrm GIXmv GIXcp FastGA ALNshow ALNtoPAF ALNtoPSL ALNreset ALNplot
 
 all: $(ALL)
 
@@ -55,6 +55,9 @@ ALNtoPSL: ALNtoPSL.c align.h align.c DB.c DB.h alncode.c alncode.h ONElib.c ONEl
 
 ALNreset: ALNreset.c DB.c DB.h ONElib.c ONElib.h alncode.c alncode.h
 	$(CC) $(CFLAGS) -o ALNreset ALNreset.c DB.c alncode.c gene_core.c ONElib.c -lpthread -lm
+
+ALNplot: ALNplot.c DB.c DB.h ONElib.c ONElib.h alncode.c alncode.h
+	$(CC) $(CFLAGS) -o ALNplot ALNplot.c DB.c alncode.c gene_core.c ONElib.c -lpthread -lm -lz
 
 clean:
 	rm -f $(ALL)

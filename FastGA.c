@@ -37,6 +37,7 @@
 #define   CALL_ALIGNER
 #undef    DEBUG_ALIGN
 #undef    DEBUG_ENTWINE
+#define   BOX_ELIM
 
 #define   MAX_INT64    0x7fffffffffffffffll
 
@@ -49,6 +50,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BUCK_SHIFT     6
 #define    BUCK_WIDTH    64  //  2^BUCK_SHIFT
 #define    BUCK_ANTI    128  //  2*BUCK_WIDTH
+#define    BOX_FUZZ      10
 
 static char *Usage[] = { "[-vk] [-T<int(8)>] [-P<dir(/tmp)>] [<format(-paf)>]",
                          "[-f<int(10)>] [-c<int(100)> [-s<int(500)>] [-a<int(100)>] [-e<float(.7)]",
@@ -2564,7 +2566,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                 wtrace = (uint8 *) (w+1);
 
               dist = entwine(op,otrace,wp,wtrace,&where,0);
-              if (where != -1)
+              if (where != -1)   // The paths meet at a trace point given by where
                 { uint8 *ntrace;
                   int    ocut, wcut;
                   int    d, h, g;
@@ -2611,14 +2613,24 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                   op->trace = ntrace;
                   continue;
                 }
-              if (dist < 0 && wp->bepos <= op->bepos+10)
-                { w->flags |= ELIMINATED;
-                  continue;
+#ifdef BOX_ELIM
+              if (dist != 0)   // The paths do not cross
+                { if ((op->aepos - op->abpos) + BOX_FUZZ >= wp->aepos - wp->abpos)
+                    { if (wp->aepos <= op->aepos+BOX_FUZZ && wp->bbpos >= op->bbpos-BOX_FUZZ &&
+                          wp->bepos <= op->bepos+BOX_FUZZ)
+                        { w->flags |= ELIMINATED;
+                          continue;
+                        }
+                    }
+                  else
+                    { if (op->aepos <= wp->aepos+BOX_FUZZ && op->bbpos >= wp->bbpos-BOX_FUZZ &&
+                          op->bepos <= wp->bepos+BOX_FUZZ && op->abpos >= wp->abpos-BOX_FUZZ)
+                        { o->flags |= ELIMINATED;
+                          continue;
+                        }
+                    }
                 }
-              if (dist > 0 && wp->abpos <= op->abpos+10 && wp->bepos+10 >= op->bepos)
-                { o->flags |= ELIMINATED;
-                  break;
-                }
+#endif
               continue;
 
               // printf("OTHER\n");

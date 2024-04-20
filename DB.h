@@ -24,7 +24,7 @@
                             //    Undefine if you don't want this
 
 #define LAST_READ_SYMBOL '$'  //  Denotes the index of the last element in a collection
-#define BLOCK_SYMBOL     '@'  //  Wilde card for a block number
+#define BLOCK_SYMBOL     '@'  //  Wild card for a block number
 
 //  DB, QV, or alignment routines that can encounter errors function as before in
 //    non-INTERACTIVE mode by exiting after printing an error message to stderr.  In
@@ -250,7 +250,7 @@ typedef struct
 
 //  The DB record holds all information about the current state of an active DB including an
 //    array of DAZZ_READS, one per read, and a linked list of DAZZ_TRACKs the first of which
-//    is always a DAZZ_QV pseudo-track (if the QVs have been loaded).
+//    is always a DAZZ_ARROW pseudo-track (if the Arrow track has been loaded).
 
 typedef struct
   { int         ureads;     //  Total number of reads in untrimmed DB
@@ -524,42 +524,6 @@ int Write_Extra(FILE *afile, DAZZ_EXTRA *extra);
   //   is freed.
 
 void Close_Track(DAZZ_DB *db, DAZZ_TRACK *track);
-
-
-/*******************************************************************************************
- *
- *  QV ROUTINES
- *
- ********************************************************************************************/
-
-  // If QV pseudo track is not already in db's track list, then load it and set it up.
-  //   The database must not have been trimmed yet.  -1 is returned if a .qvs file is not
-  //   present, and 1 is returned if an error (reported to EPLACE) occured and INTERACTIVE
-  //   is defined.  Otherwise a 0 is returned.
-
-int Open_QVs(DAZZ_DB *db);
-
-  // Allocate a set of 5 vectors large enough to hold the longest QV stream that will occur
-  //   in the database.  If cannot allocate memory then return NULL if INTERACTIVE is defined,
-  //   or print error to stderr and exit otherwise.
-
-#define DEL_QV  0   //  The deletion QVs are x[DEL_QV] if x is the buffer returned by New_QV_Buffer
-#define DEL_TAG 1   //  The deleted characters
-#define INS_QV  2   //  The insertion QVs
-#define SUB_QV  3   //  The substitution QVs
-#define MRG_QV  4   //  The merge QVs
-
-char **New_QV_Buffer(DAZZ_DB *db);
-
-  // Load into 'entry' the 5 QV vectors for i'th read in 'db'.  The deletion tag or characters
-  //   are converted to a numeric or upper/lower case ascii string as per ascii.  Return with
-  //   a zero, except when an error occurs and INTERACTIVE is defined in which case return wtih 1.
-
-int   Load_QVentry(DAZZ_DB *db, int i, char **entry, int ascii);
-
-  // Remove the QV pseudo track, all space associated with it, and close the .qvs file.
-
-void Close_QVs(DAZZ_DB *db);
 
 
 /*******************************************************************************************

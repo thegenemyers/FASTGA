@@ -52,22 +52,23 @@
 #undef DEBUG_READ_1ALN
 #undef DEBUG_PARSE_SEQ
 
-static char *Usage[] = { "[-dpSL] [-T<int(1)>] [-l<int(50)>] [-i<float(0.7)>] [-f<int(11)>]",
-                         "[-x<target>] [-y<target>] [-H<int(600)>] [-W<int>] [-o<output:path>[.pdf]]",
-                         "<alignment:path[.1aln]>"
-                       };
+static char *Usage[] =
+  { "[-dSL] [-T<int(1)>] [-a<int(100)>] [-e<float(0.7)>] [-f<int>] [-t<float>]",
+    "[-n<int(100000)>] [-H<int(600)>] [-W<int>] [-p[:<output:path>[.pdf]]]",
+    "[-x<target>] [-y<target>] <alignment:path>[.1aln|.paf[.gz]]>"
+  };
 
-static int    MINALEN  = 50;
+static int    MINALEN  = 100;
 static int    IMGWIDTH = 0;
 static int    IMGHEIGH = 0;
-static int    FONTSIZE = 11;
+static int    FONTSIZE = 0;
+static double LINESIZE = 0;
+static int    MAXALIGN = 100000;
 static int    NOLABEL  = 0;
 static int    PRINTSID = 0;
 static int    TRYADIAG = 0;
-static int    PAFINPUT = 0;
 static double MINAIDNT = 0.7;
 static int    NTHREADS = 1;
-static char  *OUTPDF   = NULL;
 static char  *OUTEPS   = NULL;
 
 #define NUM_SYMBOL  '#'
@@ -86,6 +87,8 @@ typedef struct
 static Segment  *segments = NULL;
 static int64     nSegment = 0;
 static int      *ASEQ, *BSEQ; // -1 for excluded sequences
+
+static char *PDFTOOLS[4] = {"pstopdf", "epstopdf", "ps2pdf", "eps2pdf"};
 
 typedef struct
   { int64    beg;
@@ -111,12 +114,13 @@ typedef struct
     uint64 new;         /* communication between dictFind() and dictAdd() */
   } DICT;
 
-static int    ISTWO;         // If two DB are different
+static int    ISTWO;         // If two DBs are different
 static DICT  *Adict, *Bdict; // Sequence dictionary
 static int   *ALEN, *BLEN;   // Map sequence to its length
 //  for 1aln contig to scaffold mapping
 static int   *AMAP, *BMAP;   // Contig to scaffold map
 static int   *AOFF, *BOFF;   // Contig offset map
+static int   *AEND, *BEND;   // Contig end offset map
 
 #define dictMax(dict)  ((dict)->max)
 
@@ -125,7 +129,7 @@ static void *remap(void *old, uint64 oldSize, uint64 newSize)
   memset(new, 0, newSize);
   memcpy(new, old, oldSize);
   free(old);
-  return new;
+  return (new);
 }
 
 static uint64 hashString(char *cp, uint64 n, int isDiff)
@@ -144,7 +148,7 @@ static uint64 hashString(char *cp, uint64 n, int isDiff)
   if (isDiff)
     j |= 1;
 
-  return j;
+  return (j);
 }
 
 DICT *dictCreate(uint64 size)
@@ -155,7 +159,7 @@ DICT *dictCreate(uint64 size)
   memset(dict->table, 0, sizeof(uint64) * dict->size);
   dict->names = (char **) Malloc (sizeof(char *) * dict->size / 2, "Allocating dictionary names");
   memset(dict->names, 0, sizeof(char *) * dict->size / 2);
-  return dict;
+  return (dict);
 }
 
 void dictDestroy(DICT *dict)
@@ -169,17 +173,17 @@ void dictDestroy(DICT *dict)
 int dictFind(DICT *dict, char *s, uint64 *index)
 { uint64 i, x, d;
   
-  if (!dict || !s) return 0;
+  if (!dict || !s) return (0);
 
   x = hashString (s, dict->dim, 0);
   if (!(i = dict->table[x]))
     { dict->new = x;
-      return 0;
+      return (0);
     }
   else if (!strcmp (s, dict->names[i]))
     { if (index)
         *index = i-1;
-      return 1;
+      return (1);
     }
   else
     { d = hashString (s, dict->dim, 1);
@@ -187,23 +191,23 @@ int dictFind(DICT *dict, char *s, uint64 *index)
         { x = (x + d) & ((1 << dict->dim) - 1);
           if (!(i = dict->table[x]))
             { dict->new = x;
-              return 0;
+              return (0);
             }
           else if (!strcmp (s, dict->names[i]))
           {
             if (index)
               *index = i-1;
-            return 1;
+            return (1);
           }
         }
     }
-  return 0;
+  return (0);
 }
 
 int dictAdd(DICT *dict, char *s, uint64 *index)
 { uint64 i, x;
 
-  if (dictFind(dict, s, index)) return 0;
+  if (dictFind(dict, s, index)) return (0);
 
   i = ++dict->max;
   dict->table[dict->new] = i;
@@ -215,7 +219,8 @@ int dictAdd(DICT *dict, char *s, uint64 *index)
     { uint64 *newTable;
       dict->dim += 1;
       dict->size *= 2;
-      dict->names = (char **) remap(dict->names, sizeof(char *) * (dict->max + 1), sizeof(char *) * (dict->size / 2));
+      dict->names = (char **) remap(dict->names, sizeof(char *) * (dict->max + 1),
+                                                 sizeof(char *) * (dict->size / 2));
       newTable = (uint64 *) Malloc(sizeof(uint64) * dict->size, "Allocating new table");
       memset(newTable, 0, sizeof(uint64) * dict->size);
       for (i = 1; i <= dict->max; i++)
@@ -238,60 +243,39 @@ int dictAdd(DICT *dict, char *s, uint64 *index)
       dict->table = newTable;
     }
   
-  return 1;
+  return (1);
 }
 
 char *dictName(DICT *dict, uint64 i)
-{ return dict->names[i+1]; }
+{ return (dict->names[i+1]); }
 
-/**********************************************************************************/
-
-/***********************************************************************************
- *
- *    UTILITIES: exit function
- *    adapted from Richard's utilities
- *
- **********************************************************************************/
-static void die(char *format, ...)
-{ va_list args;
-
-  va_start (args, format);
-  fprintf (stderr, "FATAL ERROR: ");
-  vfprintf (stderr, format, args);
-  fprintf (stderr, "\n");
-  va_end (args);
-  exit (-1);
-}
-
-void warn(char *format, ...)
-{ va_list args ;
-
-  va_start (args, format) ;
-  fprintf (stderr, "WARNING: ") ;
-  vfprintf (stderr, format, args) ;
-  fprintf (stderr, "\n") ;
-  va_end (args) ;
-}
 /**********************************************************************************/
 
 int run_system_cmd(char *cmd, int retry)
 { int exit_code = system(cmd);
   --retry;
   if ((exit_code != -1 && !WEXITSTATUS(exit_code)) || !retry)
-    return exit_code;
-  return run_system_cmd(cmd, retry);
+    return (exit_code);
+  return (run_system_cmd(cmd, retry));
 }
 
 int check_executable(char *exe)
 { char cmd[4096];
-  sprintf(cmd, "%s -h >/dev/null 2>&1", exe);
-  
-  int exit_code = run_system_cmd(cmd, 1);
+  int  exit_code;
+
+  sprintf(cmd, "which %s 1>/dev/null 2>/dev/null", exe);
+  exit_code = run_system_cmd(cmd, 1);
   if (exit_code == -1 || WEXITSTATUS(exit_code))
-    { warn("%s: executable %s is not available",Prog_Name,exe);
-      return 0;
-    }
-  return 1;
+    return (0);
+  return (1);
+}
+
+char *findPDFtool()
+{ uint64 i;
+  for (i = 0; i < sizeof(PDFTOOLS) / sizeof(char *); i++)
+    if (check_executable(PDFTOOLS[i]))
+      return (PDFTOOLS[i]);
+  return (NULL);
 }
 
 void makeSeqDICTFromDB(char *db1_name, char *db2_name)
@@ -305,12 +289,16 @@ void makeSeqDICTFromDB(char *db1_name, char *db2_name)
     ISTWO  = 0;
     gdb    = Open_DB(db1_name,db1);
     if (gdb < 0)
-      die("%s: Could not open DB file: %s",Prog_Name,db1_name);
+      { fprintf(stderr,"%s: Could not open DB file: %s\n",Prog_Name,db1_name);
+        exit (1);
+      }
 
     if (db2_name != NULL)
       { gdb = Open_DB(db2_name,db2);
         if (gdb < 0)
-          die("%s: Could not open DB file: %s",Prog_Name,db2_name);
+          { fprintf(stderr,"%s: Could not open DB file: %s\n",Prog_Name,db2_name);
+            exit (1);
+          }
         ISTWO = 1;
       }
     else
@@ -319,18 +307,17 @@ void makeSeqDICTFromDB(char *db1_name, char *db2_name)
     //  Build contig to scaffold maps in global vars
 
     if (ISTWO)
-    {
-      AMAP = (int *) Malloc(sizeof(int)*2*(db1->treads+db2->treads),"Allocating scaffold map");
-      ALEN = (int *) Malloc(sizeof(int)*(db1->nreads+db2->nreads),"Allocating scaffold length map");
-    }
+      AMAP = (int *) Malloc(sizeof(int)*4*(db1->nreads+db2->nreads),"Allocating scaffold map");
     else
-    {
-      AMAP = (int *) Malloc(sizeof(int)*2*db1->treads,"Allocating scaffold map");
-      ALEN = (int *) Malloc(sizeof(int)*db1->nreads,"Allocating scaffold length map");
-    }
-    if (AMAP == NULL || ALEN == NULL)
-      die("%s: Allocating scaffold map memory failed",Prog_Name);
-    AOFF = AMAP + db1->treads;
+      AMAP = (int *) Malloc(sizeof(int)*4*db1->nreads,"Allocating scaffold map");
+    if (AMAP == NULL)
+      exit (1);
+    AOFF = AMAP + db1->nreads;
+    AEND = AOFF + db1->nreads;
+    ALEN = AEND + db1->nreads;
+
+    if (db1->nreads != db1->treads)
+      printf("Not the same %d %d\n",db1->nreads,db1->treads);
 
     s = -1;
     for (r = 0; r < db1->treads; r++)
@@ -338,26 +325,28 @@ void makeSeqDICTFromDB(char *db1_name, char *db2_name)
           s += 1;
         AOFF[r] = db1->reads[r].fpulse;
         AMAP[r] = s;
-        ALEN[s] = AOFF[r] + db1->reads[r].rlen;
+        ALEN[s] = AEND[r] = AOFF[r] + db1->reads[r].rlen;
       }
 
     if (ISTWO)
-      { BMAP = AOFF + db1->treads;
-        BOFF = BMAP + db2->treads;
-        BLEN = ALEN + db1->nreads;
+      { BMAP = ALEN + db1->nreads;
+        BOFF = BMAP + db2->nreads;
+        BEND = BOFF + db2->nreads;
+        BLEN = BEND + db2->nreads;
 
         s = -1;
         for (r = 0; r < db2->treads; r++)
           { if (db2->reads[r].origin == 0)
               s += 1;
             BOFF[r] = db2->reads[r].fpulse;
-            BMAP[r] = s;
-            BLEN[s] = BOFF[r] + db2->reads[r].rlen;
+	    BMAP[r] = s;
+	    BLEN[s] = BEND[r] = BOFF[r] + db2->reads[r].rlen;
           }
       }
     else
       { BMAP = AMAP;
         BOFF = AOFF;
+        BEND = AEND;
         BLEN = ALEN;
       }
   }
@@ -365,41 +354,39 @@ void makeSeqDICTFromDB(char *db1_name, char *db2_name)
   //  Preload all scaffold headers and set header offset
 
   { int r, hdrs;
-    int coff;
     char *HEADER, *eptr;
     struct stat state;
 
     hdrs = open(Catenate(db1->path,".hdr","",""),O_RDONLY);
     if (hdrs < 0)
-      die("%s: Could not open header file of %s",Prog_Name,db1->path);
+      { fprintf(stderr,"%s: Could not open header file of %s\n",Prog_Name,db1->path);
+        exit (1);
+      }
     if (fstat(hdrs,&state) < 0)
-      die("%s: Could not fetch size of %s's header file",Prog_Name,db1->path);
+      { fprintf(stderr,"%s: Could not fetch size of %s's header file\n",Prog_Name,db1->path);
+        exit (1);
+      }
 
     HEADER = Malloc(state.st_size,"Allocating header table");
     if (HEADER == NULL)
-      die("%s: Allocating header table memory failed",Prog_Name);
+      exit (1);
 
     if (read(hdrs,HEADER,state.st_size) < 0)
-      die("%s: Could not read header file of %s",Prog_Name,db1->path);
-    
-    HEADER[state.st_size-1] = '\0';
+      { fprintf(stderr,"%s: Could not read header file of %s\n",Prog_Name,db1->path);
+        exit (1);
+      }
     close(hdrs);
 
-    for (r = 1; r < db1->nreads; r++)
-      if (db1->reads[r].origin == 0)
-        HEADER[db1->reads[r].coff-1] = '\0';
-    
     Adict = dictCreate(db1->nreads);
     for (r = 0; r < db1->nreads; r++)
-      { coff = db1->reads[r].coff;
-        eptr = HEADER + coff;
-        do
-          {
-            if (isspace(*eptr))
-              *eptr = '\0';
+      { if (db1->reads[r].origin == 0)
+          { for (eptr = HEADER + db1->reads[r].coff; *eptr != '\n'; eptr++)
+              if (isspace(*eptr))
+                break;
+            *eptr = '\0';
           }
-        while(*eptr++ != '\0');
-        dictAdd(Adict, HEADER + coff, NULL);
+          
+        dictAdd(Adict, HEADER + db1->reads[r].coff, NULL);
       }
 
     free(HEADER);
@@ -407,36 +394,35 @@ void makeSeqDICTFromDB(char *db1_name, char *db2_name)
     if (ISTWO)
       { hdrs = open(Catenate(db2->path,".hdr","",""),O_RDONLY);
         if (hdrs < 0)
-          die("%s: Could not open header file of %s",Prog_Name,db2->path);
+          { fprintf(stderr,"%s: Could not open header file of %s\n",Prog_Name,db2->path);
+            exit (1);
+          }
         
         if (fstat(hdrs,&state) < 0)
-          die("%s: Could not fetch size of %s's header file",Prog_Name,db2->path);
+          { fprintf(stderr,"%s: Could not fetch size of %s's header file\n",Prog_Name,db2->path);
+            exit (1);
+          }
 
         HEADER = Malloc(state.st_size,"Allocating header table");
         if (HEADER == NULL)
-          die("%s: Allocating header table memory failed",Prog_Name);
+          exit (1);
 
         if (read(hdrs,HEADER,state.st_size) < 0)
-          die("%s: Could not read header file of %s",Prog_Name,db2->path);
-        
-        HEADER[state.st_size-1] = '\0';
+          { fprintf(stderr,"%s: Could not read header file of %s\n",Prog_Name,db2->path);
+            exit (1);
+          }
         close(hdrs);
 
-        for (r = 1; r < db2->nreads; r++)
-          if (db2->reads[r].origin == 0)
-            HEADER[db2->reads[r].coff-1] = '\0';
-        
         Bdict = dictCreate(db2->nreads);
         for (r = 0; r < db2->nreads; r++)
-          { coff = db2->reads[r].coff;
-            eptr = HEADER + coff;
-            do
-              {
-                if (isspace(*eptr))
-                  *eptr = '\0';
+          { if (db2->reads[r].origin == 0)
+              { for (eptr = HEADER + db2->reads[r].coff; *eptr != '\n'; eptr++)
+                  if (isspace(*eptr))
+                    break;
+                *eptr = '\0';
               }
-            while(*eptr++ != '\0');
-            dictAdd(Bdict, HEADER + coff, NULL);
+            
+            dictAdd(Bdict, HEADER + db2->reads[r].coff, NULL);
           }
 
         free(HEADER);
@@ -448,8 +434,6 @@ void makeSeqDICTFromDB(char *db1_name, char *db2_name)
   Close_DB(db1);
   if (ISTWO)
     Close_DB(db2);
-
-  return;
 }
 
 void *read_1aln_block(void *args)
@@ -463,7 +447,9 @@ void *read_1aln_block(void *args)
   //  For each alignment do
 
   if (!oneGotoObject (parm->in, beg))
-    die("%s: Could not locate to object %lld in 1aln file",Prog_Name,beg);
+    { fprintf(stderr,"%s: Could not locate to object %lld in 1aln file\n",Prog_Name,beg);
+      exit (1);
+    }
   
   oneReadLine(parm->in);
 
@@ -478,7 +464,9 @@ void *read_1aln_block(void *args)
     for (i = beg; i < end; i++)
       { // read i-th alignment record 
         if (in->lineType != 'A')
-          die("%s: Failed to be at start of alignment",Prog_Name);
+          { fprintf(stderr,"%s: Failed to be at start of alignment\n",Prog_Name);
+            exit (1);
+          }
 
         flags = 0;
         aread = oneInt(in,0);
@@ -511,13 +499,15 @@ void *read_1aln_block(void *args)
         abpos += AOFF[aread];
         aepos += AOFF[aread];
         aread  = AMAP[aread];
-        bbpos += BOFF[bread];
-        bepos += BOFF[bread];
-        bread  = BMAP[bread];
         if (COMP(flags))
-          { bbpos = BLEN[bread] - bbpos;
-            bepos = BLEN[bread] - bepos;
+          { bbpos = BEND[bread] - bbpos;
+            bepos = BEND[bread] - bepos;
           }
+        else
+          { bbpos += BOFF[bread];
+            bepos += BOFF[bread];
+          }
+        bread  = BMAP[bread];
         
         // add to output
         segs->aread = aread;
@@ -542,20 +532,17 @@ void read_1aln(char *oneAlnFile)
 
   //  Initiate .1aln file reading and read header information
 
-  { char       *pwd, *root, *cpath;
-    FILE       *test;
+  { char      *cpath, *tmp;
+    FILE      *test;
     char      *db1_name;
     char      *db2_name;
     int        TSPACE;
     
-    pwd   = PathTo(oneAlnFile);
-    root  = Root(oneAlnFile,".1aln");
-    input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),NTHREADS,
-                          &novl,&TSPACE,&db1_name,&db2_name,&cpath);
+    input = open_Aln_Read(oneAlnFile,NTHREADS,&novl,&TSPACE,&db1_name,&db2_name,&cpath);
     if (input == NULL)
-      die("%s: Could not open .1aln file: %s",Prog_Name,oneAlnFile);
-    free(root);
-    free(pwd);
+      { fprintf(stderr,"%s: Could not open .1aln file: %s\n",Prog_Name,oneAlnFile);
+        exit (1);
+      }
 
     test = fopen(db1_name,"r");
     if (test == NULL)
@@ -563,11 +550,13 @@ void read_1aln(char *oneAlnFile)
           test = fopen(Catenate(cpath,"/",db1_name,""),"r");
 
         if (test == NULL)
-          die("%s: Could not find .gdb %s",Prog_Name,db1_name);
+          { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db1_name);
+            exit (1);
+          }
         
-        pwd = Strdup(Catenate(cpath,"/",db1_name,""),"Allocating expanded name");
+        tmp = Strdup(Catenate(cpath,"/",db1_name,""),"Allocating expanded name");
         free(db1_name);
-        db1_name = pwd;
+        db1_name = tmp;
       }
     fclose(test);
   
@@ -578,11 +567,13 @@ void read_1aln(char *oneAlnFile)
               test = fopen(Catenate(cpath,"/",db2_name,""),"r");
             
             if (test == NULL)
-              die("%s: Could not find .gdb %s",Prog_Name,db2_name);
+              { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db2_name);
+                exit (1);
+              }
             
-            pwd = Strdup(Catenate(cpath,"/",db2_name,""),"Allocating expanded name");
+            tmp = Strdup(Catenate(cpath,"/",db2_name,""),"Allocating expanded name");
             free(db2_name);
-            db2_name = pwd;
+            db2_name = tmp;
           }
         fclose(test);
       }
@@ -619,11 +610,13 @@ void read_1aln(char *oneAlnFile)
 
     parm = Malloc(sizeof(Packet)*NTHREADS,"Allocating thread records");
     if (parm == NULL)
-      die("%s: Allocating parm memory failed",Prog_Name);
+      exit (1);
 
     segments = (Segment *) Malloc(sizeof(Segment)*novl, "Allocating segment array");
     if (segments == NULL)
-        die("%s: Allocating segment array memory failed",Prog_Name);
+      { fprintf(stderr,"%s: Allocating segment array memory failed\n",Prog_Name);
+        exit (1);
+      }
     for (p = 0; p < NTHREADS ; p++)
       { parm[p].beg = (p * novl) / NTHREADS;
         if (p > 0)
@@ -663,7 +656,6 @@ void read_1aln(char *oneAlnFile)
   }
 
   free(parm);
-  free(AMAP);
 
   oneFileClose(input);
 }
@@ -685,20 +677,20 @@ Buffer *newBuffer(uint64 size)
   buf = (char *) Malloc(sizeof(char) * size, "Allocating buffer memory");
   
   if (buffer == NULL || buf == NULL)
-    die("%s: Allocating buffer memory failed",Prog_Name);
+    exit (1);
 
   buffer->n = 0;
   buffer->m = size;
   buffer->buf = buf;
  
-  return buffer;
+  return (buffer);
 }
 
 void extendBuffer(Buffer *buffer)
 { buffer->m <<= 1;
   buffer->buf = (char *) Realloc(buffer->buf,sizeof(char)*buffer->m,"Extending buffer memory");
   if (buffer->buf == NULL)
-    die("%s: Extending buffer size failed",Prog_Name);
+    exit (1);
 }
 
 void destroyBuffer(Buffer *buffer)
@@ -732,13 +724,13 @@ int get_until(void *input, int gzipd, Buffer *buffer)
         break;
     }
 
-  return eof;
+  return (eof);
 }
 
-void read_paf(char *pafAlnFile)
+void read_paf(char *pafAlnFile, int gzipd)
 { void *input;
   Buffer *buffer;
-  int i, eof, gzipd, absent;
+  int i, eof, absent;
   uint64 index, naseq, maseq, nbseq, mbseq, nsegs, msegs;
   Segment *segs;
   char *fptrs[11], *fptr, *eptr;
@@ -748,14 +740,10 @@ void read_paf(char *pafAlnFile)
   int aepos, bepos;
   int blocksum, iid;
 
-  gzipd = strlen(pafAlnFile) >= 3 && !strncmp(&pafAlnFile[strlen(pafAlnFile)-3], ".gz", 3);
   if (gzipd)
     input = gzopen(pafAlnFile,"r");
   else
     input = fopen(pafAlnFile,"r");
-
-  if (input == NULL)
-    die("%s: Could not find PAF file %s",Prog_Name,pafAlnFile);
 
   Adict = dictCreate(1024);
   Bdict = dictCreate(1024);
@@ -771,7 +759,7 @@ void read_paf(char *pafAlnFile)
   blens = (int *)Malloc(sizeof(int) * mbseq, "Allocating length map");
   segments = (Segment *)Malloc(sizeof(Segment) * msegs, "Allocating segment array");
   if (alens == NULL || blens == NULL || segments == NULL)
-    die("%s: Allocating memory failed",Prog_Name);
+    exit (1);
   segs = segments;
 
   buffer = newBuffer(0);
@@ -805,7 +793,7 @@ void read_paf(char *pafAlnFile)
               { maseq <<= 1;
                 alens = (int *) Realloc(alens, sizeof(int) * maseq, "Reallocating length map");
                 if (alens == NULL)
-                  die("%s: Reallocating length map memory failed",Prog_Name);
+                  exit (1);
               }
           }
         aread  = index;
@@ -820,7 +808,7 @@ void read_paf(char *pafAlnFile)
               { mbseq <<= 1;
                 blens = (int *) Realloc(blens, sizeof(int) * mbseq, "Reallocating length map");
                 if (blens == NULL)
-                  die("%s: Reallocating length map memory failed",Prog_Name);
+                  exit (1);
               }
           }
         bread  = index;
@@ -854,9 +842,10 @@ void read_paf(char *pafAlnFile)
             nsegs++;
             if (nsegs == msegs)
               { msegs <<= 1;
-                segments = (Segment *) Realloc(segments, sizeof(Segment) * msegs, "Reallocating segment array");
+                segments = (Segment *) Realloc(segments, sizeof(Segment) * msegs,
+                                               "Reallocating segment array");
                 if (segments == NULL)
-                  die("%s: Reallocating segment array memory failed",Prog_Name);
+                  exit (1);
               }
             segs = segments + nsegs;
           }
@@ -871,7 +860,7 @@ void read_paf(char *pafAlnFile)
 
   alens = (int *) Realloc(alens, sizeof(int) * (naseq + nbseq), "Reallocating length map");
   if (alens == NULL)
-    die("%s: Reallocating length map memory failed",Prog_Name);
+    exit (1);
   memcpy(alens + naseq, blens, sizeof(int) * nbseq);
   ALEN = alens;
   BLEN = ALEN + naseq;
@@ -886,9 +875,9 @@ void read_paf(char *pafAlnFile)
 int *parseTargetSEQ(char *seqStr, DICT *dict, int *slen)
 { int *SEQ;
 
-  SEQ = (int *)Malloc(sizeof(int)*dict->max,"Allocating SEQ array");
+  SEQ = (int *) Malloc(sizeof(int)*dict->max,"Allocating SEQ array");
   if (SEQ == NULL)
-    die("%s: failed to allocate SEQ array memory",Prog_Name);
+    exit (1);
   
   if (seqStr == NULL)
     { // add all sequences
@@ -896,11 +885,13 @@ int *parseTargetSEQ(char *seqStr, DICT *dict, int *slen)
       SEQ[0] = 0;
       for (i = 1; i < dict->max; i++)
         SEQ[i] = SEQ[i-1] + slen[i-1];
-      return SEQ;
+      return (SEQ);
     }
 
   if (*seqStr == '\0')
-    die("%s: empty -x/-y parameter",Prog_Name);
+    { fprintf(stderr,"%s: empty -x/-y parameter\n",Prog_Name);
+       exit (1);
+    }
 
   int *seqs;
   uint64 nseq, index;
@@ -909,7 +900,7 @@ int *parseTargetSEQ(char *seqStr, DICT *dict, int *slen)
 
   seqs = (int *)Malloc(sizeof(int)*dict->max,"Allocating SEQ array");
   if (seqs == NULL)
-    die("%s: failed to allocate SEQ array memory",Prog_Name);
+    exit (1);
   
   nseq = 0;
 
@@ -919,7 +910,10 @@ int *parseTargetSEQ(char *seqStr, DICT *dict, int *slen)
         { if (isdigit(*seqStr))
             { index = strtol(seqStr, &seqStr, 10);
               if (index == 0 || index > dict->max)
-                die("%s: sequence index %lld is out of range 1-%lld",Prog_Name,index,dict->max);
+                { fprintf(stderr,"%s: sequence index %lld is out of range 1-%lld\n",
+                                 Prog_Name,index,dict->max);
+                  exit (1);
+                }
               seqs[nseq++] = index-1;
             }
           else
@@ -928,7 +922,8 @@ int *parseTargetSEQ(char *seqStr, DICT *dict, int *slen)
     }
   else if (*seqStr == FIL_SYMBOL)
     { seqStr++;
-      die("%s: file input for -x/-y is not supported yet");
+      fprintf(stderr,"%s: file input for -x/-y is not supported yet\n",Prog_Name);
+      exit (1);
     }
   else
     { eptr = seqStr;
@@ -941,7 +936,9 @@ int *parseTargetSEQ(char *seqStr, DICT *dict, int *slen)
           if (found)
             seqs[nseq++] = index;
           else if (strlen(seqStr))
-            die("%s: sequence not found - %s",Prog_Name,seqStr);
+            { fprintf(stderr,"%s: sequence not found - %s\n",Prog_Name,seqStr);
+              exit (1);
+            }
           if (c == '\0')
             break;
           seqStr = ++eptr;
@@ -949,7 +946,9 @@ int *parseTargetSEQ(char *seqStr, DICT *dict, int *slen)
     }
 
   if (!nseq)
-    die("%s: no valid sequence specified for ploting -x/-y",Prog_Name);
+    { fprintf(stderr,"%s: no valid sequence specified for ploting -x/-y\n",Prog_Name);
+      exit (1);
+    }
 
 #ifdef DEBUG_PARSE_SEQ
   { uint64 i;
@@ -964,19 +963,28 @@ int *parseTargetSEQ(char *seqStr, DICT *dict, int *slen)
   SEQ[seqs[0]] = 0;
   for (i = 1; i < nseq; i++)
     { if (SEQ[seqs[i]] >= 0)
-        die("%s: dupicate sequence in -x/-y parameter", Prog_Name);
+        { fprintf(stderr,"%s: dupicate sequence in -x/-y parameter\n", Prog_Name);
+          exit (1);
+        }
       SEQ[seqs[i]] = SEQ[seqs[i-1]] + slen[seqs[i-1]];
     }
   free(seqs);
 
-  return SEQ;
+  return (SEQ);
 }
 
 static int USORT(const void *l, const void *r)
 { uint64 *x = (uint64 *) l;
   uint64 *y = (uint64 *) r;
 
-  return (*x > *y) - (*x < *y);
+  return ((*x > *y) - (*x < *y));
+}
+
+static int DSORT(const void *l, const void *r)
+{ uint64 *x = (uint64 *) l;
+  uint64 *y = (uint64 *) r;
+  
+  return ((*x < *y) - (*x > *y));
 }
 
 int *axisConfig(DICT *dict, int *slen, int *aoff, int *nseq, int64 *tseq)
@@ -994,7 +1002,7 @@ int *axisConfig(DICT *dict, int *slen, int *aoff, int *nseq, int64 *tseq)
   
   sarray = (uint64 *)Malloc(sizeof(uint64)*n,"Allocating seq array");
   if (sarray == NULL)
-    die("%s: Allocating seq array failed",Prog_Name);
+    exit (1);
 
   n = 0;
   for (i = 0; i < dict->max; i++)
@@ -1005,7 +1013,7 @@ int *axisConfig(DICT *dict, int *slen, int *aoff, int *nseq, int64 *tseq)
 
   seqs = (int *)Malloc(sizeof(int)*n,"Allocating seq array");
   if (seqs == NULL)
-    die("%s: Allocating seq array failed",Prog_Name);
+    exit (1);
 
   for (i = 0; i < n; i++)
     seqs[i] = (uint32) sarray[i];
@@ -1015,7 +1023,61 @@ int *axisConfig(DICT *dict, int *slen, int *aoff, int *nseq, int64 *tseq)
   if (nseq) *nseq = n;
   if (tseq) *tseq = t;
 
-  return seqs;
+  return (seqs);
+}
+
+void aln_filter()
+{ if (!MAXALIGN) return;
+   
+  int i, digits;
+  int64 nseg;
+  double alen;
+  uint64 *sarray;
+  Segment *s;
+
+  nseg = 0;
+  for (i = 0; i < nSegment; i++)
+    { s = &segments[i];
+      if (ASEQ[s->aread] < 0 ||
+              BSEQ[s->bread] < 0)
+        continue;
+      if (nseg < i)
+        segments[nseg++] = segments[i];
+    }
+  nSegment = nseg;
+
+  if (nSegment <= MAXALIGN) return;
+
+  sarray = (uint64 *)Malloc(sizeof(uint64)*nSegment,"Allocating seq array");
+  if (sarray == NULL)
+    exit (1);
+  
+  for (i = 0, s = segments; i < nSegment; i++, s++)
+    sarray[i] = (uint64) (s->aepos-s->abpos) << 32 | i;
+
+  qsort(sarray, nSegment, sizeof(uint64), DSORT);
+
+  alen = (double) (sarray[MAXALIGN-1] >> 32);
+  digits = 1;
+  while (alen >= 10) {alen /= 10; digits *= 10;};
+  alen = ((int) (alen) + 1) * digits;
+
+  for (nseg = 0; nseg < nSegment; nseg++) {
+    if ((sarray[nseg] >> 32) < alen)
+      break;
+    sarray[nseg] &= 0xFFFFFFFFU;
+  }
+
+  qsort(sarray, nseg, sizeof(uint64), USORT);
+
+  nSegment = 0;
+  for (i = 0; i < nseg; i++)
+    segments[nSegment++] = segments[sarray[i]];
+
+  free(sarray);
+  
+  fprintf(stderr, "%s: using length filter threshold %.0f\n",Prog_Name,alen);
+  fprintf(stderr, "%s: selected %lld alignments to plot\n",Prog_Name,nSegment);  
 }
 
 #define eps_header(fp,x,y,linewidth) { \
@@ -1057,11 +1119,12 @@ static int SEG_COLOR[2] = {N_COLOR, C_COLOR};
 void make_plot(FILE *fo)
 { // generate eps file
   int i, c;
-  int width, height, lsize;
+  int width, height, fsize, maxis;
   int *xseqs, *yseqs;
   int nxseq, nyseq;
   int64 txseq, tyseq;
   double sx, sy;
+  double lsize;
 
   // find total length of x- and y-axis and order of plotting
   xseqs = yseqs = NULL;
@@ -1077,67 +1140,86 @@ void make_plot(FILE *fo)
   if (!width)
     width = (int)((double) height / tyseq * txseq + .499);
   
-  lsize = width > height? width : height;
-  if (lsize > MAX_XY_LEN)
-    { double scale = (double) MAX_XY_LEN / lsize;
-      warn("%s: image size too large [%d]x[%d]",Prog_Name,width,height);
+  maxis = width > height? width : height;
+  if (maxis > MAX_XY_LEN)
+    { double scale = (double) MAX_XY_LEN / maxis;
+      fprintf(stderr,"%s: image size too large [%d]x[%d]\n",Prog_Name,width,height);
       width  = (int)(width  * scale + 0.499);
       height = (int)(height * scale + 0.499);
-      warn("%s: shrink the size to [%d]x[%d]",Prog_Name,width,height);
+      fprintf(stderr,"%*s  shrink the size to [%d]x[%d]\n",(int) strlen(Prog_Name),"",width,height);
       
       if (width < MIN_XY_LEN)
-        { warn("%s: image width too small [%d]",Prog_Name,width);
-          warn("%s: reset image width to [%d]",Prog_Name,MIN_XY_LEN);
-          warn("%s: image and sequence size are not in proportion",Prog_Name);
+        { fprintf(stderr,"%s: image width too small [%d]\n",Prog_Name,width);
+          fprintf(stderr,"%*s  reset image width to [%d]\n",(int) strlen(Prog_Name),"",
+                                                            MAX_XY_LEN);
+          fprintf(stderr,"%*s  image and sequence size are not in proportion\n",
+                         (int) strlen(Prog_Name),"");
           width = MIN_XY_LEN;  
         }
       if (height < MIN_XY_LEN)
-        { warn("%s: image height too small [%d]",Prog_Name,height);
-          warn("%s: reset image height to [%d]",Prog_Name,MIN_XY_LEN);
-          warn("%s: image and sequence size are not in proportion",Prog_Name);
+        { fprintf(stderr,"%s: image height too small [%d]\n",Prog_Name,height);
+          fprintf(stderr,"%*s  reset image height to [%d]\n",(int) strlen(Prog_Name),"",
+                                                            MAX_XY_LEN);
+          fprintf(stderr,"%*s  image and sequence size are not in proportion\n",
+                         (int) strlen(Prog_Name),"");
           height = MIN_XY_LEN;
         }
     }
-
-  lsize = width < height? width : height;
-  if (lsize < MIN_XY_LEN)
-    { double scale = (double) MIN_XY_LEN / lsize;
-      warn("%s: image size too small [%d]x[%d]",Prog_Name,width,height);
+  
+  maxis = width < height? width : height;
+  if (maxis < MIN_XY_LEN)
+    { double scale = (double) MIN_XY_LEN / maxis;
+      fprintf(stderr,"%s: image size too small [%d]x[%d]\n",Prog_Name,width,height);
       width  = (int)(width  * scale + 0.499);
       height = (int)(height * scale + 0.499);
-      warn("%s: rescale the size to [%d]x[%d]",Prog_Name,width,height);
+      fprintf(stderr,"%*s  rescale the size to [%d]x[%d]\n",(int) strlen(Prog_Name),"",
+                     width,height);
 
       if (width > MAX_XY_LEN)
-        { warn("%s: image width too large [%d]",Prog_Name,width);
-          warn("%s: reset image width to [%d]",Prog_Name,MAX_XY_LEN);
-          warn("%s: image and sequence size are not in proportion",Prog_Name);
+        { fprintf(stderr,"%s: image width too large [%d]\n",Prog_Name,width);
+          fprintf(stderr,"%*s  reset image width to [%d]\n",(int) strlen(Prog_Name),"",
+                                                            MAX_XY_LEN);
+          fprintf(stderr,"%*s  image and sequence size are not in proportion\n",
+                         (int) strlen(Prog_Name),"");
           width = MAX_XY_LEN;
         }
       if (height > MAX_XY_LEN)
-        { warn("%s: image height too large [%d]",Prog_Name,height);
-          warn("%s: reset image height to [%d]",Prog_Name,MAX_XY_LEN);
-          warn("%s: image and sequence size are not in proportion",Prog_Name);
+        { fprintf(stderr,"%s: image height too large [%d]\n",Prog_Name,height);
+          fprintf(stderr,"%*s  reset image height to [%d]\n",(int) strlen(Prog_Name),"",
+                                                            MAX_XY_LEN);
+          fprintf(stderr,"%*s  image and sequence size are not in proportion\n",
+                         (int) strlen(Prog_Name),"");
           height = MAX_XY_LEN;
         }
     }
 
+  maxis = width < height? width : height;
+  
+  fsize = FONTSIZE;
+  if (!fsize) fsize = maxis / 60;
+  
+  lsize = LINESIZE;
+  if (lsize < 1e-6)
+      lsize = (double) maxis / 500;
+
   sx = (double)  width / txseq;
   sy = (double) height / tyseq;
 
-  eps_header(fo, width, height, .2);
-  eps_font(fo, "Helvetica-Narrow", FONTSIZE);
+  eps_header(fo, width, height, lsize);
+  eps_font(fo, "Helvetica-Narrow", fsize);
   eps_gray(fo, .8);
 
   if (!NOLABEL)
     { // write x labels
       if (PRINTSID)
         for (i = 0; i < nxseq; i++)
-          eps_Mint(fo, (BSEQ[xseqs[i]] + .5 * BLEN[xseqs[i]]) * sx, FONTSIZE * .5, xseqs[i] + 1);
+          eps_Mint(fo, (BSEQ[xseqs[i]] + .5 * BLEN[xseqs[i]]) * sx, fsize * .5, xseqs[i] + 1);
       else
         for (i = 0; i < nxseq; i++)
-          eps_Mstr(fo, (BSEQ[xseqs[i]] + .5 * BLEN[xseqs[i]]) * sx, FONTSIZE * .5, dictName(Bdict, xseqs[i]));
+          eps_Mstr(fo, (BSEQ[xseqs[i]] + .5 * BLEN[xseqs[i]]) * sx, fsize * .5,
+                       dictName(Bdict, xseqs[i]));
       eps_stroke(fo);
-      fprintf(fo, "gsave %g 0 translate 90 rotate\n", FONTSIZE * 1.25);
+      fprintf(fo, "gsave %g 0 translate 90 rotate\n", fsize * 1.25);
       
       // write y labels
       if (PRINTSID)
@@ -1151,7 +1233,7 @@ void make_plot(FILE *fo)
     }
 
   // write grid lines
-  eps_linewidth(fo, .1);
+  eps_linewidth(fo, lsize/2);
   for (i = 0; i < nyseq; i++)
     eps_linex(fo, 1, width,  i == 0? 1 : ASEQ[yseqs[i]] * sy);
   eps_linex(fo, 1, width,  tyseq * sy);
@@ -1164,7 +1246,7 @@ void make_plot(FILE *fo)
   int aread, bread;
   double x0, y0, x1, y1, xo, yo;
   Segment *segment;
-  eps_linewidth(fo, .1);
+  eps_linewidth(fo, lsize);
   for (c = 0; c < 2; c++)
     { eps_color(fo, SEG_COLOR[c]);
       for (i = 0; i < nSegment; i++)
@@ -1200,36 +1282,43 @@ int main(int argc, char *argv[])
 
   int    i, j, k;
   int    flags[128];
-  char  *xseq, *yseq, *output;
+  char  *xseq, *yseq, *pdf;
   char  *eptr;
   FILE  *foeps;
+  char  *pdftool;
 
   ARG_INIT("ALNplot")
     
-  xseq   = NULL;
-  yseq   = NULL;
-  output = NULL;
+  xseq = NULL;
+  yseq = NULL;
+  pdf  = NULL;
   j = 1;
   for (i = 1; i < argc; i++)
     if (argv[i][0] == '-')
       switch (argv[i][1])
         { default:
-            ARG_FLAGS("dhpSL")
-            break;
-          case 'l':
-            ARG_NON_NEGATIVE(MINALEN,"Minimum alignment length")
-            break;
-          case 'i':
-            ARG_REAL(MINAIDNT)
-            break;
-          case 'H':
-            ARG_POSITIVE(IMGHEIGH,"Image height")
-            break;
-          case 'W':
-            ARG_POSITIVE(IMGWIDTH,"Image width")
+            ARG_FLAGS("dhSL")
             break;
           case 'f':
             ARG_POSITIVE(FONTSIZE,"Label font size")
+            break;
+          case 't':
+            ARG_REAL(LINESIZE)
+            break;
+          case 'n':
+            ARG_NON_NEGATIVE(MAXALIGN,"Maximium number of lines")
+            break;
+          case 'e':
+            ARG_REAL(MINAIDNT)
+            break;
+          case 'a':
+            ARG_NON_NEGATIVE(MINALEN,"Minimum alignment length")
+            break;
+          case 'p':
+            if (argv[i][2] == ':' && argv[i][3] != '\0')
+              pdf = argv[i]+3;
+            else
+              pdf = "";
             break;
           case 'x':
             xseq = argv[i]+2;
@@ -1237,11 +1326,14 @@ int main(int argc, char *argv[])
           case 'y':
             yseq = argv[i]+2;
             break;
+          case 'H':
+            ARG_POSITIVE(IMGHEIGH,"Image height")
+            break;
           case 'T':
             ARG_POSITIVE(NTHREADS,"Number of threads")
             break;
-          case 'o':
-            output = argv[i]+2;
+          case 'W':
+            ARG_POSITIVE(IMGWIDTH,"Image width")
             break;
         }
       else
@@ -1253,10 +1345,11 @@ int main(int argc, char *argv[])
       fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
       fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
       fprintf(stderr,"\n");
-      fprintf(stderr,"       <target> = <string>[,<string>[,...]] | #<int>[,<int>[,...]] | @<FILE>\n");
+      fprintf(stderr,"       <target> = <string>[,<string>[,...]] | #<int>[,<int>[,...]] |");
+      fprintf(stderr," @<FILE>\n");
       fprintf(stderr,"\n");
-      fprintf(stderr,"      -l: minimum alignment length\n");
-      fprintf(stderr,"      -i: minimum alignment sequence identity\n");
+      fprintf(stderr,"      -a: minimum alignment length\n");
+      fprintf(stderr,"      -e: minimum alignment similarity\n");
       fprintf(stderr,"      -x: sequences placed on x-axis\n");
       fprintf(stderr,"      -y: sequences placed on y-axis\n");
       fprintf(stderr,"      -d: try to put alignments along the diagonal line\n");
@@ -1265,10 +1358,11 @@ int main(int argc, char *argv[])
       fprintf(stderr,"      -H: image height\n");
       fprintf(stderr,"      -W: image width\n");
       fprintf(stderr,"      -f: label font size\n");
+      fprintf(stderr,"      -t: line thickness\n");
+      fprintf(stderr,"      -n: maximum number of lines to display (set '0' to force all)\n");
       fprintf(stderr,"      -T: use -T threads\n");
       fprintf(stderr,"\n");
-      fprintf(stderr,"      -p: input is PAF format\n");
-      fprintf(stderr,"      -o: make PDF output (requires \'epstopdf\')\n");
+      fprintf(stderr,"      -p: make PDF output (requires \'[e]ps[to|2]pdf\')\n");
       fprintf(stderr,"\n");
       if (flags['h'])
         exit (0);
@@ -1277,50 +1371,107 @@ int main(int argc, char *argv[])
     }
 
   TRYADIAG = flags['d'];
-  PAFINPUT = flags['p'];
   PRINTSID = flags['S'];
   NOLABEL  = flags['L'];
 
+  if (pdf != NULL && !(pdftool = findPDFtool()))
+    { fprintf(stderr,"%s: Cannot find [e]ps[to|2]pdf needed to produce .pdf output\n",Prog_Name);
+      exit (1);
+    }
+
   if (TRYADIAG)
-    die("%s: diagonalisation (-d) is not supported yet",Prog_Name);
+    { fprintf(stderr,"%s: diagonalisation (-d) is not supported yet\n",Prog_Name);
+      exit (1);
+    }
 
   if (IMGWIDTH && IMGHEIGH)
-    warn("%s: setting both image width and height is not recommended",Prog_Name);
+    fprintf(stderr,"%s: setting both image width and height is not recommended\n",Prog_Name);
 
   if (!IMGWIDTH && !IMGHEIGH) IMGHEIGH = 600;
 
-  if (output)
-    { if (*output == '\0')
-        die("%s: empty output file name",Prog_Name);
+  { char *pwd, *root;
+    int   ispaf, gzipd;
+    FILE *input;
+    char *name;
 
-      char *pwd, *root;
-      pwd    = PathTo(output);
-      root   = Root(output,".pdf");
-      OUTPDF = strdup(Catenate(pwd,"/",root,".pdf"));
-      OUTEPS = strdup(Catenate(pwd,"/",root,".eps"));
-      free(pwd);
-      free(root);
-    }
+    pwd   = PathTo(argv[1]);
+    root  = Root(argv[1],".1aln");
+    name  = Catenate(pwd,"/",root,".1aln");
+    input = fopen(name,"r");
+    if (input == NULL)
+      { free(root);
+        root  = Root(argv[1],".paf");
+        name  = Catenate(pwd,"/",root,".paf");
+        input = fopen(name,"r");
+        if (input == NULL)
+          { free(root);
+            root  = Root(argv[1],".paf.gz");
+            name  = Catenate(pwd,"/",root,".paf.gz");
+            input = fopen(name,"r");
+            if (input == NULL)
+              { fprintf(stderr,"%s: Cannot open %s as a .1aln or .paf file\n",Prog_Name,argv[1]);
+                exit (1);
+              }
+            gzipd = 1;
+          }
+        else
+          gzipd = 0;
+        ispaf = 1;
+      }
+    else
+      ispaf = 0;
+    fclose(input);
+    name = strdup(name);
 
-  PAFINPUT? read_paf(argv[1]) : read_1aln(argv[1]);
+    if (pdf != NULL)
+      { if (*pdf == '\0')
+          OUTEPS = strdup(Catenate(pwd,"/",root,".eps"));
+        else
+          { free(pwd);
+            free(root);
+            pwd    = PathTo(pdf);
+            root   = Root(pdf,".pdf");
+            OUTEPS = strdup(Catenate(pwd,"/",root,".eps"));
+          }
+      }
+    free(pwd);
+    free(root);
+
+    if (ispaf)
+      read_paf(name,gzipd);
+    else
+      read_1aln(name);
+  }
   
   ASEQ = parseTargetSEQ(yseq, Adict, ALEN);
   BSEQ = parseTargetSEQ(xseq, Bdict, BLEN);
+  aln_filter();
 
-  foeps = OUTEPS? fopen(OUTEPS,"w") : stdout;
-  if (foeps == NULL)
-    die("%s: Could not open file %s for writing",Prog_Name,OUTEPS);
+  if (OUTEPS != NULL)
+    { foeps = fopen(OUTEPS,"w");
+      if (foeps == NULL)
+        { fprintf(stderr,"%s: Could not open file %s for writing\n",Prog_Name,OUTEPS);
+          exit (1);
+        }
+    }
+  else
+    foeps = stdout;
+
   make_plot(foeps);
+
   if (foeps != stdout)
     fclose(foeps);
   
-  if (OUTPDF != NULL && check_executable("epstopdf"))
+  if (OUTEPS != NULL)
     { char cmd[4096];
-      sprintf(cmd, "epstopdf -o %s %s", OUTPDF, OUTEPS);
+
+      sprintf(cmd,"%s %s",pdftool,OUTEPS);
+      run_system_cmd(cmd, 1);
+      sprintf(cmd,"rm -f %s",OUTEPS);
       run_system_cmd(cmd, 1);
     }
-
-  free(ALEN);
+  
+  free(AMAP);
   free(ASEQ);
   free(BSEQ);
   dictDestroy(Adict);
@@ -1328,7 +1479,6 @@ int main(int argc, char *argv[])
     dictDestroy(Bdict);
 
   free(segments);
-  free(OUTPDF);
   free(OUTEPS);
   free(Prog_Name);
 
@@ -1336,4 +1486,3 @@ int main(int argc, char *argv[])
   
   exit (0);
 }
-

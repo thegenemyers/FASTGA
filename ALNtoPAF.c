@@ -114,23 +114,23 @@ void *gen_paf(void *args)
       aln->flags = ovl->flags;
 
       aoff = reads1[aread].fpulse;
-      boff = reads2[bread].fpulse;
-
       fprintf(out,"%s",AHEADER + reads1[aread].coff);
       fprintf(out,"\t%d",ALEN[aread]);
       fprintf(out,"\t%d",aoff + path->abpos);
       fprintf(out,"\t%d",aoff + path->aepos);
 
       fprintf(out,"\t%c",COMP(aln->flags)?'-':'+');
-      fprintf(out,"\t%s",BHEADER + reads2[bread].coff);
 
+      fprintf(out,"\t%s",BHEADER + reads2[bread].coff);
       fprintf(out,"\t%d",BLEN[bread]);
       if (COMP(aln->flags))
-        { fprintf(out,"\t%d",BLEN[bread] - (boff + path->bepos));
-          fprintf(out,"\t%d",BLEN[bread] - (boff + path->bbpos));
+        { boff = reads2[bread].fpulse + reads2[bread].rlen;
+          fprintf(out,"\t%d",boff - path->bepos);
+          fprintf(out,"\t%d",boff - path->bbpos);
         }
       else
-        { fprintf(out,"\t%d",boff + path->bbpos);
+        { boff = reads2[bread].fpulse;
+          fprintf(out,"\t%d",boff + path->bbpos);
           fprintf(out,"\t%d",boff + path->bepos);
         }
 

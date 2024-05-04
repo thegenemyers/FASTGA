@@ -53,7 +53,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BOX_FUZZ      10
 
 static char *Usage[] = { "[-vk] [-T<int(8)>] [-P<dir(/tmp)>] [<format(-paf)>]",
-                         "[-f<int(10)>] [-c<int(100)> [-s<int(500)>] [-a<int(100)>] [-e<float(.7)]",
+                         "[-f<int(10)>] [-c<int(100)> [-s<int(500)>] [-l<int(100)>] [-i<float(.7)]",
                          "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
                        };
 
@@ -3508,14 +3508,14 @@ int main(int argc, char *argv[])
               }
             fprintf(stderr,"%s: Do not recognize option %s\n",Prog_Name,argv[i]);
             exit (1);
-          case 'a':
-            ARG_NON_NEGATIVE(ALIGN_MIN,"minimum alignment length");
-            break;
           case 'c':
             ARG_NON_NEGATIVE(CHAIN_MIN,"minimum seed cover");
             CHAIN_MIN <<= 1;
             break;
-          case 'e':
+          case 'f':
+            ARG_NON_NEGATIVE(FREQ,"maximum seed frequency");
+            break;
+          case 'i':
             ARG_REAL(ALIGN_RATE);
             if (ALIGN_RATE < .6 || ALIGN_RATE >= 1.)
               { fprintf(stderr,"%s: '-e' minimum alignment similarity must be in [0.6,1.0)\n",
@@ -3523,16 +3523,9 @@ int main(int argc, char *argv[])
                 exit (1);
               }
             break;
-          case 'f':
-            ARG_NON_NEGATIVE(FREQ,"maximum seed frequency");
-            break;
           case 'l':
-            if (strncmp(argv[i]+1,"las",3) == 0)
-              { OUT_TYPE = 2;
-                break;
-              }
-            fprintf(stderr,"%s: Do not recognize option %s\n",Prog_Name,argv[i]);
-            exit (1);
+            ARG_NON_NEGATIVE(ALIGN_MIN,"minimum alignment length");
+            break;
           case 'p':
             if (strncmp(argv[i]+1,"paf",3) == 0)
               { OUT_TYPE = 0;
@@ -3599,8 +3592,8 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         fprintf(stderr,"      -c: minimum seed chain coverage in both genomes\n");
         fprintf(stderr,"      -s: threshold for starting a new seed chain\n");
-        fprintf(stderr,"      -a: minimum alignment length\n");
-        fprintf(stderr,"      -e: minimum alignment similarity\n");
+        fprintf(stderr,"      -l: minimum alignment length\n");
+        fprintf(stderr,"      -i: minimum alignment identity\n");
         fprintf(stderr,"\n");
         exit (1);
       }

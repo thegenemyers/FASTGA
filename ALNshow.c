@@ -419,13 +419,13 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"        <scaffold> =  <int>|<string>|#\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"      -a: Show the alignment of each LA.\n");
+        fprintf(stderr,"      -a: Show the alignment of each LA with -w columns in each row.\n");
         fprintf(stderr,"      -r: Show the alignment of each LA with -w bp's of A in each row.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -U: Show alignments in upper case.\n");
-        fprintf(stderr,"      -i: Indent alignments and cartoons by -i.\n");
+        fprintf(stderr,"      -i: Indent alignments by -i spaces.\n");
         fprintf(stderr,"      -w: Width of each row of alignment in symbols (-a) or bps (-r).\n");
-        fprintf(stderr,"      -b: # of border bp.s to show on each side of LA.\n");
+        fprintf(stderr,"      -b: # of bordering bp.s to show on each side of LA.\n");
         exit (1);
       }
   }

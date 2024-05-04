@@ -96,7 +96,7 @@ error a running discourse of the command's progress.
 
 ```
 FastGA [-vk] [-T<int(8)>] [-P<dir(/tmp)] [<format(-paf)>]
-          [-f<int(10)>] [-c<int(100)>] [-s<int(500)>] [-a<int(100)>] [-e<float(.7)>]
+          [-f<int(10)>] [-c<int(100)>] [-s<int(500)>] [-l<int(100)>] [-i<float(.7)>]
           <source1:path>[<precursor] [<source2:path>[<precursor>]]
           
     <format> = -paf[mx] | -psl | -1:<alignment:path>[.1aln] 
@@ -152,10 +152,10 @@ must be less than or equal to the value of -f given when running GIXmake.
 FastGA then searches for runs or chains of adaptamer seed hits that (a) all lie within a diagonal band of width 128, (b) the spacing between every two consecutive seeds is less than -s(500), and
 (c) the seeds in the chain cover at least -c(100) bases in both genomes.  For these **chain
 hits**, FastGA then runs a wave-based local alignment routine that searches for a local alignment
-of length at least -a(100)bp with a similarity of -e(70%) or better that contains at least one
+of length at least -l(100)bp with a similarity of -i(70%) or better that contains at least one
 of the seeds in the chain.  All such found alignments are recorded as a trace-point encoding in
 lexicographical order of source1 contig #, and then the source2 contig #, and then the start
-coordinate of the alignment in source1.  The options -s, -c -a, and -e can be used to modify the default
+coordinate of the alignment in source1.  The options -s, -c -l, and -i can be used to modify the default
 thresholds for chaining and alignment just described.
 
 <a name="subprocess"></a>

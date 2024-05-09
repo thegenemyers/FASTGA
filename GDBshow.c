@@ -23,7 +23,7 @@
 #undef DEBUG_RANGE
 
 static char *Usage =
-            "[-hU] [-w<int(80)>] <source:path[.gdb] [ <ranges:FILE> | <range> ... ]";
+            "[-hU] [-w<int(80)>] <source:path>[.gdb] [ <ranges:FILE> | <range> ... ]";
 
 #define LAST_SYMBOL  '#'
 #define SCAF_SYMBOL  '@'

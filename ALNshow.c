@@ -106,7 +106,7 @@ static int matches(char *x, int *pe, char *(*head)(int), int nscaff)
 //    type 3
 //          val[0][.val[1]] _ val[2] - val[3]
 //  Return 0 if there is a syntactic error, otherwise return the type.
-//  0 values indicate $, -1 indicates not present, -2 (only in val[1] or val[3])
+//  0 values indicate #, -1 indicates not present, -2 (only in val[1] or val[3])
 //      indicates val[0] or val[2], respectively, is a scaffold index, -3 (like -2)
 //      implies val is index into arg of string value.
 
@@ -117,15 +117,20 @@ static char *white(char *x)
 }
 
 static char *getint(char *x, int *v)
-{ *v = 0;
+{ int n;
+
+  n = 0;
   while (isdigit(*x))
-    *v = 10*(*v) + (*x++ - '0');
+    n = 10*n + (*x++ - '0');
+  *v = n;
   return (x);
 }
 
 static char *address(char *x, int *v, int sep)
 { int a;
-
+       //  parse sep = '.':  (#|<int>)[.(#|<int>)]
+       //        sep = '-':  (#|<int>)-(#|<int>)
+       //        sep = ' ':  (#|<int>)
   x = white(x);
   a = *x++;
   if (a == LAST_SYMBOL)

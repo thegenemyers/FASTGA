@@ -320,7 +320,7 @@ of the contig or scaffold between the indices given by the two integers is displ
 While contigs and scaffolds are referenced by ordinal numbers starting at 1, sequence positions are
 between characters and so start at 0 (the position immediately to the left of the 1st character).
 The convenience of this 0-based numbering is that the length of an interval [b,e] is e-b.  Further
-note that when the item for a substring is a contig then the interval is respect to the contig,
+note that when the item for a substring is a contig then the interval is with respect to the contig,
 while when the item is a scaffold it is respect to the scaffold considered as a single string
 with intervening N's between contigs.
  
@@ -398,8 +398,8 @@ uppercase should be used for DNA sequence instead of the default lowercase.
 When examining ALNshow output it is important to keep in mind that the coordinates
 describing an interval of a read are referring conceptually to positions between bases
 starting at 0 for the position to the left of the first base.  That is, a coordinate c
-refers to the position between the c-1'st and c'th base, and the interval [b,e] captures
-the e-b bases from the b'th to the e-1'st, inclusive.  We give an example with
+refers to the position between the c'th and c+1'st base, and the interval [b,e] captures
+the e-b bases from the b+1'st to the e'th, inclusive.  We give an example with
 part of an alignment for which we will explain several additional features:
 
 ```
@@ -426,7 +426,7 @@ part of an alignment for which we will explain several additional features:
 
 The display of a local alignment always begins with a line giving the A-scaffold & contig, then the B-scaffold & contig, then an indication of orientation (i.e. 'n' for same strand, and 'c' for the opposite
 strand) followed by the A-interval and B-interval that are aligned in scaffold string coordinates
-and then the % identify and then in parentheses
+and then the % identify.  Then in parentheses follows
 the lengths of the two scaffolds, the number of differences in the alignment, and the number of tracepoints used to encode the alignment between them.
 In particular,
 note carefully that when the B-item is in the complement orientation (c), then the
@@ -435,7 +435,7 @@ the highest base down to the lowest base in the descending direction on B, compl
 the characters as you go.  Further note that in the alignment display the coordinates at
 the start of each line follow this orientation convention and give the coordinate of the
 "tick mark" just left of the first character in each line.  It is useful to know if an
-interval reaches the end of a read, and to signal this we use an angle-bracket \<\> instead
+interval reaches the beginning or end of a read, and to signal this we use an angle-bracket \<\> instead
 of a square bracket [].
 
 <a name="addons"></a>

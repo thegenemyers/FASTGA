@@ -25,6 +25,7 @@
 
 #include "libfastk.h"
 #include "DB.h"
+#include "DNAsource.h"
 
 static char *Usage[] =
     { "[-v] [-T<int(8)>] [-P<dir(/tmp)>] [-k<int(40)] [-f<int(10)>]",
@@ -1250,11 +1251,8 @@ static int LSORT(const void *l, const void *r)
 
 int main(int argc, char *argv[])
 { DAZZ_DB _DB, *DB = &_DB;
-  char    *SROOT, *SPATH;
-  int      SEXTN;
-  char   *suffix[9] = { "", ".fa", ".fna", ".fasta",
-                        ".gz", ".fa.gz", ".fna.gz", ".fasta.gz", ".gdb" };
-  int     suflen[9] = { 0, 3, 4, 6, 3, 6, 7, 9, 4 };
+  int     ftype;
+  char   *spath, *tpath;
 
   //  Process options
 
@@ -1325,136 +1323,47 @@ int main(int argc, char *argv[])
 
   //  Determine source and target root names, paths, and extensions
 
-  { char *p, *s, *e;
-    int   i, exists;
-    FILE *input;
-    struct stat status;
+  if (argc == 3)
+    ftype = get_dna_paths(argv[1],argv[2],&spath,&tpath,0);
+  else
+    ftype = get_dna_paths(argv[1],NULL,&spath,&tpath,0);
+  TPATH = PathTo(tpath);
+  TROOT = Root(tpath,NULL);
 
-    SEXTN = 0;
-    SPATH = argv[1];
-    p = rindex(SPATH,'/');
-    if (p == NULL)
-      { SROOT = SPATH;
-        SPATH = ".";
-      }
-    else
-      { *p++ = '\0';
-        SROOT = p;
-      }
-    input = fopen(Catenate(SPATH,"/",SROOT,".gdb"),"r");
-    if (input != NULL)
-      { fclose(input);
-        SEXTN = 8;
-      }
-    else if (strcmp(SROOT+(strlen(SROOT)-4),".gdb") == 0)
-      { SEXTN = 8;
-        SROOT[strlen(SROOT)-4] = '\0';
-      }
+  if (ftype == IS_GDB && argc == 3)
+    { fprintf(stderr,
+              "%s: Cannot create a .gix with a different location and root name than its .gdb\n",
+              Prog_Name);
+      exit (1);
+    }
 
-    if (SEXTN == 8 && argc > 2)
-      { fprintf(stderr,
-                "%s: Cannot create a .gix with a different location and root name than its .gdb\n",
-                Prog_Name);
-        exit (1);
-      }
-  
-    if (SEXTN == 0)
-      { for (i = 7; i >= 0; i--)
-          { input = fopen(Catenate(SPATH,"/",SROOT,suffix[i]),"r");
-            if (input != NULL)
-              break;
-          }
-        if (i < 0)
-          { fprintf(stderr,"%s: Could not find a FASTA or GDB with base name %s\n",Prog_Name,SROOT);
-            exit (1);
-          }
-        fclose(input);
-        SEXTN = i;
-        if (i%4 == 0)
-          { e = SROOT + strlen(SROOT);
-            for (i = 1; i < 8; i++)
-              if (strcmp(e-suflen[i],suffix[i]) == 0 && i != 4)
-                break;
-            SEXTN += i;
-            if (SEXTN >= 8)
-              { fprintf(stderr,"%s: Could not find a valid extension for %s\n",Prog_Name,SROOT);
-                exit (1);
-              }
-            e[-suflen[i]] = '\0';
-          }
-      }
-
-    input = fopen(Catenate(SPATH,"/",SROOT,".gdb"),"r");
-    if (input)
-      { SEXTN = 8;
-        fclose(input);
-      }
-
-    if (argc == 2)
-      { TPATH = SPATH;
-        TROOT = SROOT;
-      }
-    else // argc == 3
-      { TPATH = argv[2];
-        exists = (stat(TPATH,&status) >= 0);
-        if ( !exists || (status.st_mode & S_IFMT) != S_IFDIR)
-          { p = rindex(TPATH,'/');
-            if (p == NULL)
-              { TROOT = TPATH;
-                TPATH = ".";
-              }
-            else
-              { *p++ = '\0';
-                TROOT = p;
-              }
-            s = rindex(TROOT,'.');
-            if (s != NULL)
-              { if (strcmp(s+1,"gix") == 0)
-                  *s = '\0';
-                else if (exists)
-                  { fprintf(stderr,"%s: Exisiting target %s must be a .gix\n",Prog_Name,TROOT);
-                    exit (1);
-                  }
-              }
-            else if (exists)
-              { fprintf(stderr,"%s: Exisiting target %s must be a .gix\n",Prog_Name,TROOT);
-                exit (1);
-              }
+  if (VERBOSE)
+    { if (ftype != IS_GDB)
+        if (strcmp(TPATH,".") == 0)
+          { fprintf(stderr,"\n  Creating genome data base and index (GDB/GIX) %s.gdb/gix",TROOT);
+            fprintf(stderr," in the current directory\n\n");
           }
         else
-          TROOT = SROOT;
-      }
-    
-    if (VERBOSE)
-      { if (SEXTN != 8)
-          if (strcmp(TPATH,".") == 0)
-           { fprintf(stderr,"\n  Creating genome data base and index (GDB/GIX) %s.gdb/gix",TROOT);
-             fprintf(stderr," in the current directory\n\n");
-            }
-          else
-            { fprintf(stderr,"\n  Creating genome data base and index (GDB/GIX)");
-              fprintf(stderr," %s.gdb/gix in directory %s\n\n",TROOT,TPATH);
-            }
+          { fprintf(stderr,"\n  Creating genome data base and index (GDB/GIX)");
+            fprintf(stderr," %s.gdb/gix in directory %s\n\n",TROOT,TPATH);
+          }
+      else
+        if (strcmp(TPATH,".") == 0)
+          fprintf(stderr,"\n  Creating genome index (GIX) %s.gix in the current directory\n\n",
+                         TROOT);
         else
-          if (strcmp(TPATH,".") == 0)
-            fprintf(stderr,"\n  Creating genome index (GIX) %s.gix in the current directory\n\n",
-                           TROOT);
-          else
-            fprintf(stderr,"\n  Creating genome genome index (GIX) %s.gix in directory %s\n\n",
-                           TROOT,TPATH);
-        fflush(stdout);
-      }
-  }
+          fprintf(stderr,"\n  Creating genome genome index (GIX) %s.gix in directory %s\n\n",
+                         TROOT,TPATH);
+      fflush(stdout);
+    }
 
-  if (SEXTN != 8)
+  if (ftype != IS_GDB)
     { char *command;
 
-      command = Malloc(strlen(SPATH)+strlen(SROOT)+strlen(TPATH)+strlen(TROOT)+100,
-                       "Allocating command string");
+      command = Malloc(strlen(spath)+strlen(tpath)+100,"Allocating command string");
       if (command == NULL)
         exit (1);
-      sprintf(command,"FAtoGDB%s %s/%s%s %s/%s.gdb",
-              VERBOSE?" -v":"",SPATH,SROOT,suffix[SEXTN],TPATH,TROOT);
+      sprintf(command,"FAtoGDB %s %s",spath,tpath);
       if (system(command) != 0)
         { fprintf(stderr,"\n%s: Call to FAtoGDB failed\n",Prog_Name);
           exit (1);
@@ -1524,7 +1433,7 @@ int main(int argc, char *argv[])
   POST_NAME = Strdup(Catenate(SORT_PATH,"/.",Numbered_Suffix("post.",getpid(),"."),""),
                      "Allocating temp name");
 
-  if (Open_DB(Catenate(TPATH,"/",TROOT,".gdb"),DB) < 0)
+  if (Open_DB(tpath,DB) < 0)
     { fprintf(stderr,"%s: Cannot open GDB %s/%s.gdb\n",Prog_Name,TPATH,TROOT);
       exit (1);
     }
@@ -1689,6 +1598,12 @@ int main(int argc, char *argv[])
   Close_DB(DB);
 
   free(POST_NAME);
+
+  free(TROOT);
+  free(TPATH);
+
+  free(tpath);
+  free(spath);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

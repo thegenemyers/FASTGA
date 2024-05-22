@@ -48,14 +48,16 @@
 #include "align.h"
 #include "alncode.h"
 
-#undef DEBUG_DICT
+#undef DEBUG_MAKE_DICT
 #undef DEBUG_READ_1ALN
 #undef DEBUG_PARSE_SEQ
+#undef DEBUG_AXIS_CONF
 
 static char *Usage[] =
   { "[-dSL] [-T<int(1)>] [-a<int(100)>] [-e<float(0.7)>] [-f<int>] [-t<float>]",
     "[-n<int(100000)>] [-H<int(600)>] [-W<int>] [-p[:<output:path>[.pdf]]]",
-    "[-x<target>] [-y<target>] <alignment:path>[.1aln|.paf[.gz]]>"
+    "[-x<range>[,<range>[,...]]|:<FILE>] [-y<range>[,<range>[,...]]|:<FILE>]",
+    "<alignment:path>[.1aln|.paf[.gz]]>"
   };
 
 static int    MINALEN  = 100;
@@ -71,22 +73,40 @@ static double MINAIDNT = 0.7;
 static int    NTHREADS = 1;
 static char  *OUTEPS   = NULL;
 
-#define NUM_SYMBOL  '#'
-#define FIL_SYMBOL  '@'
-#define SEP_SYMBOL  ','
+#define SCAF_SYMBOL '@'
+#define LAST_SYMBOL '#'
+#define FILE_SYMBOL ':'
+#define DLIM_SYMBOL ','
 
 #define MAX_XY_LEN 10000
 #define MIN_XY_LEN 50
 
 typedef struct
-  { int aread, bread;
-    int abpos, bbpos;
-    int aepos, bepos;
+  { uint8 flag;
+    int   aread, bread;
+    int   abpos, bbpos;
+    int   aepos, bepos;
   } Segment;
+
+#define DEL_FLAG 0x1
+#define COL_RED  0x2
+#define COL_BLUE 0x4
+#define COL_GRAY 0x8
+
+#define IS_DELT(flag) ((flag)&DEL_FLAG)
+#define SET_DELT(flag) ((flag)|=DEL_FLAG)
+
+#define IS_COLOR(flag) ((flag)&0xE)
+#define IS_RED(flag)  ((flag)&COL_RED)
+#define IS_BLUE(flag) ((flag)&COL_BLUE)
+#define IS_GRAY(flag) ((flag)&COL_GRAY)
+#define UNSET_COLOR(flag) ((flag)&=0xF1)
+#define SET_RED(flag)  (UNSET_COLOR(flag), (flag)|=COL_RED)
+#define SET_BLUE(flag) (UNSET_COLOR(flag), (flag)|=COL_BLUE)
+#define SET_GRAY(flag) (UNSET_COLOR(flag), (flag)|=COL_GRAY)
 
 static Segment  *segments = NULL;
 static int64     nSegment = 0;
-static int      *ASEQ, *BSEQ; // -1 for excluded sequences
 
 static char *PDFTOOLS[4] = {"pstopdf", "epstopdf", "ps2pdf", "eps2pdf"};
 
@@ -114,13 +134,261 @@ typedef struct
     uint64 new;         /* communication between dictFind() and dictAdd() */
   } DICT;
 
-static int    ISTWO;         // If two DBs are different
-static DICT  *Adict, *Bdict; // Sequence dictionary
-static int   *ALEN, *BLEN;   // Map sequence to its length
+static int       ISTWO;      // If two DBs are different
+
 //  for 1aln contig to scaffold mapping
-static int   *AMAP, *BMAP;   // Contig to scaffold map
-static int   *AOFF, *BOFF;   // Contig offset map
-static int   *AEND, *BEND;   // Contig end offset map
+static int        NASCF;     // Number scaffolds
+static int        NACTG;     // Number contigs
+static DICT      *ADIC;      // Scaffold dictionary
+static int       *ASCF;      // Scaffold to contig map - first contig
+static int       *AMAP;      // Contig to scaffold map
+static int       *ALEN;      // Contig length
+static int       *AOFF;      // Contig offset map
+static int       *ASEQ;      // Contig to plot
+static int       *ABEG;      // Contig beg position
+static int       *AEND;      // Contig end position
+static char      *ANAME;     // User-defined sequence names
+
+static int        NBSCF;     // Number scaffolds
+static int        NBCTG;     // Number contigs
+static DICT      *BDIC;      // Scaffold dictionary
+static int       *BSCF;      // Scaffold to contig map - first contig
+static int       *BMAP;      // Contig to scaffold map
+static int       *BLEN;      // Contig length
+static int       *BOFF;      // Contig offset map
+static int       *BSEQ;      // Contig to plot
+static int       *BBEG;      // Contig beg position
+static int       *BEND;      // Contig end position
+static char      *BNAME;     // User-defined sequence names
+
+//  Parse read range grabbing up to 4 values from it as follows:
+//    type 1
+//          val[0][.val[1]]
+//    type 2
+//          val[0][.val[1]] - val[2][.val[3]]
+//    type 3
+//          val[0][.val[1]] _ val[2] - val[3]
+//  Return 0 if there is a syntactic error, otherwise return the type.
+//  0 values indicate $, -1 indicates not present, -2 (only in val[1] or val[3])
+//      indicates val[0] or val[2], respectively, is a scaffold index
+
+int dictFind(DICT *dict, char *s, uint64 *index);
+
+static char *white(char *x)
+{ while (isspace(*x))
+    x += 1;
+  return (x);
+}
+
+static char *getint(char *x, int *v)
+{ *v = 0;
+  while (isdigit(*x))
+    *v = 10*(*v) + (*x++ - '0');
+  return (x);
+}
+
+static char *address(char *x, int *v, int sep)
+{ int a;
+
+  x = white(x);
+  a = *x++;
+  if (a == LAST_SYMBOL)
+    v[0] = 0;
+  else if (isdigit(a))
+    x = getint(x-1,v);
+  else
+    return (NULL);
+  x = white(x);
+  if (*x == sep)
+    { x = white(x+1);
+      a = *x++;
+      if (a == LAST_SYMBOL)
+        v[1] = 0;
+      else if (isdigit(a))
+        x = getint(x-1,v+1);
+      else
+        return (NULL);
+      x = white(x);
+    }
+  else if (sep == ' ')
+    v[1] = -2;
+  else if (sep == '.')
+    v[1] = -1;
+  else  // sep == '-'
+    return (NULL);
+  return (x);
+}
+
+static int range(char *src, int *v, DICT *sdict)
+{ int   t, sep;
+  char *x, *y, *z;
+  uint64 s, r;
+
+  v[2] = -1;
+  x = white(src);
+  if (*x == SCAF_SYMBOL)
+    { x += 1;
+      sep = ' ';
+    }
+  else
+    sep = '.';
+  y = address(x,v,sep);
+  if (y == NULL)
+    { if (sep == ' ')
+        goto try_string;
+      else
+        return (0);
+    }
+  t = 1;
+  if (*y == '-')
+    { y = address(y+1,v+2,sep);
+      t = 2;
+    }
+  else if (*y == '_')
+    { y = address(y+1,v+2,'-');
+      t = 3;
+    }
+  if (y == NULL || *y != '\0')
+    { if (sep == ' ')
+        goto try_string;
+      else
+        return (0);
+    }
+  return (t);
+
+try_string:
+  if (dictFind(sdict,x,&s))
+    { v[1] = -2;
+      v[0] = s+1;
+      return (1);
+    }
+  y = rindex(x,'_');
+  if (y != NULL)
+    { *y = '\0';
+      if (dictFind(sdict,x,&s))
+        { z = address(y+1,v+2,'-');
+          if (z != NULL && *z == '\0')
+            { v[1] = -2;
+              v[0] = s+1;
+              *y = '_';
+              return (3);
+            }
+        }
+      *y = '_';
+    }
+  for (y = index(x,'-'); y != NULL; y = index(y+1,'-'))
+    { *y = '\0';
+      if (dictFind(sdict,x,&s) && dictFind(sdict,y+1,&r))
+        { v[1] = v[3] = -2;
+          v[0] = s+1;
+          v[2] = r+1;
+          *y = '-';
+          return (2);
+        }
+      *y = '-';
+    }
+  return (0);
+}
+
+ //  Interpret value pair s.c into an absolute contig range (1-based)
+
+static int interpret_address(int s, int c, int ncontig, int nscaff, int *map)
+{ if (c == -1)
+    { if (s == 0)
+        return (ncontig);
+      if (s > ncontig)
+        { fprintf(stderr,"%s: Absolute contig index '%d' is out of bounds\n",Prog_Name,s);
+          exit (1);
+        }
+      return (s);
+    }
+  if (s == 0)
+    s = nscaff;
+  else if (s > nscaff)
+    { fprintf(stderr,"%s: Scaffold index '%d' is out of bounds\n",Prog_Name,s);
+      exit (1);
+    }
+  if (c == 0)
+    return (map[s]);
+  if (c == -2)
+    return (s);
+  if (c > map[s]-map[s-1])
+    { fprintf(stderr,"%s: Relative contig index '%d' is out of bounds\n",Prog_Name,c);
+      exit (1);
+    }
+  return (map[s-1] + c);
+}
+
+  //  Interpret argument x as a range and map to contig level ranges
+
+static void contig_range(char *x, int ncontig, int nscaff, DICT *sdict, int *smap,
+        int *clen, int *coff, int *pbeg, int *pend, int *pfst, int *plst)
+{ int t, vals[4], len, sunit;
+  int beg, end, fst, lst;
+
+  memset(vals,0,sizeof(int)*4);
+  t = range(x,vals,sdict);
+  if (t == 0)
+    { fprintf(stderr,"%s: Command line argument %s not a valid read range\n",Prog_Name,x);
+      exit (1);
+    }
+
+  sunit = (vals[1] <= -2);
+
+  beg = end = interpret_address(vals[0],vals[1],ncontig,nscaff,smap) - 1;
+  fst = 0;
+  if (t == 2)
+    { end = interpret_address(vals[2],vals[3],ncontig,nscaff,smap) - 1;
+      if (beg > end)
+        { fprintf(stderr,"%s: Read range in '%s' is empty\n",Prog_Name,x);
+          exit (1);
+        }
+    }
+
+  if (sunit)
+    { beg = smap[beg];
+      end = smap[end+1]-1;
+    }
+  if (t <= 2)
+    lst = clen[end];
+  else // t == 3
+    { fst = vals[2]; //  Type 3: intepret vals[2] and vals[3] as the substring interval
+      lst = vals[3];
+      if (sunit)
+        len = coff[end] + clen[end];
+      else
+        len = clen[beg];
+      if (lst == 0)
+        lst = len;
+      else if (lst > len)
+        { fprintf(stderr,"%s: Substring interval in '%s' is out of bounds\n",Prog_Name,x);
+          exit (1);
+        }
+      if (fst >= lst)
+        { fprintf(stderr,"%s: Substring interval in '%s' is empty\n",Prog_Name,x);
+          exit (1);
+        }
+      if (sunit)
+        { for ( ; beg <= end; beg++)
+            if (fst < coff[beg] + clen[beg])
+              break;
+          fst -= coff[beg];
+          if (fst < 0)
+            fst = 0;
+          for (; end >= beg; end--)
+            if (lst > coff[end])
+              break;
+          lst -= coff[end];
+          if (lst > clen[end])
+            lst = clen[end];
+        }
+      if (fst > 0) fst -= 1; // to support both 0-base and 1-base
+    }
+  *pbeg = beg;
+  *pend = end;
+  *pfst = fst;
+  *plst = lst;
+}
 
 #define dictMax(dict)  ((dict)->max)
 
@@ -278,9 +546,208 @@ char *findPDFtool()
   return (NULL);
 }
 
+static inline void expandBuffer(char **names, uint32 *n, uint32 *m, uint32 l)
+{ if (*n + l > *m)
+    { *m <<= 1;
+      *names = (char *)Realloc(*names,sizeof(char)*(*m),"Reallocating name array");
+      if (*names == NULL)
+        exit (1);
+    }
+}
+
+// User can  provide a file input for more complicated configuration
+// The first three columns of each line will be read
+// <range>    +/-    name
+// to specify plotting range, orientation and user defined sequence name
+// if the sequence name is specified, i. e., three columns in a line
+// then the <range> in that line has to be a contiguous scaffold block
+
+static int parseTargetSEQFromFile(char *file, int ncontig, int nscaff, DICT *sdict, int *smap,
+        int *cmap, int *clen, int *coff, int **_SEQ, int **_BEG, int **_END, char **_NAME)
+{ if (file == NULL || *file == '\0')
+    { fprintf(stderr,"%s: Empty range file\n",Prog_Name);
+      exit (1);
+    }
+
+  FILE *fp;
+  char c, *p, *q, *line;
+  size_t ln = 0;
+  ssize_t read;
+  int i, pbeg, pend, pfst, plst, rank;
+  int *SEQ, *BEG, *END;
+  char *NAME;
+  uint32 nstr, mstr, lstr;
+
+  SEQ = *_SEQ;
+  BEG = *_BEG;
+  END = *_END;
+
+  fp = fopen(file, "r");
+  if (fp == NULL)
+    { fprintf(stderr,"%s: Cannot open file %s\n",Prog_Name,file);
+      exit (1);
+    }
+
+  nstr = 0;
+  mstr = 2048;
+  NAME = (char *)Malloc(sizeof(char)*mstr,"Allocating name array");
+  if (NAME == NULL)
+    exit (1);
+  *NAME = '\0';
+
+  line = NULL;
+  rank = 0;
+  while ((read = getline(&line, &ln, fp)) != -1)
+    { p = q = line;
+      while (isspace(*q)) ++q;
+      p = q;
+      while (*q != '\0' && !isspace(*q)) ++q;
+      if (p == q) continue; // empty line
+      c = *q;
+      *q = '\0';
+      contig_range(p, ncontig, nscaff, sdict, smap, clen, coff, &pbeg, &pend, &pfst, &plst);
+#ifdef DEBUG_PARSE_SEQ
+      fprintf(stderr, "%s: CTG_RANGE pbeg = %-12d pend = %-12d pfst = %-12d plst = %-12d\n",
+              Prog_Name,pbeg,pend,pfst,plst);
+#endif
+      rank++;
+      for (i = pbeg; i <= pend; i++)
+        { if (SEQ[i])
+            { fprintf(stderr,"%s: Overlapped sequence range\n",Prog_Name);
+              exit (1);
+            }
+          SEQ[i] = rank;
+          BEG[i] = 0;
+          END[i] = clen[i];
+        }
+      BEG[pbeg] = pfst;
+      END[pend] = plst;
+      *q = c;
+
+      while (isspace(*q)) ++q;
+      p = q;
+      while (*q != '\0' && !isspace(*q)) ++q;
+      if (p == q) continue; // no second column
+      if (*p == '-') // in reverse order
+        for (i = pbeg; i <= pend; i++)
+          SEQ[i] = -rank;
+
+      while (isspace(*q)) ++q;
+      p = q;
+      while (*q != '\0' && !isspace(*q)) ++q;
+      if (p == q) continue; // no third column
+      // check if sequence is contiguous
+      if (cmap[pbeg] != cmap[pend])
+        { fprintf(stderr,"%s: Cannot set sequence name for noncontiguous range: %s\n",Prog_Name,line);
+          exit (1);
+        }
+      // add rank sequence name
+      *q = '\0';
+      lstr = Number_Digits(rank) + q - p + 2;
+      expandBuffer(&NAME, &nstr, &mstr, lstr+1);
+      sprintf(NAME+nstr, "%d %s ", rank, p);
+      nstr += lstr;
+    }
+
+#ifdef DEBUG_PARSE_SEQ
+  if (*NAME == '\0')
+    fprintf(stderr,"%s: Customized sequence name buffer is empty\n",Prog_Name);
+  else
+    fprintf(stderr,"%s: Customized sequence name buffer - %s\n",Prog_Name,NAME);
+#endif
+
+  if (*NAME == '\0')
+    free(NAME);
+  else
+    *_NAME = NAME;
+
+  free(line);
+  fclose(fp);
+
+  return (0);
+}
+
+int parseTargetSEQ(char *x, int ncontig, int nscaff, DICT *sdict, int *smap, int *cmap,
+        int *clen, int *coff, int **_SEQ, int **_BEG, int **_END, char **_NAME)
+{ char c, *eptr;
+  int i, pbeg, pend, pfst, plst, rank;
+  int *SEQ, *BEG, *END;
+
+  SEQ = (int *) Malloc(sizeof(int)*3*ncontig,"Allocating sequence array");
+  BEG = SEQ + ncontig;
+  END = BEG + ncontig;
+
+  *_SEQ  = SEQ;
+  *_BEG  = BEG;
+  *_END  = END;
+  *_NAME = NULL;
+
+  memset(SEQ, 0, sizeof(int)*ncontig);
+
+  if (x == NULL || *x == '-')
+    { for (i = 0; i < ncontig; i++)
+        { SEQ[i] = 1;
+          BEG[i] = 0;
+          END[i] = clen[i];
+        }
+      goto print_range;
+    }
+
+  if (*x == '\0')
+    { fprintf(stderr, "%s: Empty range\n",Prog_Name);
+      exit (1);
+    }
+  if (*x == FILE_SYMBOL)
+    { parseTargetSEQFromFile(x+1,ncontig,nscaff,sdict,smap,cmap,clen,coff,_SEQ,_BEG,_END,_NAME);
+      goto print_range;
+    }
+
+  rank = 0;
+  while (1)
+    { eptr = x + 1;
+      while (*eptr && *eptr != DLIM_SYMBOL) eptr++;
+      c = *eptr;
+      *eptr = '\0';
+      contig_range(x, ncontig, nscaff, sdict, smap, clen, coff, &pbeg, &pend, &pfst, &plst);
+#ifdef DEBUG_PARSE_SEQ
+      fprintf(stderr, "%s: CTG_RANGE pbeg = %-12d pend = %-12d pfst = %-12d plst = %-12d\n",
+              Prog_Name,pbeg,pend,pfst,plst);
+#endif
+      rank++;
+      for (i = pbeg; i <= pend; i++)
+        { if (SEQ[i])
+            { fprintf(stderr,"%s: Overlapped sequence range\n",Prog_Name);
+              exit (1);
+            }
+          SEQ[i] = rank;
+          BEG[i] = 0;
+          END[i] = clen[i];
+        }
+      BEG[pbeg] = pfst;
+      END[pend] = plst;
+      *eptr = c;
+      if (!c) break;
+      x = eptr + 1;
+    }
+
+print_range:
+#ifdef DEBUG_PARSE_SEQ
+  fprintf(stderr,"%s: Sequence range to plot\n",Prog_Name);
+  fprintf(stderr,"%s: CONTIG RANK   BEGIN        END\n",Prog_Name);
+  for (i = 0; i < ncontig; i++)
+    { if (SEQ[i])
+        fprintf(stderr,"%s: %-8d %-6d %-12d %-12d\n",Prog_Name,i,SEQ[i],BEG[i],END[i]);
+    }
+#endif
+
+  return (0);
+}
+
 void makeSeqDICTFromDB(char *db1_name, char *db2_name)
 { DAZZ_DB   _db1, *db1 = &_db1;
   DAZZ_DB   _db2, *db2 = &_db2;
+  int nascaff, nacontig;
+  int nbscaff, nbcontig;
 
   //  Open DB or DB pair
 
@@ -293,67 +760,88 @@ void makeSeqDICTFromDB(char *db1_name, char *db2_name)
         exit (1);
       }
 
+    if (db1->nreads != db1->treads)
+      { fprintf(stderr,"%s: Not the same %d %d\n",Prog_Name,db1->nreads,db1->treads);
+        exit (1);
+      }
+
     if (db2_name != NULL)
       { gdb = Open_DB(db2_name,db2);
         if (gdb < 0)
           { fprintf(stderr,"%s: Could not open DB file: %s\n",Prog_Name,db2_name);
             exit (1);
           }
+
+        if (db2->nreads != db2->treads)
+          { fprintf(stderr,"%s: Not the same %d %d\n",Prog_Name,db2->nreads,db2->treads);
+            exit (1);
+          }
+
         ISTWO = 1;
       }
     else
       db2  = db1;
 
     //  Build contig to scaffold maps in global vars
+    nacontig = db1->nreads;
+    nbcontig = db2->nreads;
 
     if (ISTWO)
-      AMAP = (int *) Malloc(sizeof(int)*4*(db1->nreads+db2->nreads),"Allocating scaffold map");
+      AMAP = (int *) Malloc(sizeof(int)*(4*(nacontig+nbcontig)+2),"Allocating scaffold map");
     else
-      AMAP = (int *) Malloc(sizeof(int)*4*db1->nreads,"Allocating scaffold map");
+      AMAP = (int *) Malloc(sizeof(int)*(4*nacontig+1),"Allocating scaffold map");
+
     if (AMAP == NULL)
       exit (1);
-    AOFF = AMAP + db1->nreads;
-    AEND = AOFF + db1->nreads;
-    ALEN = AEND + db1->nreads;
 
-    if (db1->nreads != db1->treads)
-      printf("Not the same %d %d\n",db1->nreads,db1->treads);
+    AOFF   = AMAP + nacontig;
+    ALEN   = AOFF + nacontig;
+    ASCF   = ALEN + nacontig;
 
     s = -1;
-    for (r = 0; r < db1->treads; r++)
+    for (r = 0; r < nacontig; r++)
       { if (db1->reads[r].origin == 0)
-          s += 1;
-        AOFF[r] = db1->reads[r].fpulse;
-        AMAP[r] = s;
-        ALEN[s] = AEND[r] = AOFF[r] + db1->reads[r].rlen;
+          { s += 1;
+            ASCF[s]  = r;
+          }
+        AMAP[r]  = s;
+        AOFF[r]  = db1->reads[r].fpulse;
+        ALEN[r]  = db1->reads[r].rlen;
       }
+    nascaff = s + 1;
+    ASCF[nascaff] = nacontig;
 
     if (ISTWO)
-      { BMAP = ALEN + db1->nreads;
-        BOFF = BMAP + db2->nreads;
-        BEND = BOFF + db2->nreads;
-        BLEN = BEND + db2->nreads;
+      { BMAP   = ASCF + nacontig + 1;
+        BOFF   = BMAP + nbcontig;
+        BLEN   = BOFF + nbcontig;
+        BSCF   = BLEN + nbcontig;
 
         s = -1;
         for (r = 0; r < db2->treads; r++)
           { if (db2->reads[r].origin == 0)
-              s += 1;
-            BOFF[r] = db2->reads[r].fpulse;
-	    BMAP[r] = s;
-	    BLEN[s] = BEND[r] = BOFF[r] + db2->reads[r].rlen;
+              { s += 1;
+                BSCF[s] = r;
+              }
+            BMAP[r]  = s;
+            BOFF[r]  = db2->reads[r].fpulse;
+            BLEN[r]  = db2->reads[r].rlen;
           }
+        nbscaff = s + 1;
+        BSCF[nbscaff] = nbcontig;
       }
     else
-      { BMAP = AMAP;
-        BOFF = AOFF;
-        BEND = AEND;
-        BLEN = ALEN;
+      { BMAP   = AMAP;
+        BOFF   = AOFF;
+        BLEN   = ALEN;
+        BSCF   = ASCF;
+        nbscaff = nascaff;
       }
   }
 
   //  Preload all scaffold headers and set header offset
 
-  { int r, hdrs;
+  { int r, hdrs, absent;
     char *HEADER, *eptr;
     struct stat state;
 
@@ -377,18 +865,21 @@ void makeSeqDICTFromDB(char *db1_name, char *db2_name)
       }
     close(hdrs);
 
-    Adict = dictCreate(db1->nreads);
-    for (r = 0; r < db1->nreads; r++)
+    ADIC = dictCreate(nascaff);
+    for (r = 0; r < nacontig; r++)
       { if (db1->reads[r].origin == 0)
           { for (eptr = HEADER + db1->reads[r].coff; *eptr != '\n'; eptr++)
               if (isspace(*eptr))
                 break;
             *eptr = '\0';
-          }
-          
-        dictAdd(Adict, HEADER + db1->reads[r].coff, NULL);
-      }
 
+            absent = dictAdd(ADIC, HEADER + db1->reads[r].coff, NULL);
+            if (!absent)
+              { fprintf(stderr,"%s: Duplicate sequence name: %s\n",Prog_Name,HEADER + db1->reads[r].coff);
+                exit (1);
+              }
+          }
+      }
     free(HEADER);
 
     if (ISTWO)
@@ -413,23 +904,56 @@ void makeSeqDICTFromDB(char *db1_name, char *db2_name)
           }
         close(hdrs);
 
-        Bdict = dictCreate(db2->nreads);
-        for (r = 0; r < db2->nreads; r++)
+        BDIC = dictCreate(nbscaff);
+        for (r = 0; r < nbcontig; r++)
           { if (db2->reads[r].origin == 0)
               { for (eptr = HEADER + db2->reads[r].coff; *eptr != '\n'; eptr++)
                   if (isspace(*eptr))
                     break;
                 *eptr = '\0';
+
+                absent = dictAdd(BDIC, HEADER + db2->reads[r].coff, NULL);
+                if (!absent)
+                  { fprintf(stderr,"%s: Duplicate sequence name: %s\n",Prog_Name,HEADER + db2->reads[r].coff);
+                    exit (1);
+                  }
               }
-            
-            dictAdd(Bdict, HEADER + db2->reads[r].coff, NULL);
           }
 
         free(HEADER);
       }
     else
-      Bdict = Adict;
+      BDIC = ADIC;
   }
+
+  NACTG = nacontig;
+  NBCTG = nbcontig;
+  NASCF = nascaff;
+  NBSCF = nbscaff;
+
+#ifdef DEBUG_MAKE_DICT
+  { int i;
+    fprintf(stderr,"%s: DB_A\n",Prog_Name);
+    fprintf(stderr,"%s: List of contigs (NACTG=%d)\n",Prog_Name,NACTG);
+    fprintf(stderr,"%s:  INDEX   SCAF     OFFSET     LENGTH\n",Prog_Name);
+    for (i = 0; i < NACTG; i++)
+      fprintf(stderr,"%s: %6d %6d %10d %10d\n",Prog_Name,i,AMAP[i],AOFF[i],ALEN[i]);
+    fprintf(stderr,"%s: List of scaffolds (NASCF=%d)\n",Prog_Name,NASCF);
+    for (i = 0; i < NASCF; i++)
+      fprintf(stderr,"%s: %6d %s\n",Prog_Name,i,dictName(ADIC,i));
+  }
+  if (ISTWO)
+    { int i;
+      fprintf(stderr,"%s: DB_B\n",Prog_Name);
+      fprintf(stderr,"%s: List of contigs (NBCTG=%d)\n",Prog_Name,NBCTG);
+      fprintf(stderr,"%s:  INDEX   SCAF     OFFSET     LENGTH\n",Prog_Name);
+      for (i = 0; i < NBCTG; i++)
+        fprintf(stderr,"%s: %6d %6d %10d %10d\n",Prog_Name,i,BMAP[i],BOFF[i],BLEN[i]);
+      fprintf(stderr,"%s: List of scaffolds (NBSCF=%d)\n",Prog_Name,NBSCF);
+      for (i = 0; i < NBSCF; i++)
+        fprintf(stderr,"%s: %6d %s\n",Prog_Name,i,dictName(BDIC,i));
+    }
+#endif
 
   Close_DB(db1);
   if (ISTWO)
@@ -455,6 +979,7 @@ void *read_1aln_block(void *args)
 
   { int64 i;
     uint32   flags;
+    uint8    flag;
     int      aread, bread;
     int      abpos, bbpos;
     int      aepos, bepos;
@@ -495,21 +1020,17 @@ void *read_1aln_block(void *args)
         if (2.*iid / blocksum < MINAIDNT)
           continue; // filter by segment identity
 
-        // map to scaffold coordinates
-        abpos += AOFF[aread];
-        aepos += AOFF[aread];
-        aread  = AMAP[aread];
+        flag = 0;
         if (COMP(flags))
-          { bbpos = BEND[bread] - bbpos;
-            bepos = BEND[bread] - bepos;
+          { bbpos = BLEN[bread] - bbpos;
+            bepos = BLEN[bread] - bepos;
+            SET_BLUE(flag);
           }
         else
-          { bbpos += BOFF[bread];
-            bepos += BOFF[bread];
-          }
-        bread  = BMAP[bread];
-        
+          SET_RED(flag);
+
         // add to output
+        segs->flag  = flag;
         segs->aread = aread;
         segs->abpos = abpos;
         segs->aepos = aepos;
@@ -584,24 +1105,6 @@ void read_1aln(char *oneAlnFile)
     free(db1_name);
     free(db2_name);
   }
-
-#ifdef DEBUG_DICT
-  { uint64 i, index;
-    for (i = 0; i < Adict->max; i++)
-      fprintf(stderr, "#AdictName %4llu %8d %s\n", i, ALEN[i], dictName(Adict, i));
-    for (i = 0; i < Bdict->max; i++)
-      fprintf(stderr, "#BdictName %4llu %8d %s\n", i, BLEN[i], dictName(Bdict, i));
-
-    for (i = 0; i < Adict->max; i++) {
-      dictFind(Adict, dictName(Adict, i), &index);
-      fprintf(stderr, "#AdictFind %s %4llu\n", dictName(Adict, i), index);
-    }
-    for (i = 0; i < Bdict->max; i++) {
-      dictFind(Bdict, dictName(Bdict, i), &index);
-      fprintf(stderr, "#BdictFind %s %4llu\n", dictName(Bdict, i), index);
-    }
-  }
-#endif
 
   // Read alignment segments
 
@@ -730,8 +1233,8 @@ int get_until(void *input, int gzipd, Buffer *buffer)
 void read_paf(char *pafAlnFile, int gzipd)
 { void *input;
   Buffer *buffer;
-  int i, eof, absent;
-  uint64 index, naseq, maseq, nbseq, mbseq, nsegs, msegs;
+  int i, naseq, maseq, nbseq, mbseq, eof, absent;
+  uint64 index, nsegs, msegs;
   Segment *segs;
   char *fptrs[11], *fptr, *eptr;
   int alen, blen, *alens, *blens;;
@@ -739,14 +1242,15 @@ void read_paf(char *pafAlnFile, int gzipd)
   int abpos, bbpos;
   int aepos, bepos;
   int blocksum, iid;
+  uint8 flag;
 
   if (gzipd)
     input = gzopen(pafAlnFile,"r");
   else
     input = fopen(pafAlnFile,"r");
 
-  Adict = dictCreate(1024);
-  Bdict = dictCreate(1024);
+  ADIC = dictCreate(1024);
+  BDIC = dictCreate(1024);
   
   naseq = 0;
   maseq = 1024;
@@ -785,7 +1289,7 @@ void read_paf(char *pafAlnFile, int gzipd)
         }
       
       if (i == 11)
-      { absent = dictAdd(Adict, fptrs[0], &index);
+      { absent = dictAdd(ADIC, fptrs[0], &index);
         alen   = strtol(fptrs[1], &eptr, 10);
         if (absent)
           { alens[naseq++] = alen;
@@ -800,7 +1304,7 @@ void read_paf(char *pafAlnFile, int gzipd)
         abpos  = strtol(fptrs[2], &eptr, 10);
         aepos  = strtol(fptrs[3], &eptr, 10);
       
-        absent = dictAdd(Bdict, fptrs[5], &index);
+        absent = dictAdd(BDIC, fptrs[5], &index);
         blen   = strtol(fptrs[6], &eptr, 10);
         if (absent)
           { blens[nbseq++] = blen;
@@ -826,12 +1330,17 @@ void read_paf(char *pafAlnFile, int gzipd)
 
         if (!absent)
           { // Add to segment array
+            flag = 0;
             if (*fptrs[4] == '-')
               { int tmp = bbpos;
                 bbpos = bepos;
                 bepos = tmp;
+                SET_BLUE(flag);
               }
-  
+            else
+              SET_RED(flag);
+
+            segs->flag  = flag;
             segs->aread = aread;
             segs->bread = bread;
             segs->abpos = abpos;
@@ -858,119 +1367,45 @@ void read_paf(char *pafAlnFile, int gzipd)
   else
     fclose(input);
 
-  alens = (int *) Realloc(alens, sizeof(int) * (naseq + nbseq), "Reallocating length map");
-  if (alens == NULL)
-    exit (1);
-  memcpy(alens + naseq, blens, sizeof(int) * nbseq);
-  ALEN = alens;
-  BLEN = ALEN + naseq;
-
   ISTWO = 1;
   nSegment = nsegs;
 
+  NASCF = NACTG = naseq;
+  NBSCF = NBCTG = nbseq;
+
+  AMAP = (int *) Malloc(sizeof(int)*(4*(naseq+nbseq)+2),"Allocating scaffold map");
+  AOFF = AMAP + naseq;
+  ALEN = AOFF + naseq;
+  ASCF = ALEN + naseq;
+
+  memcpy(ALEN, alens, sizeof(int)*naseq);
+  for (i = 0; i < naseq; i++)
+    { AMAP[i] = i;
+      ASCF[i] = i;
+    }
+  ASCF[naseq] = naseq;
+  AOFF[0] = 0;
+  for (i = 1; i < naseq; i++)
+    AOFF[i] = AOFF[i-1] + ALEN[i-1];
+
+  BMAP = ASCF + naseq + 1;
+  BOFF = BMAP + nbseq;
+  BLEN = BOFF + nbseq;
+  BSCF = BLEN + nbseq;
+
+  memcpy(BLEN, blens, sizeof(int)*nbseq);
+  for (i = 0; i < nbseq; i++)
+    { BMAP[i] = i;
+      BSCF[i] = i;
+    }
+  BSCF[nbseq] = nbseq;
+  BOFF[0] = 0;
+  for (i = 1; i < nbseq; i++)
+    BOFF[i] = BOFF[i-1] + BLEN[i-1];
+
+  free(alens);
   free(blens);
   destroyBuffer(buffer);
-}
-
-int *parseTargetSEQ(char *seqStr, DICT *dict, int *slen)
-{ int *SEQ;
-
-  SEQ = (int *) Malloc(sizeof(int)*dict->max,"Allocating SEQ array");
-  if (SEQ == NULL)
-    exit (1);
-  
-  if (seqStr == NULL)
-    { // add all sequences
-      uint64 i;
-      SEQ[0] = 0;
-      for (i = 1; i < dict->max; i++)
-        SEQ[i] = SEQ[i-1] + slen[i-1];
-      return (SEQ);
-    }
-
-  if (*seqStr == '\0')
-    { fprintf(stderr,"%s: empty -x/-y parameter\n",Prog_Name);
-       exit (1);
-    }
-
-  int *seqs;
-  uint64 nseq, index;
-  char *eptr, c;
-  int found;
-
-  seqs = (int *)Malloc(sizeof(int)*dict->max,"Allocating SEQ array");
-  if (seqs == NULL)
-    exit (1);
-  
-  nseq = 0;
-
-  if (*seqStr == NUM_SYMBOL)
-    { seqStr++;
-      while (*seqStr)
-        { if (isdigit(*seqStr))
-            { index = strtol(seqStr, &seqStr, 10);
-              if (index == 0 || index > dict->max)
-                { fprintf(stderr,"%s: sequence index %lld is out of range 1-%lld\n",
-                                 Prog_Name,index,dict->max);
-                  exit (1);
-                }
-              seqs[nseq++] = index-1;
-            }
-          else
-            seqStr++;
-        }
-    }
-  else if (*seqStr == FIL_SYMBOL)
-    { seqStr++;
-      fprintf(stderr,"%s: file input for -x/-y is not supported yet\n",Prog_Name);
-      exit (1);
-    }
-  else
-    { eptr = seqStr;
-      while (1)
-        { while (*eptr != SEP_SYMBOL && *eptr != '\0')
-            eptr++;
-          c = *eptr;
-          *eptr = '\0';
-          found = dictFind(dict, seqStr, &index);
-          if (found)
-            seqs[nseq++] = index;
-          else if (strlen(seqStr))
-            { fprintf(stderr,"%s: sequence not found - %s\n",Prog_Name,seqStr);
-              exit (1);
-            }
-          if (c == '\0')
-            break;
-          seqStr = ++eptr;
-        }
-    }
-
-  if (!nseq)
-    { fprintf(stderr,"%s: no valid sequence specified for ploting -x/-y\n",Prog_Name);
-      exit (1);
-    }
-
-#ifdef DEBUG_PARSE_SEQ
-  { uint64 i;
-    for (i = 0; i < nseq; i++)
-      fprintf(stderr, "%s: sequence to plot - %4d %s\n",Prog_Name,seqs[i],dictName(dict,seqs[i]));
-  }
-#endif
-
-  uint64 i; 
-  for (i = 0; i < dict->max; i++)
-    SEQ[i] = -1;
-  SEQ[seqs[0]] = 0;
-  for (i = 1; i < nseq; i++)
-    { if (SEQ[seqs[i]] >= 0)
-        { fprintf(stderr,"%s: dupicate sequence in -x/-y parameter\n", Prog_Name);
-          exit (1);
-        }
-      SEQ[seqs[i]] = SEQ[seqs[i-1]] + slen[seqs[i-1]];
-    }
-  free(seqs);
-
-  return (SEQ);
 }
 
 static int USORT(const void *l, const void *r)
@@ -987,97 +1422,452 @@ static int DSORT(const void *l, const void *r)
   return ((*x < *y) - (*x > *y));
 }
 
-int *axisConfig(DICT *dict, int *slen, int *aoff, int *nseq, int64 *tseq)
-{ uint64 i, n, *sarray;
-  int *seqs;
-  int64 t;
+static void axisReverse(uint64 *sarray, int64 *caxis, int64 soff, int beg, int end,
+        int *cbeg, int *cend)
+{ int i, c, clen;
+  int64 coff;
+  coff = caxis[(uint32) sarray[beg]];
+  for (i = beg; i < end; i++)
+    { c = (uint32) sarray[i];
+      soff -= caxis[c] - coff; // gap
+      clen  = cend[c] - cbeg[c];
+      soff -= clen; // ctg
+      coff  = caxis[c] + clen;
+      caxis[c] = soff;
+    }
+}
 
-  n = 0;
-  t = 0;
-  for (i = 0; i < dict->max; i++)
-    if (aoff[i] >= 0)
-      { n++;
-        t += slen[i];
-      }
-  
-  sarray = (uint64 *)Malloc(sizeof(uint64)*n,"Allocating seq array");
-  if (sarray == NULL)
+static void addSeqName(char *names, uint32 n, uint32 m, int c0, int c1, 
+        uint32 s, DICT *sdict, int *smap, int *cbeg, int *cend, int *clen,
+        int rank, char **_snames, char **_names, uint32 *_n, uint32 *_m)
+{ if (NOLABEL)
+    return;
+
+  int i;
+  uint32 l;
+  int64 p;
+  char *name;
+
+  if (*_snames != NULL)
+    { // check if this rank has user-defined name
+      char *eptr, *q;
+      int r;
+      q = *_snames;
+      r = strtol(q, &eptr, 10);
+      if (q != eptr && r == abs(rank))
+        { // user-defined name found
+          q = eptr;
+          while (isspace(*q)) q++;
+          eptr = q;
+          while (*eptr != '\0' && !isspace(*eptr))
+            eptr++;
+          if (q != eptr)
+            { // name is not empty
+              l = eptr - q;
+              expandBuffer(&names, &n, &m, l+1);
+              snprintf(names+n,l+1,"%s",q);
+              n += l;
+              n++; // the null terminator
+            }
+          *_snames = eptr;
+          goto assign_vars;
+        }
+    }
+
+  if (PRINTSID)
+    { l = Number_Digits(s+1);
+      expandBuffer(&names, &n, &m, l+1);
+      sprintf(names+n,"%u",s+1);
+      n += l;
+    }
+  else
+    { name = dictName(sdict,s);
+      l = strlen(name);
+      expandBuffer(&names, &n, &m, l+1);
+      sprintf(names+n,"%s",name);
+      n += l;
+    }
+  if (cbeg[c0] > 0 ||
+          smap[s] != c0 ||      // start from first
+          smap[s+1] != c1+1 ||
+          cend[c1] != clen[c1]) // end at last
+    { // partial scaffold
+      p = 0;
+      for (i = smap[s]; i < c0; i++)
+        p += clen[i];
+      p += cbeg[c0];
+      p += 1;
+      l = Number_Digits(p);
+      l += 1;
+      expandBuffer(&names, &n, &m, l+1);
+      sprintf(names+n,"_%lld",p);
+      n += l;
+      p -= 1;
+      p += cend[c0] - cbeg[c0];
+      for (i = c0 + 1; i <= c1; i++)
+        p += cend[i] - cbeg[i];
+      l = Number_Digits(p);
+      l += 1;
+      expandBuffer(&names, &n, &m, l+1);
+      sprintf(names+n,"-%lld",p);
+      n += l;
+    }
+  if (rank < 0)
+    { // add a prime
+      expandBuffer(&names, &n, &m, 2);
+      names[n++] = '\'';
+      names[n]   = '\0';
+    }
+  n++; // the null terminator
+
+assign_vars:
+  *_names = names;
+  *_n = n;
+  *_m = m;
+}
+
+int axisConfig(DICT *sdict, int *smap, int nctg, int *cseq, int *cbeg, int *cend, int *cmap, int *clen,
+        int *coff, char *snames, int64 **_caxis, int64 **_saxis, char **_names, int64 *_tseq)
+{ int i, j, s, r1, r2, mseq, nseq;
+  uint32 c0, c1, c2, nstr, mstr;
+  uint64 *sarray;
+  int64 *caxis, *saxis, tseq;
+  char *names;
+
+  mseq = 0;
+  for (i = 0; i < nctg; i++)
+    if (cseq[i])
+      mseq++;
+
+  sarray = (uint64 *)Malloc(sizeof(uint64)*mseq,"Allocating seq array");
+  caxis = (int64 *)Malloc(sizeof(int64)*nctg,"Allocating offset array");
+  saxis = (int64 *)Malloc(sizeof(int64)*mseq,"Allocating offset array");
+  if (sarray == NULL || caxis == NULL || saxis == NULL)
     exit (1);
 
-  n = 0;
-  for (i = 0; i < dict->max; i++)
-    if (aoff[i] >= 0)
-      sarray[n++] = (uint64) aoff[i] << 32 | i;
+  if (!NOLABEL)
+    { mstr = 2048;
+      names = (char *) Malloc(sizeof(char)*mstr,"Allocating name array");
+      if (names == NULL)
+        exit (1);
+    }
+  else
+    names = NULL;
 
-  qsort(sarray, n, sizeof(uint64), USORT);
+  mseq = 0;
+  for (i = 0; i < nctg; i++)
+    if (cseq[i])
+      sarray[mseq++] = (uint64) abs(cseq[i]) << 32 | i;
 
-  seqs = (int *)Malloc(sizeof(int)*n,"Allocating seq array");
-  if (seqs == NULL)
-    exit (1);
+  qsort(sarray, mseq, sizeof(uint64), USORT);
 
-  for (i = 0; i < n; i++)
-    seqs[i] = (uint32) sarray[i];
-  
+  c1 = (uint32) sarray[0];
+  r1 = cseq[c1];
+  tseq = 0;
+  nseq = 0;
+  nstr = 0;
+  for (j = 0, i = 1; i < mseq; i++)
+    { caxis[c1] = tseq - cbeg[c1];
+      tseq += cend[c1] - cbeg[c1];
+      c2 = (uint32) sarray[i];
+      r2 = cseq[c2];
+      if (cend[c1] < clen[c1] ||      // end-clipping
+              c1 + 1 < c2 ||          // contigs skipped
+              cmap[c1] != cmap[c2] || // scaffolds switched
+              r1 != r2 ||             // ranks changed
+              cbeg[c2] > 0)           // start-clipping
+        { // different rank group or gap
+          // add new seq [j,i)
+          c0 = (uint32) sarray[j];
+          s = cmap[c0]; // get scaffold id
+          addSeqName(names,nstr,mstr,c0,c1,s,sdict,smap,cbeg,cend,clen,r1,&snames,&names,&nstr,&mstr);
+          saxis[nseq++] = tseq;
+          // reverse ctg [j,i)
+          if (r1 < 0) axisReverse(sarray, caxis, tseq, j, i, cbeg, cend);
+          j = i;
+        }
+      else
+        tseq += coff[c2] - coff[c1] - clen[c1];
+      c1 = c2;
+      r1 = r2;
+    }
+  // add new seq [j,i)
+  caxis[c1] = tseq - cbeg[c1];
+  tseq += cend[c1] - cbeg[c1];
+  c0 = (uint32) sarray[j];
+  s = cmap[c0]; // get scaffold id
+  addSeqName(names,nstr,mstr,c0,c1,s,sdict,smap,cbeg,cend,clen,r1,&snames,&names,&nstr,&mstr);
+  saxis[nseq++] = tseq;
+  if (r1 < 0) axisReverse(sarray, caxis, tseq, j, i, cbeg, cend);
+
+  if (_caxis) *_caxis = caxis;
+  if (_saxis) *_saxis = saxis;
+  if (_names) *_names = names;
+  if (_tseq)  *_tseq = tseq;
+
+#ifdef DEBUG_AXIS_CONF
+  fprintf(stderr,"%s: sequence number: %d\n",Prog_Name,nseq);
+  fprintf(stderr,"%s: sequence length: %lld\n",Prog_Name,tseq);
+  for (i = 0; i < nctg; i++)
+    if (cseq[i])
+      fprintf(stderr,"%s: sequence [ctg] offset: %-8d %-12lld\n",Prog_Name,i,caxis[i]);
+  for (i = 0; i < nseq; i++)
+    { fprintf(stderr,"%s: sequence [scf] offset: %-8d %-12lld %s\n",Prog_Name,i,saxis[i],NOLABEL? "" : names);
+      if (!NOLABEL) names += strlen(names) + 1;
+    }
+#endif
+
   free(sarray);
 
-  if (nseq) *nseq = n;
-  if (tseq) *tseq = t;
+  return (nseq);
+}
 
-  return (seqs);
+#define INT_SIGN(x) (((x)>0)-((x)<0))
+
+static void alnConfig()
+{ int64 i;
+  int aread, bread, abpos, aepos, bbpos, bepos, l, a, b;
+  Segment *segment;
+
+  for (i = 0; i < nSegment; i++)
+    { segment = &segments[i];
+      if (IS_DELT(segment->flag))
+        continue;
+
+      aread = segment->aread;
+      bread = segment->bread;
+
+      abpos = segment->abpos;
+      aepos = segment->aepos;
+      bbpos = segment->bbpos;
+      bepos = segment->bepos;
+
+      if (ASEQ[aread] < 0)
+        { l = AEND[aread] - ABEG[aread];
+          abpos = l - abpos;
+          aepos = l - aepos;
+        }
+      if (BSEQ[bread] < 0)
+        { l = BEND[bread] - BBEG[bread];
+          bbpos = l - bbpos;
+          bepos = l - bepos;
+        }
+
+      segment->abpos = abpos;
+      segment->aepos = aepos;
+      segment->bbpos = bbpos;
+      segment->bepos = bepos;
+
+      a = abpos - aepos;
+      b = bbpos - bepos;
+
+      if (INT_SIGN(a) == INT_SIGN(b))
+        SET_RED(segment->flag);
+      else
+        SET_BLUE(segment->flag);
+    }
+}
+
+/*************************************************************************
+**************** Cohen–Sutherland line clipping algorithm ****************
+**************************************************************************
+ * given a rectangle clip window bounded by [xmin, xmax, ymin, ymax]
+ * and a line segment spanned by [x1, y1] and [x2, y2]
+ * return
+ *   -1  if the line segment is completely invisible
+ *    0  if the line segment is contained, i.e., no clipping
+ *   >0  if the line segment is partially visible
+ * for non-negative return values, the new coordinates are computed
+**************************************************************************/
+
+#define INSIDE 0 // 0000
+#define LEFT   1 // 0001
+#define RIGHT  2 // 0010
+#define BOTTOM 4 // 0100
+#define TOP    8 // 1000
+
+static inline int interCode(double x, double y, double xmin, double xmax, double ymin, double ymax)
+{ int code = INSIDE;
+  
+  if (x < xmin)
+    code |= LEFT;
+  else if (x > xmax)
+    code |= RIGHT;
+  if (y < ymin)
+    code |= BOTTOM;
+  else if (y > ymax)
+    code |= TOP;
+
+  return (code);
+}
+
+int cohen_sutherland_clip(double x1, double y1, double x2, double y2,
+        double xmin, double xmax, double ymin, double ymax,
+        double *nx1, double *ny1, double *nx2, double *ny2)
+{ int code1, code2, code_out;
+  double x, y;
+  int inter;
+
+  code1 = interCode(x1, y1, xmin, xmax, ymin, ymax);
+  code2 = interCode(x2, y2, xmin, xmax, ymin, ymax);
+
+  inter = 0;
+  while (1)
+    { if (!(code1 | code2))
+        break;
+      else if (code1 & code2)
+        return (-1);
+      else
+        { code_out = code1? code1 : code2;
+          if (code_out & TOP)
+            { x = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1);
+              y = ymax;
+            }
+          else if (code_out & BOTTOM)
+            { x = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1);
+              y = ymin;
+            }
+          else if (code_out & RIGHT)
+            { y = y1 + (y2 - y1) * (xmax - x1) / (x2 - x1);
+              x = xmax;
+            }
+          else
+            { y = y1 + (y2 - y1) * (xmin - x1) / (x2 - x1);
+              x = xmin;
+            }
+
+          if (code_out == code1)
+            { x1 = x;
+              y1 = y;
+              code1 = interCode(x1, y1, xmin, xmax, ymin, ymax);
+            }
+          else
+            { x2 = x;
+              y2 = y;
+              code2 = interCode(x2, y2, xmin, xmax, ymin, ymax);
+            }
+          inter++;
+        }
+    }
+
+  *nx1 = x1;
+  *ny1 = y1;
+  *nx2 = x2;
+  *ny2 = y2;
+
+  return (inter);
+}
+/**********************************END************************************/
+
+void *aln_clip(void *args)
+{ Packet *parm  = (Packet *) args;
+  int64 beg  = parm->beg;
+  int64 end  = parm->end;
+  int64 i;
+  Segment *segment;
+  int x, aread, bread;
+  double abpos, aepos, bbpos, bepos;
+
+  for (i = beg; i < end; i++)
+    { segment = segments + i;
+      if (IS_DELT(segment->flag))
+        continue;
+      aread = segment->aread;
+      bread = segment->bread;
+      if (!ASEQ[aread] || !BSEQ[bread])
+        { SET_DELT(segment->flag);
+          continue;
+        }
+      abpos = segment->abpos;
+      aepos = segment->aepos;
+      bbpos = segment->bbpos;
+      bepos = segment->bepos;
+
+      x = cohen_sutherland_clip(abpos, bbpos, aepos, bepos,
+              ABEG[aread], AEND[aread], BBEG[bread], BEND[bread],
+              &abpos, &bbpos, &aepos, &bepos);
+
+      if (x < 0)
+        SET_DELT(segment->flag);
+      else if (x > 0)
+        { segment->abpos = (int) (abpos + .499);
+          segment->aepos = (int) (aepos + .499);
+          segment->bbpos = (int) (bbpos + .499);
+          segment->bepos = (int) (bepos + .499);
+        }
+    }
+
+  return (NULL);
 }
 
 void aln_filter()
-{ if (!MAXALIGN) return;
-   
-  int i, digits;
+{ int i, digits;
   int64 nseg;
   double alen;
   uint64 *sarray;
   Segment *s;
 
+  // recalculate alignment coordinates
+  { int p;
+    Packet *parm;
+    pthread_t threads[NTHREADS];
+
+    parm = Malloc(sizeof(Packet)*NTHREADS,"Allocating thread records");
+    if (parm == NULL)
+      exit (1);
+
+    for (p = 0; p < NTHREADS ; p++)
+      { parm[p].beg = (p * nSegment) / NTHREADS;
+        if (p > 0)
+          parm[p-1].end = parm[p].beg;
+      }
+    parm[NTHREADS-1].end = nSegment;
+
+    for (p = 1; p < NTHREADS; p++)
+      pthread_create(threads+p,NULL,aln_clip,parm+p);
+    aln_clip(parm);
+    for (p = 1; p < NTHREADS; p++)
+      pthread_join(threads[p],NULL);
+
+    free(parm);
+  }
+
   nseg = 0;
-  for (i = 0; i < nSegment; i++)
-    { s = &segments[i];
-      if (ASEQ[s->aread] < 0 ||
-              BSEQ[s->bread] < 0)
-        continue;
-      if (nseg < i)
-        segments[nseg++] = segments[i];
-    }
-  nSegment = nseg;
+  for (i = 0, s = segments; i < nSegment; i++, s++)
+    if (!IS_DELT(s->flag))
+      nseg++;
 
-  if (nSegment <= MAXALIGN) return;
+  if (MAXALIGN == 0 || nseg <= MAXALIGN) return;
 
-  sarray = (uint64 *)Malloc(sizeof(uint64)*nSegment,"Allocating seq array");
+  sarray = (uint64 *)Malloc(sizeof(uint64)*nseg,"Allocating seq array");
   if (sarray == NULL)
     exit (1);
   
+  nseg = 0;
   for (i = 0, s = segments; i < nSegment; i++, s++)
-    sarray[i] = (uint64) (s->aepos-s->abpos) << 32 | i;
+    if (!IS_DELT(s->flag))
+      sarray[nseg++] = (uint64) (s->aepos-s->abpos) << 32 | i;
 
-  qsort(sarray, nSegment, sizeof(uint64), DSORT);
+  qsort(sarray, nseg, sizeof(uint64), DSORT);
 
   alen = (double) (sarray[MAXALIGN-1] >> 32);
   digits = 1;
-  while (alen >= 10) {alen /= 10; digits *= 10;};
-  alen = ((int) (alen) + 1) * digits;
+  while (alen > digits) {alen /= 10; digits *= 10;};
+  alen = ((int) alen + 1) * digits;
 
-  for (nseg = 0; nseg < nSegment; nseg++) {
-    if ((sarray[nseg] >> 32) < alen)
-      break;
-    sarray[nseg] &= 0xFFFFFFFFU;
-  }
-
-  qsort(sarray, nseg, sizeof(uint64), USORT);
-
-  nSegment = 0;
   for (i = 0; i < nseg; i++)
-    segments[nSegment++] = segments[sarray[i]];
+    if ((sarray[i] >> 32) < alen)
+        SET_DELT(segments[sarray[i]&0xFFFFFFFFU].flag);
+
+  nseg = 0;
+  for (i = 0, s = segments; i < nSegment; i++, s++)
+    if (!IS_DELT(s->flag))
+      nseg++;
 
   free(sarray);
   
   fprintf(stderr, "%s: using length filter threshold %.0f\n",Prog_Name,alen);
-  fprintf(stderr, "%s: selected %lld alignments to plot\n",Prog_Name,nSegment);  
+  fprintf(stderr, "%s: selected %lld alignments to plot\n",Prog_Name,nseg); 
 }
 
 #define eps_header(fp,x,y,linewidth) { \
@@ -1120,18 +1910,18 @@ void make_plot(FILE *fo)
 { // generate eps file
   int i, c;
   int width, height, fsize, maxis;
-  int *xseqs, *yseqs;
+  char *xnames, *ynames;
   int nxseq, nyseq;
-  int64 txseq, tyseq;
+  int64 txseq, tyseq, *cxoff, *sxoff, *cyoff, *syoff;
   double sx, sy;
   double lsize;
 
   // find total length of x- and y-axis and order of plotting
-  xseqs = yseqs = NULL;
-  nxseq = nyseq = 0;
   txseq = tyseq = 0;
-  xseqs = axisConfig(Bdict, BLEN, BSEQ, &nxseq, &txseq);
-  yseqs = axisConfig(Adict, ALEN, ASEQ, &nyseq, &tyseq);
+  nxseq = axisConfig(BDIC,BSCF,NBCTG,BSEQ,BBEG,BEND,BMAP,BLEN,BOFF,BNAME,&cxoff,&sxoff,&xnames,&txseq);
+  nyseq = axisConfig(ADIC,ASCF,NACTG,ASEQ,ABEG,AEND,AMAP,ALEN,AOFF,ANAME,&cyoff,&syoff,&ynames,&tyseq);
+
+  alnConfig();
 
   width  = IMGWIDTH;
   height = IMGHEIGH;
@@ -1210,36 +2000,39 @@ void make_plot(FILE *fo)
   eps_gray(fo, .8);
 
   if (!NOLABEL)
-    { // write x labels
-      if (PRINTSID)
-        for (i = 0; i < nxseq; i++)
-          eps_Mint(fo, (BSEQ[xseqs[i]] + .5 * BLEN[xseqs[i]]) * sx, fsize * .5, xseqs[i] + 1);
-      else
-        for (i = 0; i < nxseq; i++)
-          eps_Mstr(fo, (BSEQ[xseqs[i]] + .5 * BLEN[xseqs[i]]) * sx, fsize * .5,
-                       dictName(Bdict, xseqs[i]));
+    { char *names;
+
+      // write x labels
+      names = xnames;
+      eps_Mstr(fo, .5 * sxoff[0] * sx, fsize * .5, names);
+      names += strlen(names) + 1;
+      for (i = 1; i < nxseq; i++)
+        { eps_Mstr(fo, .5 * (sxoff[i-1] + sxoff[i]) * sx, fsize * .5, names);
+          names += strlen(names) + 1;
+        }
       eps_stroke(fo);
       fprintf(fo, "gsave %g 0 translate 90 rotate\n", fsize * 1.25);
       
       // write y labels
-      if (PRINTSID)
-        for (i = 0; i < nyseq; i++)
-          eps_Mint(fo, (ASEQ[yseqs[i]] + .5 * ALEN[yseqs[i]]) * sy, 0, yseqs[i] + 1);
-      else
-        for (i = 0; i < nyseq; i++)
-          eps_Mstr(fo, (ASEQ[yseqs[i]] + .5 * ALEN[yseqs[i]]) * sy, 0, dictName(Adict, yseqs[i]));
+      names = ynames;
+      eps_Mstr(fo, .5 * syoff[0] * sy, 0, names);
+      names += strlen(names) + 1;
+      for (i = 1; i < nyseq; i++)
+        { eps_Mstr(fo, .5 * (syoff[i-1] + syoff[i]) * sy, 0, names);
+          names += strlen(names) + 1;
+        }
       fprintf(fo, "grestore\n");
       eps_stroke(fo);
     }
 
   // write grid lines
   eps_linewidth(fo, lsize/2);
+  eps_linex(fo, 1, width,  1);
   for (i = 0; i < nyseq; i++)
-    eps_linex(fo, 1, width,  i == 0? 1 : ASEQ[yseqs[i]] * sy);
-  eps_linex(fo, 1, width,  tyseq * sy);
+    eps_linex(fo, 1, width,  syoff[i] * sy);
+  eps_liney(fo, 1, height, 1);
   for (i = 0; i < nxseq; i++)
-    eps_liney(fo, 1, height, i == 0? 1 : BSEQ[xseqs[i]] * sx);
-  eps_liney(fo, 1, height, txseq * sx);
+    eps_liney(fo, 1, height, sxoff[i] * sx);
   eps_stroke(fo);
 
   // write segments
@@ -1251,30 +2044,37 @@ void make_plot(FILE *fo)
     { eps_color(fo, SEG_COLOR[c]);
       for (i = 0; i < nSegment; i++)
         { segment = &segments[i];
+          if (IS_DELT(segment->flag) ||
+                  !(segment->flag&(1<<(c+1))))
+            continue;
+
           aread = segment->aread;
           bread = segment->bread;
-          xo = BSEQ[bread];
-          yo = ASEQ[aread];
-          if (xo < 0 || yo < 0)
-            continue;
+
+          xo = cxoff[bread];
+          yo = cyoff[aread];
           x0 = segment->bbpos;
           x1 = segment->bepos;
           y0 = segment->abpos;
           y1 = segment->aepos;
-          if (c == 0 && x0 > x1) continue;
-          if (c == 1 && x0 < x1) continue;
+
           x0 = (x0 + xo) * sx;
           x1 = (x1 + xo) * sx;
           y0 = (y0 + yo) * sy;
           y1 = (y1 + yo) * sy;
+
           eps_line(fo, x0, y0, x1, y1);
         }
       eps_stroke(fo);
     }
   eps_bottom(fo);
-  
-  free(xseqs);
-  free(yseqs);
+
+  free(cxoff);
+  free(cyoff);
+  free(sxoff);
+  free(syoff);
+  free(xnames);
+  free(ynames);
 }
 
 int main(int argc, char *argv[])
@@ -1340,13 +2140,18 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
   argc = j;
 
-  if (argc != 2 || flags['h'])
+  if (argc < 2 || argc > 4 || flags['h'])
     { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
       fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
       fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
+      fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[3]);
       fprintf(stderr,"\n");
-      fprintf(stderr,"       <target> = <string>[,<string>[,...]] | #<int>[,<int>[,...]] |");
-      fprintf(stderr," @<FILE>\n");
+      fprintf(stderr,"     <range> =    <contig>[-<contig>]     |  <contig>_<int>-(<int>|#)\n");
+      fprintf(stderr,"             | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)\n");
+      fprintf(stderr,"\n");
+      fprintf(stderr,"        <contig>   = (<int>|#)[.(<int>|#)]\n");
+      fprintf(stderr,"\n");
+      fprintf(stderr,"        <scaffold> =  <int>|<string>|#\n");
       fprintf(stderr,"\n");
       fprintf(stderr,"      -a: minimum alignment length\n");
       fprintf(stderr,"      -e: minimum alignment similarity\n");
@@ -1441,10 +2246,13 @@ int main(int argc, char *argv[])
       read_paf(name,gzipd);
     else
       read_1aln(name);
+
+    free(name);
   }
-  
-  ASEQ = parseTargetSEQ(yseq, Adict, ALEN);
-  BSEQ = parseTargetSEQ(xseq, Bdict, BLEN);
+
+  parseTargetSEQ(yseq, NACTG, NASCF, ADIC, ASCF, AMAP, ALEN, AOFF, &ASEQ, &ABEG, &AEND, &ANAME);
+  parseTargetSEQ(xseq, NBCTG, NBSCF, BDIC, BSCF, BMAP, BLEN, BOFF, &BSEQ, &BBEG, &BEND, &BNAME);
+
   aln_filter();
 
   if (OUTEPS != NULL)
@@ -1474,15 +2282,17 @@ int main(int argc, char *argv[])
   free(AMAP);
   free(ASEQ);
   free(BSEQ);
-  dictDestroy(Adict);
+  free(ANAME);
+  free(BNAME);
+  dictDestroy(ADIC);
   if (ISTWO)
-    dictDestroy(Bdict);
+    dictDestroy(BDIC);
 
   free(segments);
   free(OUTEPS);
   free(Prog_Name);
 
   Catenate(NULL,NULL,NULL,NULL);
-  
+
   exit (0);
 }

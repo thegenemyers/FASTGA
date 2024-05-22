@@ -1,4 +1,3 @@
-/*  Last edited: Mar 18 20:34 2024 (rd109) */
  /*******************************************************************************************
  *
  *  Adaptamer merge phase of a WGA.  Given indices of two genomes (at a specified frequency
@@ -27,6 +26,7 @@
 #include "DB.h"
 #include "align.h"
 #include "alncode.h"
+#include "DNAsource.h"
 
 #undef    DEBUG_SPLIT
 #undef    DEBUG_MERGE
@@ -74,12 +74,11 @@ static char  *ONE_ROOT;    //  -one option path
 
 static char  *CommandLine; //  Command line in toto
 
-static char *SPATH1, *SPATH2;   //  Sources are at SPATH/SROOT.suffix[SEXTN]
-static char *SROOT1, *SROOT2;
-static int   SEXTN1,  SEXTN2;
-static char   *suffix[10] = { "", ".fa", ".fna", ".fasta",
-                              ".gz", ".fa.gz", ".fna.gz", ".fasta.gz", ".gdb", ".gix" };
-static int     suflen[10] = { 0, 3, 4, 6, 3, 6, 7, 9, 4, 4 };
+static char *PATH1, *PATH2;   //  GDB & GIX are PATHx/ROOTx.[gdb|gix]
+static char *ROOT1, *ROOT2;
+
+static char *SPATH1, *SPATH2;  //  Path name of source if TYPEx <= IS_GDB
+static int   TYPE1,  TYPE2;   //  Type of source file (see DNAsource.h)
 
 static int   KMER;         //  K-mer length and # of threads from genome indices
 
@@ -144,31 +143,33 @@ static void Clean_Exit(int status)
     exit (0);
 
   fail = 0;
-  if (SEXTN2 < 9)
-    command = Malloc(strlen(SPATH1)+strlen(SROOT1)+
-                     strlen(SPATH2)+strlen(SPATH2)+100,"Allocating command string");
+  if (TYPE2 <= IS_GDB)
+    command = Malloc(strlen(PATH1)+strlen(ROOT1)+
+                     strlen(PATH2)+strlen(ROOT2)+100,"Allocating command string");
   else
-    command = Malloc(strlen(SPATH1)+strlen(SROOT1)+100,"Allocating command string");
+    command = Malloc(strlen(PATH1)+strlen(ROOT1)+100,"Allocating command string");
 
   if (command == NULL)
     fail = 1;
   else
-    { if (SEXTN1 < 9)
-        { if (SEXTN1 < 8)
-            sprintf(command,"GIXrm -fg %s/%s.gdb",SPATH1,SROOT1);
+    { if (TYPE1 <= IS_GDB)
+        { if (TYPE1 < IS_GDB)
+            sprintf(command,"GIXrm -fg %s/%s.gdb",PATH1,ROOT1);
           else
-            sprintf(command,"GIXrm -f %s/%s.gix",SPATH1,SROOT1);
+            sprintf(command,"GIXrm -f %s/%s.gix",PATH1,ROOT1);
           if (system(command) != 0)
             fail = 1;
+          free(ROOT1);
         }
 
-      if (SEXTN2 < 9)
-        { if (SEXTN2 < 8)
-            sprintf(command,"GIXrm -fg %s/%s.gdb",SPATH2,SROOT2);
+      if (TYPE2 <= IS_GDB)
+        { if (TYPE2 < IS_GDB)
+            sprintf(command,"GIXrm -fg %s/%s.gdb",PATH2,ROOT2);
           else
-            sprintf(command,"GIXrm -f %s/%s.gix",SPATH2,SROOT2);
+            sprintf(command,"GIXrm -f %s/%s.gix",PATH2,ROOT2);
           if (system(command) != 0)
             fail = 1;
+          free(ROOT2);
         }
 
       free(command);
@@ -3087,11 +3088,18 @@ static int la_merge(TP *parm)
     char *db2_name;
     char *cpath;
 
-    db1_name = Strdup(Catenate(SPATH1,"/",SROOT1,".gdb"),"db1_name");
-    if (SPATH2 != NULL)
-      db2_name = Strdup(Catenate(SPATH2,"/",SROOT2,".gdb"), "db2_name");
+    if (TYPE1 < IS_GDB && !KEEP)
+      db1_name = Strdup(SPATH1,"db1_name");
     else
+      db1_name = Strdup(Catenate(PATH1,"/",ROOT1,".gdb"),"db1_name");
+    if (SELF)
       db2_name = NULL;
+    else
+      { if (TYPE2 < IS_GDB && !KEEP)
+          db2_name = Strdup(SPATH2, "db2_name");
+        else
+          db2_name = Strdup(Catenate(PATH2,"/",ROOT2,".gdb"), "db2_name");
+      }
     cpath = getcwd(NULL,0);
 
     of = open_Aln_Write(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"), 1,
@@ -3606,204 +3614,106 @@ int main(int argc, char *argv[])
 
   //  Parse source names and make precursors if necessary
 
-  { char *p, *e;
-    int   i;
+  { char *p;
     FILE *input;
+    char *tpath1;
+    char *tpath2;
 
-    SEXTN1 = 0;
-    SPATH1 = argv[1];
-    p = rindex(SPATH1,'/');
+    PATH1 = argv[1];
+    p = rindex(PATH1,'/');
     if (p == NULL)
-      { SROOT1 = SPATH1;
-        SPATH1 = ".";
+      { ROOT1 = PATH1;
+        PATH1 = ".";
       }
     else
       { *p++ = '\0';
-        SROOT1 = p;
+        ROOT1 = p;
       }
 
-    input = fopen(Catenate(SPATH1,"/",SROOT1,".gix"),"r");
+    input = fopen(Catenate(PATH1,"/",ROOT1,".gix"),"r");
     if (input != NULL)
       { fclose(input);
-        SEXTN1 = 9;
+        TYPE1 = IS_GDB+1;
       }
-    else if (strcmp(SROOT1+(strlen(SROOT1)-4),".gix") == 0)
-      { SEXTN1 = 9;
-        SROOT1[strlen(SROOT1)-4] = '\0';
-      }
-
-    if (SEXTN1 == 0)
-      { input = fopen(Catenate(SPATH1,"/",SROOT1,".gdb"),"r");
-        if (input != NULL)
-          { fclose(input);
-            SEXTN1 = 8;
-          }
-        else if (strcmp(SROOT1+(strlen(SROOT1)-4),".gdb") == 0)
-          { SEXTN1 = 8;
-            SROOT1[strlen(SROOT1)-4] = '\0';
-          }
-      }
- 
-    if (SEXTN1 == 0)
-      { for (i = 7; i >= 0; i--)
-          { input = fopen(Catenate(SPATH1,"/",SROOT1,suffix[i]),"r");
-            if (input != NULL)
-              break;
-          }
-        if (i < 0)
-          { fprintf(stderr,"%s: Could not find a FASTA or GDB with base name %s\n",
-                           Prog_Name,SROOT1);
-            exit (1);
-          }
-        fclose(input);
-        SEXTN1 = i;
-        if (i%4 == 0)
-          { e = SROOT1 + strlen(SROOT1);
-            for (i = 1; i < 8; i++)
-              if (strcmp(e-suflen[i],suffix[i]) == 0 && i != 4)
-                break;
-            SEXTN1 += i;
-            if (SEXTN1 >= 8)
-              { fprintf(stderr,"%s: Could not find a valid extension for %s\n",Prog_Name,SROOT1);
-                exit (1);
-              }
-            e[-suflen[i]] = '\0';
-          }
-      }
-
-    input = fopen(Catenate(SPATH1,"/",SROOT1,".gix"),"r");
-    if (input)
-      { SEXTN1 = 9;
-        fclose(input);
+    else if (strcmp(ROOT1+(strlen(ROOT1)-4),".gix") == 0)
+      { ROOT1[strlen(ROOT1)-4] = '\0';
+        TYPE1 = IS_GDB+1;
       }
     else
-      { input = fopen(Catenate(SPATH1,"/",SROOT1,".gdb"),"r");
-        if (input)
-          { SEXTN1 = 8;
-            fclose(input);
-          }
+      { TYPE1 = get_dna_paths(argv[1],NULL,&SPATH1,&tpath1,0);
+        ROOT1 = Root(tpath1,NULL);
       }
 
-    SEXTN2 = 9;
+    TYPE2 = IS_GDB+1;
     if (argc == 3)
-      { SEXTN2 = 0;
-        SPATH2 = argv[2];
-        p = rindex(SPATH2,'/');
+      { PATH2 = argv[2];
+        p = rindex(PATH2,'/');
         if (p == NULL)
-          { SROOT2 = SPATH2;
-            SPATH2 = ".";
+          { ROOT2 = PATH2;
+            PATH2 = ".";
           }
         else
           { *p++ = '\0';
-            SROOT2 = p;
+            ROOT2 = p;
           }
 
-        input = fopen(Catenate(SPATH2,"/",SROOT2,".gix"),"r");
+        input = fopen(Catenate(PATH2,"/",ROOT2,".gix"),"r");
         if (input != NULL)
           { fclose(input);
-            SEXTN2 = 9;
+            TYPE2 = IS_GDB+1;
           }
-        else if (strcmp(SROOT2+(strlen(SROOT2)-4),".gix") == 0)
-          { SEXTN2 = 9;
-            SROOT2[strlen(SROOT2)-4] = '\0';
-          }
-    
-        if (SEXTN2 == 0)
-          { input = fopen(Catenate(SPATH2,"/",SROOT2,".gdb"),"r");
-            if (input != NULL)
-              { fclose(input);
-                SEXTN2 = 8;
-              }
-            else if (strcmp(SROOT2+(strlen(SROOT2)-4),".gdb") == 0)
-              { SEXTN2 = 8;
-                SROOT2[strlen(SROOT2)-4] = '\0';
-              }
-          }
-     
-        if (SEXTN2 == 0)
-          { for (i = 7; i >= 0; i--)
-              { input = fopen(Catenate(SPATH2,"/",SROOT2,suffix[i]),"r");
-                if (input != NULL)
-                  break;
-              }
-            if (i < 0)
-              { fprintf(stderr,"%s: Could not find a FASTA or GDB with base name %s\n",
-                               Prog_Name,SROOT2);
-                exit (1);
-              }
-            fclose(input);
-            SEXTN2 = i;
-            if (i%4 == 0)
-              { e = SROOT2 + strlen(SROOT2);
-                for (i = 1; i < 8; i++)
-                  if (strcmp(e-suflen[i],suffix[i]) == 0 && i != 4)
-                    break;
-                SEXTN2 += i;
-                if (SEXTN2 >= 8)
-                  { fprintf(stderr,"%s: Could not find a valid extension for %s\n",
-                                   Prog_Name,SROOT2);
-                    exit (1);
-                  }
-                e[-suflen[i]] = '\0';
-              }
-          }
-
-        input = fopen(Catenate(SPATH2,"/",SROOT2,".gix"),"r");
-        if (input)
-          { SEXTN2 = 9;
-            fclose(input);
+        else if (strcmp(ROOT2+(strlen(ROOT2)-4),".gix") == 0)
+          { ROOT2[strlen(ROOT2)-4] = '\0';
+            TYPE2 = IS_GDB+1;
           }
         else
-          { input = fopen(Catenate(SPATH2,"/",SROOT2,".gdb"),"r");
-            if (input)
-              { SEXTN2 = 8;
-                fclose(input);
-              }
+          { TYPE2 = get_dna_paths(argv[2],NULL,&SPATH2,&tpath2,0);
+            ROOT2 = Root(tpath2,NULL);
           }
       }
-    else
-      SPATH2 = NULL;
 
-    if (SEXTN1 < 9)
+    if (TYPE1 <= IS_GDB)
       { char *command;
 
-        command = Malloc(strlen(SPATH1)+strlen(SROOT1)+100,"Allocating command string");
+        command = Malloc(strlen(SPATH1)+100,"Allocating command string");
         if (command == NULL)
           exit (1);
-        if (SEXTN1 < 8)
-          { sprintf(command,"FAtoGDB%s %s/%s%s",VERBOSE?" -v":"",SPATH1,SROOT1,suffix[SEXTN1]);
+        if (TYPE1 < IS_GDB)
+          { sprintf(command,"FAtoGDB%s %s",VERBOSE?" -v":"",SPATH1);
             if (system(command) != 0)
               { fprintf(stderr,"\n%s: Call to FAtoGDB failed\n",Prog_Name);
                 exit (1);
               }
           }
-        sprintf(command,"GIXmake%s -f%d %s/%s.gdb",VERBOSE?" -v":"",FREQ,SPATH1,SROOT1);
+	sprintf(command,"GIXmake%s -f%d %s",VERBOSE?" -v":"",FREQ,tpath1);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
           }
         free(command);
+        free(tpath1);
       }
 
-    if (SEXTN2 < 9)
+    if (TYPE2 <= IS_GDB)
       { char *command;
 
-        command = Malloc(strlen(SPATH2)+strlen(SROOT2)+100,"Allocating command string");
+        command = Malloc(strlen(SPATH2)+100,"Allocating command string");
         if (command == NULL)
-          Clean_Exit(1);
-        if (SEXTN2 < 8)
-          { sprintf(command,"FAtoGDB%s %s/%s%s",VERBOSE?" -v":"",SPATH2,SROOT2,suffix[SEXTN2]);
+          exit (1);
+        if (TYPE2 < IS_GDB)
+          { sprintf(command,"FAtoGDB%s %s",VERBOSE?" -v":"",SPATH2);
             if (system(command) != 0)
               { fprintf(stderr,"\n%s: Call to FAtoGDB failed\n",Prog_Name);
                 Clean_Exit(1);
               }
           }
-        sprintf(command,"GIXmake%s -f%d %s/%s.gdb",VERBOSE?" -v":"",FREQ,SPATH2,SROOT2);
+	sprintf(command,"GIXmake%s -f%d %s",VERBOSE?" -v":"",FREQ,tpath2);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
           }
         free(command);
+        free(tpath2);
       }
   }
 
@@ -3845,31 +3755,31 @@ int main(int argc, char *argv[])
 
   SELF = (argc == 2);
 
-  T1 = Open_Kmer_Stream(Catenate(SPATH1,"/",SROOT1,".gix"));
+  T1 = Open_Kmer_Stream(Catenate(PATH1,"/",ROOT1,".gix"));
   if (SELF)
     T2 = T1;
   else
-    T2 = Open_Kmer_Stream(Catenate(SPATH2,"/",SROOT2,".gix"));
+    T2 = Open_Kmer_Stream(Catenate(PATH2,"/",ROOT2,".gix"));
   if (T1 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,SPATH1,SROOT1);
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,PATH1,ROOT1);
       Clean_Exit(1);
     }
   if (T2 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,SPATH2,SROOT2);
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,PATH2,ROOT2);
       Clean_Exit(1);
     }
   
-  P1 = Open_Post_List(Catenate(SPATH1,"/",SROOT1,".gix"));
+  P1 = Open_Post_List(Catenate(PATH1,"/",ROOT1,".gix"));
   if (SELF)
     P2 = P1;
   else
-    P2 = Open_Post_List(Catenate(SPATH2,"/",SROOT2,".gix"));
+    P2 = Open_Post_List(Catenate(PATH2,"/",ROOT2,".gix"));
   if (P1 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,SPATH1,SROOT1);
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,PATH1,ROOT1);
       Clean_Exit(1);
     }
   if (P2 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,SPATH2,SROOT2);
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,PATH2,ROOT2);
       Clean_Exit(1);
     }
 
@@ -3877,14 +3787,14 @@ int main(int argc, char *argv[])
   Perm2  = P2->perm;
   KMER   = T1->kmer;
 
-  if (Open_DB(Catenate(SPATH1,"/",SROOT1,".gdb"),DB1) < 0)
+  if (Open_DB(Catenate(PATH1,"/",ROOT1,".gdb"),DB1) < 0)
     Clean_Exit(1);
   short_DB_fix(DB1);
 
   if (SELF)
     DB2 = DB1;
   else
-    { if (Open_DB(Catenate(SPATH2,"/",SROOT2,".gdb"),DB2) < 0)
+    { if (Open_DB(Catenate(PATH2,"/",ROOT2,".gdb"),DB2) < 0)
         Clean_Exit(1);
       short_DB_fix(DB2);
     }
@@ -3903,12 +3813,12 @@ int main(int argc, char *argv[])
 
   if (P1->freq < FREQ)
     { fprintf(stderr,"%s: Genome index %s/%s.gix cutoff of %d < requested cutoff\n",
-                     Prog_Name,SPATH1,SROOT1,P1->freq);
+                     Prog_Name,PATH1,ROOT1,P1->freq);
       Clean_Exit(1);
     }
   if (P2->freq < FREQ)
     { fprintf(stderr,"%s: Genome index %s/%s.gix cutoff %d < requested cutoff\n",
-                     Prog_Name,SPATH2,SROOT2,P2->freq);
+                     Prog_Name,PATH2,ROOT2,P2->freq);
       Clean_Exit(1);
     }
   if (T1->kmer != T2->kmer)
@@ -4197,6 +4107,11 @@ int main(int argc, char *argv[])
   Free_Post_List(P1);
 
   free(SORT_PATH);
+
+  if (TYPE2 <= IS_GDB)
+    free(SPATH2);
+  if (TYPE1 <= IS_GDB)
+    free(SPATH1);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

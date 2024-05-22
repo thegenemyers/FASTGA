@@ -445,10 +445,9 @@ of a square bracket [].
 <a name="GDBtoFA"></a>
 
 ```
-1. GDBtoFA [-vU] [-w<int(80)> <source:path>[.gdb] [ @ | <target:path>[<fa_sten>|<1_extn>] ]
+1. GDBtoFA [-vU] [-w<int(80)> <source:path>[.gdb] [ @ | <target:path>[<fa_sten>|.1seq] ]
 
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
-       <1_extn>  = any valid 1-code sequence file type
 
 ```
 GDBtoFA will produce exactly the FASTA file contents from which the source GDB was derived by
@@ -495,8 +494,24 @@ this requirement as a safeguard because if you have replaced your FASTAs with th
 then deleting the GDB is tantamount to deleting your genome source! 
 
 ```
-3. ALNreset [-T<int(8)>] <alignments:path>[.1aln] <DB1:path>[.gdb] [<DB2:path>[.gdb]]
+3. ALNreset [-T<int(8)>] <alignments:path>[.1aln]
+                         <source1:path>[.gdb|<fa_extn>|<1_extn>] [<source2:path>[.gdb|<fa_extn>|<1_extn>]]
+                                     
+       <fa_extn> = (.fa|.fna|.fasta)[.gz]
+       <1_extn>  = any valid 1-code sequence file type
 ```
 
-In the unfortunate event that the internal reference of 1-code alignment file (.1aln) to its genome databases have become
-"stale", ALNreset allows you to reset these paths within the given file.
+In the unfortunate event that the internal reference of 1-code alignment file (.1aln) to its genome source files have become
+"stale", ALNreset allows you to reset these paths within the given file.  Note carefully, that the references can be not only to a GDB but also the source 1-code or FASTA files from which a GDB can be
+built.
+
+```
+4. PAFtoALN [-T<int(8)>] <alignments:path>[.paf]
+                         <source1:path>[.gdb|<fa_extn>|<1_extn>] [<source2:path>[.gdb|<fa_extn>|<1_extn>]]
+                                     
+       <fa_extn> = (.fa|.fna|.fasta)[.gz]
+       <1_extn>  = any valid 1-code sequence file type
+```
+
+Under construction.
+

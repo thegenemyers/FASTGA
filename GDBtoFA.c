@@ -18,7 +18,7 @@
 #include "alncode.h"
 
 static char *Usage =
-         "[-vU] [-w<int(80)>] <source:path>[.gdb] [ @ | <target:path>[<fa_extn>|<1_extn>] ]";
+         "[-vU] [-w<int(80)>] <source:path>[.gdb] [ @ | <target:path>[<fa_extn>|.1seq] ]";
 
 int main(int argc, char *argv[])
 { DAZZ_DB    _db, *db = &_db;
@@ -91,7 +91,6 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"           <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
-        fprintf(stderr,"           <1_extn>  = any valid 1-code sequence file type\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -U: Use upper case for DNA (default is lower case).\n");
         fprintf(stderr,"      -w: Print -w bp per line (default is 80).\n");
@@ -133,13 +132,12 @@ int main(int argc, char *argv[])
     oname  = stub->fname[0];
     opath  = stub->prolog[0];
 
+    is_one = 0;
     if (argc == 2)
       { if (strcmp(oname+(strlen(oname)-5),".1seq") == 0)
           is_one = 1;
         else
-          { is_one = 0;
-            gzip   = 0;
-          }
+          gzip   = 0;
         TPATH  = NULL;
         TROOT  = NULL;
         TEXTN  = 0;
@@ -254,7 +252,10 @@ int main(int argc, char *argv[])
               }
           }
         else
-          { outone = oneFileOpenWriteNew(Catenate(TPATH,"/",TROOT,".1seq"),schema,"seq",1,0);
+          { if (strcmp(argv[2],"@") == 0)
+              outone = oneFileOpenWriteNew(Catenate(TPATH,"/",TROOT,""),schema,"seq",1,0);
+            else
+              outone = oneFileOpenWriteNew(Catenate(TPATH,"/",TROOT,".1seq"),schema,"seq",1,0);
             if (outone == NULL)
               { fprintf(stderr,"%s: Cannot open %s/%s.%s for writing\n",
                                Prog_Name,TPATH,TROOT,suffix[TEXTN]);

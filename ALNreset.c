@@ -21,8 +21,12 @@
 
 #include "DB.h"
 #include "alncode.h"
+#include "DNAsource.h"
 
-static char *Usage = "[-T<int(8)>] <alignments:path>[.1aln] <DB1:path>[.gdb] [<DB2:path>[.gdb]]";
+static char *Usage[] = 
+            { "[-T<int(8)>] <alignments:path>[.1aln]",
+              " <source1:path>[.gdb|<fa_extn>|<1_extn>] [<source2:path>[.gdb|<fa_extn>|<1_extn>]]"
+            };
 
 typedef struct
   { OneFile *in, *out;
@@ -50,8 +54,8 @@ void *threadCopy(void *args)
 }
 
 int main(int argc, char *argv[])
-{ char *SPATH1, *SROOT1;
-  char *SPATH2, *SROOT2;
+{ char *SPATH1;
+  char *SPATH2;
   char *APATH, *AROOT;
   int   NTHREADS;
   char *command;
@@ -104,31 +108,26 @@ int main(int argc, char *argv[])
     argc = j;
 
     if (argc < 3 || argc > 4)
-      { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
+      { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
+        fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"           <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
+        fprintf(stderr,"           <1_extn>  = any valid 1-code sequence file type\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -T: Number of threads to use.\n");
         exit (1);
       }
   }
 
-  //  Find .gdb's and parse their path
+  //  Find sources
 
-  { FILE *input;
+  { char *tpath;
 
-    SPATH1 = PathTo(argv[2]);
-    SROOT1 = Root(argv[2],".gdb");
-    input = Fopen(Catenate(SPATH1,"/",SROOT1,".gdb"),"r");
-    if (input == NULL)
-      exit (1);
-    fclose(input);
-
-    SPATH2 = NULL;
-    SROOT2 = NULL;
+    get_dna_paths(argv[2],NULL,&SPATH1,&tpath,0);
+    free(tpath);
     if (argc == 4)
-      { SPATH2 = PathTo(argv[3]);
-        SROOT2 = Root(argv[3],".gdb");
-        input = Fopen(Catenate(SPATH2,"/",SROOT2,".gdb"),"r");
-        if (input == NULL)
-          exit (1);
-        fclose(input);
+      { get_dna_paths(argv[3],NULL,&SPATH2,&tpath,0);
+        free(tpath);
       }
   }
 
@@ -151,21 +150,21 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"%s: Failed to create 1aln schema\n",Prog_Name);
         exit (1);
       }
-    ofIn = oneFileOpenRead(inFileName,schema,"aln",1);
+    ofIn = oneFileOpenRead(inFileName,schema,"aln",NTHREADS);
     if (ofIn == NULL)
       { fprintf(stderr,"%s: Failed to open .1aln file %s\n",Prog_Name,inFileName);
         exit (1);
       }
-    ofOut = oneFileOpenWriteFrom(tmpFileName,ofIn,true,1);
+    ofOut = oneFileOpenWriteFrom(tmpFileName,ofIn,true,NTHREADS);
     if (ofOut == NULL)
       { fprintf(stderr,"%s: Failed to open .1aln file %s\n",Prog_Name,tmpFileName);
         exit (1);
       }
     oneAddProvenance(ofOut,Prog_Name,"0.1",command);
 
-    oneAddReference (ofOut,Catenate(SPATH1,"/",SROOT1,".gdb"), 1);
-    if (SROOT2 != NULL)
-      oneAddReference (ofOut,Catenate(SPATH2,"/",SROOT1,".gdb"), 2);
+    oneAddReference (ofOut,SPATH1, 1);
+    if (argc == 4)
+      oneAddReference (ofOut,SPATH2, 2);
     cpath = getcwd(NULL,0);
     oneAddReference(ofOut,cpath,3);
     free(cpath);
@@ -216,10 +215,7 @@ int main(int argc, char *argv[])
   free(AROOT);
   free(APATH);
   if (argc == 4)
-    { free(SROOT2);
-      free(SPATH2);
-    }
-  free(SROOT1);
+    free(SPATH2);
   free(SPATH1);
  
   exit (0);

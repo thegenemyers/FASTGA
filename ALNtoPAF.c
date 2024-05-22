@@ -22,6 +22,7 @@
 #include "DB.h"
 #include "align.h"
 #include "alncode.h"
+#include "DNAsource.h"
 
 #undef DEBUG_THREADS
 
@@ -354,8 +355,9 @@ int main(int argc, char *argv[])
 { Packet    *parm;
   DAZZ_DB   _db1, *db1 = &_db1;
   DAZZ_DB   _db2, *db2 = &_db2;
-  char      *db1_name;
-  char      *db2_name;
+  char      *db1_name, *db2_name;
+  int        hdrs1, hdrs2;
+  FILE     **bps1, **bps2;
   OneFile   *input;
   int64      novl;
 
@@ -410,70 +412,84 @@ int main(int argc, char *argv[])
 
   //  Initiate .1aln file reading and read header information
 
-  { char       *pwd, *root, *cpath;
+  { char       *pwd, *root, *cpath, *spath;
+    char       *src1_name, *src2_name;
+    int         type;
     FILE       *test;
 
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
     input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),NTHREADS,
-                          &novl,&TSPACE,&db1_name,&db2_name,&cpath);
+                          &novl,&TSPACE,&src1_name,&src2_name,&cpath);
     if (input == NULL)
       exit (1);
     free(root);
     free(pwd);
 
-    test = fopen(db1_name,"r");
+    test = fopen(src1_name,"r");
     if (test == NULL)
-      { if (*db1_name != '/')
-          test = fopen(Catenate(cpath,"/",db1_name,""),"r");
+      { if (*src1_name != '/')
+          test = fopen(Catenate(cpath,"/",src1_name,""),"r");
         if (test == NULL)
-          { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db1_name);
+          { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src1_name);
             exit (1);
           }
-        pwd = Strdup(Catenate(cpath,db1_name,"",""),"Allocating expanded name");
-        free(db1_name);
-        db1_name = pwd;
+        pwd = Strdup(Catenate(cpath,"/",src1_name,""),"Allocating expanded name");
+        free(src1_name);
+        src1_name = pwd;
       }
     fclose(test);
 
-    if (db2_name != NULL)
-      { test = fopen(db2_name,"r");
+    if (src2_name != NULL)
+      { test = fopen(src2_name,"r");
         if (test == NULL)
-          { if (*db2_name != '/')
-              test = fopen(Catenate(cpath,"/",db2_name,""),"r");
+          { if (*src2_name != '/')
+              test = fopen(Catenate(cpath,"/",src2_name,""),"r");
             if (test == NULL)
-              { fprintf(stderr,"%s: Could not find .gdb %s\n",Prog_Name,db2_name);
+              { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src2_name);
                 exit (1);
               }
-            pwd = Strdup(Catenate(cpath,db2_name,"",""),"Allocating expanded name");
-            free(db2_name);
-            db2_name = pwd;
+            pwd = Strdup(Catenate(cpath,"/",src2_name,""),"Allocating expanded name");
+            free(src2_name);
+            src2_name = pwd;
           }
         fclose(test);
       }
 
     free(cpath);
-  }
 
-  //  Open DB or DB pair
+    //  Prepare GDBs from sources if necessary
 
-  { int   s, r, gdb;
-
-    ISTWO  = 0;
-    gdb    = Open_DB(db1_name,db1);
-    if (gdb < 0)
-      exit (1);
-
-    if (db2_name != NULL)
-      { gdb = Open_DB(db2_name,db2);
-        if (gdb < 0)
+    ISTWO = 0;
+    type  = get_dna_paths(src1_name,src1_name,&spath,&db1_name,0);
+    if (type != IS_GDB)
+      bps1 = make_temporary_gdb(spath,db1_name,db1,&hdrs1,NTHREADS);
+    else
+      { if (Open_DB(db1_name,db1) < 0)
           exit (1);
+      }
+
+    free(spath);
+    if (src2_name != NULL)
+      { type = get_dna_paths(src2_name,src2_name,&spath,&db2_name,0);
+        if (type != IS_GDB)
+          bps2 = make_temporary_gdb(spath,db2_name,db2,&hdrs2,NTHREADS);
+        else
+          { if (Open_DB(db2_name,db2) < 0)
+              exit (1);
+          }
+        free(spath);
         ISTWO = 1;
       }
     else
-      db2  = db1;
+      { db2 = db1;
+        bps2 = bps1;
+      }
+  }
 
-    //  Build contig to scaffold maps in global vars
+  //  Setup scaffold->contig maps & scaffold name dictionary
+
+  { int   s, r;
 
     AMAX = db1->maxlen;
     BMAX = db2->maxlen;
@@ -518,16 +534,11 @@ int main(int argc, char *argv[])
 
   //  Preload all scaffold headers
 
-  { int r, hdrs;
+  { int r;
     char *eptr;
     struct stat state;
 
-    hdrs = open(Catenate(db1->path,".hdr","",""),O_RDONLY);
-    if (hdrs < 0)
-      { fprintf(stderr,"%s: Cannot open header file of %s\n",Prog_Name,argv[1]);
-        exit (1);
-      }
-    if (fstat(hdrs,&state) < 0)
+    if (fstat(hdrs1,&state) < 0)
       { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,argv[1]);
         exit (1);
       }
@@ -536,11 +547,11 @@ int main(int argc, char *argv[])
     if (AHEADER == NULL)
       exit (1);
 
-    if (read(hdrs,AHEADER,state.st_size) < 0)
+    if (read(hdrs1,AHEADER,state.st_size) < 0)
       { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[1]);
         exit (1);
       }
-    close(hdrs);
+    close(hdrs1);
 
     for (r = 0; r < db1->nreads; r++)
       if (db1->reads[r].origin == 0)
@@ -551,13 +562,8 @@ int main(int argc, char *argv[])
         }
 
     if (ISTWO)
-      { hdrs = open(Catenate(db2->path,".hdr","",""),O_RDONLY);
-        if (hdrs < 0)
-          { fprintf(stderr,"%s: Cannot open header file of %s\n",Prog_Name,argv[1]);
-            exit (1);
-          }
-        if (fstat(hdrs,&state) < 0)
-          { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,argv[1]);
+      { if (fstat(hdrs2,&state) < 0)
+          { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,argv[2]);
             exit (1);
           }
 
@@ -565,11 +571,11 @@ int main(int argc, char *argv[])
         if (BHEADER == NULL)
           exit (1);
 
-        if (read(hdrs,BHEADER,state.st_size) < 0)
-          { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[1]);
+        if (read(hdrs2,BHEADER,state.st_size) < 0)
+          { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[2]);
             exit (1);
           }
-        close(hdrs);
+        close(hdrs2);
 
         for (r = 0; r < db2->nreads; r++)
           if (db2->reads[r].origin == 0)
@@ -612,16 +618,8 @@ int main(int argc, char *argv[])
       { parm[p].db1   = *db1;
         parm[p].db2   = *db2;
         if (p > 0)
-          { parm[p].db1.bases = fopen(Catenate(db1->path,"","",".bps"),"r");
-            if (parm[p].db1.bases == NULL)
-              { fprintf(stderr,"%s: Cannot open another copy of DB\n",Prog_Name);
-                exit (1);
-              }
-            parm[p].db2.bases = fopen(Catenate(db2->path,"","",".bps"),"r");
-            if (parm[p].db2.bases == NULL)
-              { fprintf(stderr,"%s: Cannot open another copy of DB\n",Prog_Name);
-                exit (1);
-              }
+          { parm[p].db1.bases = bps1[p];
+            parm[p].db2.bases = bps2[p];
           }
         parm[p].in  = input + p ;
         parm[p].out = fopen(Numbered_Suffix(oprefix,p,".paf"),"w+");
@@ -647,8 +645,8 @@ int main(int argc, char *argv[])
 #endif
 
     for (p = 1; p < NTHREADS; p++)
-      { fclose(parm[p].db1.bases);
-        fclose(parm[p].db2.bases);
+      { fclose(bps1[p]);
+        fclose(bps2[p]);
       }
 
     //  Concatenate thread generated paf parts to stdout

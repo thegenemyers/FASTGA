@@ -24,6 +24,7 @@
 #include "DB.h"
 #include "align.h"
 #include "alncode.h"
+#include "DNAsource.h"
 
 static char *Usage[] =
     { "[-arU] [-i<int(4)>] [-w<int(100)>] [-b<int(10)>] ",
@@ -360,10 +361,11 @@ int main(int argc, char *argv[])
   Overlap   _ovl, *ovl = &_ovl;
   Alignment _aln, *aln = &_aln;
 
-  char   *db1_name, *db2_name;
+  char    *db1_name, *db2_name;
+  int      hdrs1, hdrs2;
   OneFile *input;
-  int64   novl;
-  int     tspace;
+  int64    novl;
+  int      tspace;
 
   int     ALIGN, REFERENCE;
   int     INDENT, WIDTH, BORDER, UPPERCASE;
@@ -438,66 +440,83 @@ int main(int argc, char *argv[])
   //  Initiate .las file reading and read header information
   
   { char  *pwd, *root, *cpath;
+    char  *src1_name, *src2_name;
+    char  *spath;
+    int    type;
     FILE  *test;
 
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
     input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),1,
-			   &novl,&tspace,&db1_name,&db2_name,&cpath) ;
+			   &novl,&tspace,&src1_name,&src2_name,&cpath) ;
     if (input == NULL)
       exit (1);
     free(root);
     free(pwd);
 
-    test = fopen(db1_name,"r");
+    test = fopen(src1_name,"r");
     if (test == NULL)
-      { if (*db1_name != '/')
-          test = fopen(Catenate(cpath,"/",db1_name,""),"r");
+      { if (*src1_name != '/')
+          test = fopen(Catenate(cpath,"/",src1_name,""),"r");
         if (test == NULL)
-          { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,db1_name);
+          { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src1_name);
             exit (1);
           }
-        pwd = Strdup(Catenate(cpath,"/",db1_name,""),"Allocating expanded name");
-	free(db1_name);
-        db1_name = pwd;
+        pwd = Strdup(Catenate(cpath,"/",src1_name,""),"Allocating expanded name");
+	free(src1_name);
+        src1_name = pwd;
       }
     fclose(test);
 
-    if (db2_name != NULL)
-      { test = fopen(db2_name,"r");
+    if (src2_name != NULL)
+      { test = fopen(src2_name,"r");
         if (test == NULL)
-          { if (*db2_name != '/')
-              test = fopen(Catenate(cpath,"/",db2_name,""),"r");
+          { if (*src2_name != '/')
+              test = fopen(Catenate(cpath,"/",src2_name,""),"r");
             if (test == NULL)
-              { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,db2_name);
+              { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src2_name);
                 exit (1);
               }
-            pwd = Strdup(Catenate(cpath,"/",db2_name,""),"Allocating expanded name");
-            free(db2_name);
-            db2_name = pwd;
+            pwd = Strdup(Catenate(cpath,"/",src2_name,""),"Allocating expanded name");
+            free(src2_name);
+            src2_name = pwd;
           }
         fclose(test);
       }
 
     free(cpath);
-  }
 
-  //  Open DB or DB pair and set up scaffold->contig maps
+    //  Prepare GDBs from sources if necessary
 
-  { int r, s, hdrs;
-    struct stat state;
-
-    ISTWO  = 0;
-    if (Open_DB(db1_name,db1) < 0)
-      exit (1);
-
-    if (db2_name != NULL)
-      { if (Open_DB(db2_name,db2) < 0)
+    ISTWO = 0;
+    type  = get_dna_paths(src1_name,src1_name,&spath,&db1_name,0);
+    if (type != IS_GDB)
+      make_temporary_gdb(spath,db1_name,db1,&hdrs1,1);
+    else
+      { if (Open_DB(db1_name,db1) < 0)
           exit (1);
+      }
+
+    free(spath);
+    if (src2_name != NULL)
+      { type = get_dna_paths(src2_name,src2_name,&spath,&db2_name,0);
+        if (type != IS_GDB)
+          make_temporary_gdb(spath,db2_name,db2,&hdrs2,1);
+        else
+          { if (Open_DB(db2_name,db2) < 0)
+              exit (1);
+          }
+        free(spath);
         ISTWO = 1;
       }
     else
       db2 = db1;
+  }
+
+  //  Set up scaffold->contig maps & scaffold name dictionary
+
+  { int r, s;
+    struct stat state;
 
     nacontig = db1->nreads;
     nbcontig = db2->nreads;
@@ -533,12 +552,7 @@ int main(int argc, char *argv[])
           actgmax = actg[r];
       }
 
-    hdrs = open(Catenate(db1->path,".hdr","",""),O_RDONLY);
-    if (hdrs < 0)
-      { fprintf(stderr,"%s: Cannot open header file of %s\n",Prog_Name,db1_name);
-        exit (1);
-      }
-    if (fstat(hdrs,&state) < 0)
+    if (fstat(hdrs1,&state) < 0)
       { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,db1_name);
         exit (1);
       }
@@ -549,12 +563,12 @@ int main(int argc, char *argv[])
     if (HPERMA == NULL || AHEADERS == NULL)
       exit (1);
 
-    if (read(hdrs,AHEADERS,state.st_size) < 0)
+    if (read(hdrs1,AHEADERS,state.st_size) < 0)
       { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,db1_name);
         exit (1);
       }
     AHEADERS[state.st_size-1] = '\0';
-    close(hdrs);
+    close(hdrs1);
 
     HPERMA[0] = 0;
     for (s = 1; s < nascaff; s++)
@@ -594,12 +608,7 @@ int main(int argc, char *argv[])
               bctgmax = bctg[r];
           }
 
-        hdrs = open(Catenate(db2->path,".hdr","",""),O_RDONLY);
-        if (hdrs < 0)
-          { fprintf(stderr,"%s: Cannot open header file of %s\n",Prog_Name,db2_name);
-            exit (1);
-          }
-        if (fstat(hdrs,&state) < 0)
+        if (fstat(hdrs2,&state) < 0)
           { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,db2_name);
             exit (1);
           }
@@ -610,12 +619,12 @@ int main(int argc, char *argv[])
         if (HPERMB == NULL || BHEADERS == NULL)
           exit (1);
 
-        if (read(hdrs,BHEADERS,state.st_size) < 0)
-          { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,db1_name);
+        if (read(hdrs2,BHEADERS,state.st_size) < 0)
+          { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,db2_name);
             exit (1);
           }
         BHEADERS[state.st_size-1] = '\0';
-        close(hdrs);
+        close(hdrs2);
 
         HPERMB[0] = 0;
         for (s = 1; s < nbscaff; s++)
@@ -975,6 +984,10 @@ int main(int argc, char *argv[])
     Close_DB(db2);
 
   oneFileClose(input);
+
+  if (ISTWO)
+    free(db2_name);
+  free(db1_name);
 
   exit (0);
 }

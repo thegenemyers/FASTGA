@@ -22,6 +22,7 @@
 
 #include "DB.h"
 #include "alncode.h"
+#include "DNAsource.h"
 
 static char *Usage = "[-v] <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gdb]]";
 
@@ -44,51 +45,12 @@ static char number[128] =
       0, 0, 0, 0, 0, 0, 0, 0,
     };
 
-static OneSchema *Schema;
-
-static char *find_1code(char *path, char *root)
-{ DIR           *dirp;
-  struct dirent *dp;
-  OneFile       *of;
-  int            rlen;
-  char          *extn, *name;
-
-  dirp = opendir(path);
-  if (dirp == NULL)
-    { fprintf(stderr,"%s: Cannot open directory %s\n",Prog_Name,path);
-      exit (1);
-    }
-  
-  extn = NULL;
-  rlen = strlen(root);
-  while ((dp = readdir(dirp)) != NULL)
-    { name = dp->d_name;
-      if (strncmp(root,name,rlen) != 0)
-        continue;
-      if (name[rlen] != '.')
-        continue;
-      of = oneFileOpenRead(Catenate(path,"/",name,""),Schema,"seq",1);
-      if (of == NULL)
-        continue;
-      if (strcmp(of->fileType,"seq") != 0 || of->info['S'] == NULL)
-        { oneFileClose(of);
-          continue;
-        }
-      if (extn != NULL)
-        { fprintf(stderr,"%s: Two 1-code sequence files with root %s found\n",Prog_Name,root);
-          exit (1);
-        }
-      extn = Strdup(name+rlen,"Allocating extension");
-      oneFileClose(of);
-    }
-
-  return (extn);
-}
 
 int main(int argc, char *argv[])
-{ char   *SPATH, *SROOT, *SEXTN;
-  char   *TPATH, *TROOT;
-  int     is_one, gzipd;
+{ char *spath, *tpath;
+  char *TPATH, *TROOT, *SNAME;
+  int   ftype;
+  struct stat status;
 
   FILE   *bases, *indx, *hdrs;
 
@@ -126,126 +88,23 @@ int main(int argc, char *argv[])
 
   //  Determine source and target root names, paths, and extensions
 
-  { char   *suffix[8] = { "", ".fa", ".fna", ".fasta", ".gz", ".fa.gz", ".fna.gz", ".fasta.gz" };
-    int     suflen[8] = { 0, 3, 4, 6, 3, 6, 7, 9 };
-    char   *p, *s, *e;
-    int     i, j, exists;
-    FILE   *input;
-    struct stat status;
+  if (argc == 2)
+    ftype = get_dna_paths(argv[1],NULL,&spath,&tpath,1);
+  else
+    ftype = get_dna_paths(argv[1],argv[2],&spath,&tpath,1);
+  TPATH = PathTo(tpath);
+  TROOT = Root(tpath,NULL);
+  SNAME = Root(spath,"");
 
-    SPATH = argv[1];
-    p = rindex(SPATH,'/');
-    if (p == NULL)
-      { SROOT = SPATH;
-        SPATH = ".";
-      }
-    else
-      { *p++ = '\0';
-        SROOT = p;
-      }
-
-    Schema = make_Aln_Schema();
-    if (Schema == NULL)
-      { fprintf(stderr,"%s: Failed to create onecode schema\n",Prog_Name);
-        exit (1);
-      }
-
-    for (i = 7; i >= 0; i--)
-      { input = fopen(Catenate(SPATH,"/",SROOT,suffix[i]),"r");
-        if (input != NULL)
-          break;
-      }
-    if (i < 0)
-      { SEXTN = find_1code(SPATH,SROOT);
-        if (SEXTN == NULL)
-          { fprintf(stderr,"%s: Could not find %s or a fasta or 1-code extension there of\n",
-                           Prog_Name,SROOT);
-            exit (1);
-          }
-      }
-    else
-      fclose(input);
-
-    if (i >= 0)
-      { SEXTN = suffix[i];
-        if (i%4 == 0)
-          { e = SROOT + strlen(SROOT);
-            for (j = 1; j < 8; j++)
-              if (strcmp(e-suflen[j],suffix[j]) == 0 && j != 4)
-                break;
-            i += j;
-            if (i < 8)
-              { e[-suflen[j]] = '\0';
-                SEXTN = suffix[i];
-              }
-            else
-              { OneFile *of;
-
-                of = oneFileOpenRead(Catenate(SPATH,"/",SPATH,""),Schema,"seq",1);
-                if (of == NULL)
-                  { fprintf(stderr,"%s: Could not find valid extension of %s\n",Prog_Name,SROOT);
-                    exit (1);
-                  }
-                oneFileClose(of);
-                p = rindex(SROOT,'.');
-                if (p != NULL)
-                  { SEXTN = Strdup(p,"Allocating extension");
-                    *p = '\0';
-                  }
-                else
-                  SEXTN = "";
-                i = -1;
-              }
-          }
-      }
-    is_one = (i <  0);
-    gzipd  = (i >= 4);
-
-    if (argc == 2)
-      { TPATH = SPATH;
-        TROOT = SROOT;
-      }
-    else // argc == 3
-      { TPATH = argv[2];
-        exists = (stat(TPATH,&status) >= 0);
-        if ( !exists || (status.st_mode & S_IFMT) != S_IFDIR)
-          { p = rindex(TPATH,'/');
-            if (p == NULL)
-              { TROOT = TPATH;
-                TPATH = ".";
-              }
-            else
-              { *p++ = '\0';
-                TROOT = p;
-              }
-            s = rindex(TROOT,'.');
-            if (s != NULL)
-              { if (strcmp(s+1,"gdb") == 0)
-                  *s = '\0';
-                else if (exists)
-                  { fprintf(stderr,"%s: Exisiting target %s must be a .gdb\n",Prog_Name,TROOT);
-                    exit (1);
-                  }
-              }
-            else if (exists)
-              { fprintf(stderr,"%s: Exisiting target %s must be a .gdb\n",Prog_Name,TROOT);
-                exit (1);
-              }
-          }
-        else
-          TROOT = SROOT;
-      }
-
-    if (VERBOSE)
-      { if (strcmp(TPATH,".") == 0)
-          fprintf(stderr,"\n  Creating genome data base (GDB) %s.gdb in the current directory\n",
-                         TROOT);  
-        else
-          fprintf(stderr,"\n  Creating genome data base (GDB) %s.gdb in directory %s\n",
-                         TROOT,TPATH);  
-        fflush(stderr);
-      }
-  }
+  if (VERBOSE)
+    { if (strcmp(TPATH,".") == 0)
+        fprintf(stderr,"\n  Creating genome data base (GDB) %s.gdb in the current directory\n",
+                       TROOT);  
+      else
+        fprintf(stderr,"\n  Creating genome data base (GDB) %s.gdb in directory %s\n",
+                       TROOT,TPATH);  
+      fflush(stderr);
+    }
 
   { DAZZ_DB   db;
     int64     maxlen, totlen, count[4];
@@ -269,16 +128,30 @@ int main(int argc, char *argv[])
     offset = 0;
     hdrset = 0;
 
-    if (is_one)
-      { int   i;
+    if (ftype == IS_ONE)
+      { OneSchema *Schema;
+        int   i;
         int   hlen, rlen, clen;
         bool  isScaffold;
         int64 scafPos, nContig; 
         int   byte_cnt[256];     // times byte occurs in compressed sequence
+        int   rev_byte[256];
 
-        OneFile *of = oneFileOpenRead (Catenate(SPATH,"/",SROOT,SEXTN), Schema, "seq", 1) ;
+        Schema = make_Aln_Schema();
+        if (Schema == NULL)
+          { fprintf(stderr,"%s: Failed to create onecode schema\n",Prog_Name);
+            exit (1);
+          }
+
+        OneFile *of = oneFileOpenRead (spath, Schema, "seq", 1) ;
         if (of == NULL)
-          goto clean_up ;
+          goto clean_up;
+
+        for (i = 0; i < 256; i++)
+          rev_byte[i] = ((i & 0x03) << 6) |
+                        ((i & 0x0c) << 2) |
+                        ((i & 0x30) >> 2) |
+                        ((i & 0xc0) >> 6);
 
         // line sequence must be either (I!S)+, or (s(n!(Sn)*Sn!)+, e.g.
         //   - scaffold files with s (scaffold id) and n (inter-contig N's) and no I lines, or
@@ -312,8 +185,8 @@ int main(int argc, char *argv[])
               hlen = oneLen(of);
               if (hlen > MAX_NAME-2)
                 { fprintf(stderr,"%s: Line %lld: Scaffold name",Prog_Name,of->line);
-                  fprintf(stderr," in file %s%s is too long (> %d chars)\n",
-                                 SROOT,SEXTN,MAX_NAME-2);
+                  fprintf(stderr," in file %s is too long (> %d chars)\n",
+                                 SNAME,MAX_NAME-2);
                   goto one_error;
                 }
               prec.coff = hdrset;
@@ -344,18 +217,22 @@ int main(int argc, char *argv[])
 
               clen = COMPRESSED_LEN(rlen);
               uint8* bytes = oneDNA2bit(of);
-              if (fwrite (bytes, clen, 1, bases) != 1)
-                goto out_error;
-              offset += clen;
 
               nreads += 1;
               totlen += rlen;
               if (rlen > maxlen)
                 maxlen = rlen;
               for (i = 0 ; i < clen; i++)
-                byte_cnt[bytes[i]] += 1;
+                { int x = bytes[i];
+                  byte_cnt[x] += 1;
+                  bytes[i] = rev_byte[x];
+                }
               if (rlen & 0x3)
                 count[0] -= (4-(rlen&0x3));
+
+              if (fwrite (bytes, clen, 1, bases) != 1)
+                goto out_error;
+              offset += clen;
 
               if (isScaffold)
                 { scafPos += rlen;
@@ -367,8 +244,8 @@ int main(int argc, char *argv[])
               hlen = oneLen(of);
               if (hlen > MAX_NAME-2)
                 { fprintf(stderr,"%s: Line %lld: Scaffold name",Prog_Name,of->line);
-                  fprintf(stderr," in file %s%s is too long (> %d chars)\n",
-                                 SROOT,SEXTN,MAX_NAME-2);
+                  fprintf(stderr," in file %s is too long (> %d chars)\n",
+                                 SNAME,MAX_NAME-2);
                   goto one_error;
                 }
               prec.coff = hdrset;
@@ -381,6 +258,7 @@ int main(int argc, char *argv[])
             }
 
         oneFileClose(of);
+        oneSchemaDestroy(Schema);
 
         for (i = 0; i < 256; i++)
           { count[i & 0x3] += byte_cnt[i];
@@ -394,7 +272,7 @@ int main(int argc, char *argv[])
 
       { int64      rmax, rlen;
         char      *read;
-        int        nline, eof;
+        int        nline, eof, gzipd;
         int        i, x, n;
         void      *input;
 
@@ -405,10 +283,11 @@ int main(int argc, char *argv[])
         if (read == NULL)
           goto clean_up;
 
+        gzipd = (ftype == IS_FA_GZ);
         if (gzipd)
-          input = gzopen(Catenate(SPATH,"/",SROOT,SEXTN),"r");
+          input = gzopen(spath,"r");
         else
-          input = fopen(Catenate(SPATH,"/",SROOT,SEXTN),"r");
+          input = fopen(spath,"r");
 
         //  Get the header of the first line.  If the file is empty skip.
 
@@ -437,13 +316,13 @@ int main(int argc, char *argv[])
         // Check that the first line is a header line
 
         if (read[0] != '>')
-          { fprintf(stderr,"%s: Line 1: First header in fasta file %s%s is missing\n",
-                           Prog_Name,SROOT,SEXTN);
+          { fprintf(stderr,"%s: Line 1: First header in fasta file %s is missing\n",
+                           Prog_Name,SNAME);
             goto clean_up;
           }
         if (read[strlen(read)-1] != '\n')
-          { fprintf(stderr,"%s: Line 1: Fasta header line in %s%s is too long (> %d chars)\n",
-                           Prog_Name,SROOT,SEXTN,MAX_NAME-2);
+          { fprintf(stderr,"%s: Line 1: Fasta header line in %s is too long (> %d chars)\n",
+                           Prog_Name,SNAME,MAX_NAME-2);
             goto clean_up;
           }
 
@@ -479,8 +358,8 @@ int main(int argc, char *argv[])
                 if (read[rlen] == '>')
                   { if (read[rlen+x] != '\n')
                       { fprintf(stderr,"%s: Line %d: Fasta header line",Prog_Name,nline);
-                        fprintf(stderr," in file %s%s is too long (> %d chars)\n",
-                                       SROOT,SEXTN,MAX_NAME-2);
+                        fprintf(stderr," in file %s is too long (> %d chars)\n",
+                                       SNAME,MAX_NAME-2);
                         goto clean_up;
                       }
                     nline += 1;
@@ -498,8 +377,8 @@ int main(int argc, char *argv[])
                     read = (char *) realloc(read,rmax+1);
                     if (read == NULL)
                       { fprintf(stderr,"%s: Line %d:",Prog_Name,nline);
-                        fprintf(stderr," Out of memory allocating line buffer while reading %s%s\n",
-                                       SROOT,SEXTN);
+                        fprintf(stderr," Out of memory allocating line buffer while reading %s\n",
+                                       SNAME);
                         goto clean_up;
                       }
                   }
@@ -553,7 +432,7 @@ int main(int argc, char *argv[])
           fclose(input);
       }
 
-    oneSchemaDestroy(Schema);
+    // oneSchemaDestroy(Schema);
 
     //  Update relevant fields in db record
 
@@ -586,24 +465,24 @@ int main(int argc, char *argv[])
         goto clean_up;
       if (fprintf(ostub,DB_NFILE,1) < 0)
         goto out_error;
-      if (SPATH[0] == '/')
-        { if (is_one)
-            { if (fprintf(ostub,DB_FDATA,db.ureads,Catenate(SPATH,"/",SROOT,".1seq"),"") < 0)
+      if (spath[0] == '/')
+        { if (ftype == IS_ONE)
+            { if (fprintf(ostub,DB_FDATA,db.ureads,Catenate(spath,"","",".1seq"),".") < 0)
                 goto out_error;
             }
           else
-            { if (fprintf(ostub,DB_FDATA,db.ureads,Catenate(SPATH,"/",SROOT,SEXTN),"") < 0)
+            { if (fprintf(ostub,DB_FDATA,db.ureads,spath,".") < 0)
                 goto out_error;
             }
         }
       else
         { cpath = getcwd(NULL,0);
-          if (is_one)
-            { if (fprintf(ostub,DB_FDATA,db.ureads,Catenate(SPATH,"/",SROOT,".1seq"),cpath) < 0)
+          if (ftype == IS_ONE)
+            { if (fprintf(ostub,DB_FDATA,db.ureads,Catenate(spath,"","",".1seq"),cpath) < 0)
                 goto out_error;
             }
           else
-            { if (fprintf(ostub,DB_FDATA,db.ureads,Catenate(SPATH,"/",SROOT,SEXTN),cpath) < 0)
+            { if (fprintf(ostub,DB_FDATA,db.ureads,spath,cpath) < 0)
                 goto out_error;
             }
           free(cpath);
@@ -615,6 +494,12 @@ int main(int argc, char *argv[])
       fclose(ostub);
     }
   }
+
+  free(SNAME);
+  free(TROOT);
+  free(TPATH);
+  free(tpath);
+  free(spath);
 
   exit (0);
 
@@ -633,6 +518,8 @@ out_error:
   fprintf(stderr,"%s: IO error writing gdb files\n",Prog_Name);
 
 clean_up:
+  if (stat(Catenate(TPATH,"/",TROOT,".gdb"),&status) >= 0)
+    unlink(Catenate(TPATH,"/",TROOT,".gdb"));
   if (indx != NULL)
     { fclose(indx);
       unlink(Catenate(TPATH,"/.",TROOT,".idx"));

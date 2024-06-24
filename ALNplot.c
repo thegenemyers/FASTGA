@@ -574,7 +574,8 @@ void read_paf(char *pafAlnFile, int gzipd)
 { void *input;
   int   nline;
   int i, naseq, maseq, nbseq, mbseq;
-  uint64 index, nsegs, msegs;
+  int     index;
+  uint64  nsegs, msegs;
   Segment *segs;
   char *fptrs[11], *fptr, *eptr;
   char *head;
@@ -803,7 +804,7 @@ static void addSeqName(char *names, uint32 n, uint32 m, int c0, int c1,
   if (chord[c0].beg > 0 ||
           gdb->scaffolds[s].fctg != c0 ||      // start from first
           gdb->scaffolds[s+1].fctg != c1+1 ||
-          chord[c1].end != chord[c1].end) // end at last
+          chord[c1].end != gdb->contigs[c1].clen) // end at last
     { // partial scaffold
       p = 0;
       for (i = gdb->scaffolds[s].fctg; i < c0; i++)
@@ -938,16 +939,13 @@ int axisConfig(Hash_Table *hash, GDB *gdb, Contig_Range *chord,
 
 static void alnConfig()
 { int64 i;
-  int aread, bread, abpos, aepos, bbpos, bepos, a, b;
+  int abpos, aepos, bbpos, bepos, a, b;
   Segment *segment;
 
   for (i = 0; i < nSegment; i++)
     { segment = &segments[i];
       if (IS_DEL(segment->flag))
         continue;
-
-      aread = segment->aread;
-      bread = segment->bread;
 
       abpos = segment->abpos;
       aepos = segment->aepos;

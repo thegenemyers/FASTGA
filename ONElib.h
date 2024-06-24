@@ -330,6 +330,7 @@ bool oneInheritDeferred   (OneFile *vf, OneFile *source);
   //   called before first call to oneWriteLine.
 
 bool oneAddProvenance (OneFile *vf, char *prog, char *version, char *format, ...);
+  bool addProvenance (OneFile *vf, OneProvenance *from, int n);
 bool oneAddReference  (OneFile *vf, char *filename, I64 count);
 bool oneAddDeferred   (OneFile *vf, char *filename);
 

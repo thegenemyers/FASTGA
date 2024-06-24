@@ -13,33 +13,33 @@
 #include <string.h>
 #include <math.h>
 
-#include "DB.h"
+#include "GDB.h"
 
-static char *Usage = "[-h[<int>,<int>]] [-hlog] <source:path>[.gdb]";
+static char *Usage = "[-h[<int>,<int>]] [-hlog] <source:path>[.1gdb]";
 
-static DAZZ_READ *READS;
+static GDB_CONTIG    *CONTIGS;
+static GDB_SCAFFOLD  *SCAFFS;
+static int           *GAPS;
 
 static int CSORT(const void *l, const void *r)
 { int x = *((int *) l);
   int y = *((int *) r);
 
-  return (READS[x].rlen - READS[y].rlen);
+  return (CONTIGS[x].clen - CONTIGS[y].clen);
+}
+
+static int SSORT(const void *l, const void *r)
+{ int x = *((int *) l);
+  int y = *((int *) r);
+
+  return (SCAFFS[x].slen - SCAFFS[y].slen);
 }
 
 static int GSORT(const void *l, const void *r)
 { int x = *((int *) l);
   int y = *((int *) r);
 
-  return (READS[x].fpulse - READS[y].fpulse);
-}
-
-static int64 *SCAFLEN;
-
-static int SSORT(const void *l, const void *r)
-{ int x = *((int *) l);
-  int y = *((int *) r);
-
-  return (SCAFLEN[x] - SCAFLEN[y]);
+  return (GAPS[x] - GAPS[y]);
 }
 
 #define NBINS 20
@@ -65,12 +65,9 @@ static int nice_round(int num, int nbins, int *mod)
 }
 
 int main(int argc, char *argv[])
-{ DAZZ_DB    _db, *db = &_db;
-  DAZZ_READ *reads;
-  int64     *slen;
+{ GDB        _gdb, *gdb = &_gdb;
   int       *ctgsort, *scfsort, *gapsort;
   int        nctg, nscaff, ngap;
-  int        bgap, egap;
   int64      totbps, totspan, totgap;
 
   int     HIST_LIN;
@@ -129,72 +126,56 @@ int main(int argc, char *argv[])
       }
   }
 
-  { int status;
-    int s, r, g;
+  { int   s, c;
+    int64 spos;
 
-    status = Open_DB(argv[1],db);
-    if (status < 0)
-      exit (1);
-    if (status == 0)
-      { fprintf(stderr,"%s: Cannot open %s as a .gdb\n",Prog_Name,argv[1]);
-        exit (1);
+    Read_GDB(gdb,argv[1]);
+
+    nctg   = gdb->ncontig;
+    nscaff = gdb->nscaff;
+
+    CONTIGS  = gdb->contigs;
+    SCAFFS   = gdb->scaffolds;
+
+    GAPS = (int *) Malloc(sizeof(int)*(nctg+nscaff),"Allocating scaffold map");
+
+    ngap = 0;
+    for (s = 0; s < nscaff; s++)
+      { spos = 0;
+        for (c = SCAFFS[s].fctg; c < SCAFFS[s].ectg; c++)
+           { if (CONTIGS[c].sbeg > spos)
+               GAPS[ngap++] = CONTIGS[c].sbeg - spos;
+             spos = CONTIGS[c].sbeg + CONTIGS[c].clen;
+           }
+        if (spos < SCAFFS[s].slen) 
+          GAPS[ngap++] = SCAFFS[s].slen - spos;
       }
 
-    nctg   = db->nreads;
-    reads  = db->reads;
-
-    slen = (int64 *) Malloc(sizeof(int64)*2*nctg,"Allocating scaffold map");
-    if (slen == NULL)
-      exit (1);
-
-    bgap = egap = 0;
-    s = -1;
-    for (r = 0; r < nctg; r++)
-      { if (reads[r].origin == 0)
-          { s += 1;
-            if (reads[r].fpulse > 0)
-              bgap += 1;
-            g = 0;
-          }
-        else
-          g = slen[s];
-        slen[s] = reads[r].fpulse + reads[r].rlen;
-        reads[r].fpulse -= g;
-        if (reads[r].rlen == 0)
-          egap += 1;
-      }
-    nscaff = s+1;
-
-    totbps  = db->totlen;
+    totbps  = gdb->seqtot;
     totspan = 0;
-    for (r = 0; r < nscaff; r++)
-      totspan += slen[r];
+    for (s = 0; s < nscaff; s++)
+      totspan += SCAFFS[s].slen;
     totgap = totspan - totbps;
 
     scfsort = (int *) Malloc(sizeof(int)*nscaff,"Allocating N50 sort array\n");
     ctgsort = (int *) Malloc(sizeof(int)*nctg,"Allocating N50 sort array\n");
-    gapsort = (int *) Malloc(sizeof(int)*nctg,"Allocating N50 sort array\n");
-    if (scfsort == NULL || ctgsort == NULL || gapsort == NULL)
-      exit (1);
+    gapsort = (int *) Malloc(sizeof(int)*ngap,"Allocating N50 sort array\n");
 
-    for (r = 0; r < nctg; r++)
-      ctgsort[r] = gapsort[r] = r;
-    for (r = 0; r < nscaff; r++)
-      scfsort[r] = r;
+    for (c = 0; c < nctg; c++)
+      ctgsort[c] = c;
+    for (c = 0; c < nscaff; c++)
+      scfsort[c] = c;
+    for (c = 0; c < ngap; c++)
+      gapsort[c] = c;
 
-    READS = db->reads;
     qsort(ctgsort,nctg,sizeof(int),CSORT);
-    qsort(gapsort,nctg,sizeof(int),GSORT);
-
-    SCAFLEN = slen;
+    qsort(gapsort,ngap,sizeof(int),GSORT);
     qsort(scfsort,nscaff,sizeof(int),SSORT);
   }
 
   //  Output overview
 
   { int cwide, swide, awide;
-
-    ngap = (nctg - nscaff) + bgap;
 
     cwide = Number_Digits(nctg);
     swide = Number_Digits(totspan);
@@ -214,11 +195,11 @@ int main(int argc, char *argv[])
     printf("bp\n");
 
     printf("  ");
-    Print_Number(nctg-egap,cwide,stdout);
+    Print_Number(nctg,cwide,stdout);
     printf(" contigs containing ");
     Print_Number(totbps,swide,stdout);
     printf("bp, ave. = ");
-    Print_Number(totbps/(nctg-egap),awide,stdout);
+    Print_Number(totbps/nctg,awide,stdout);
     printf("bp\n");
 
     if (ngap == 0)
@@ -241,9 +222,9 @@ int main(int argc, char *argv[])
     int   n;
     int   cwide, swide, gwide;
 
-    cwide = Number_Digits(reads[ctgsort[nctg-1]].rlen);
-    swide = Number_Digits(slen[scfsort[nscaff-1]]);
-    gwide = Number_Digits(reads[gapsort[nctg-1]].fpulse);
+    cwide = Number_Digits(CONTIGS[ctgsort[nctg-1]].clen);
+    swide = Number_Digits(SCAFFS[scfsort[nscaff-1]].slen);
+    gwide = Number_Digits(GAPS[gapsort[ngap-1]]);
     cwide += (cwide-1)/3;
     swide += (swide-1)/3;
     gwide += (gwide-1)/3;
@@ -252,49 +233,47 @@ int main(int argc, char *argv[])
     if (swide < (int) strlen("Scaffolds"))
       swide = strlen("Scaffolds");
 
-    ngap = nctg - ngap;
-
     sf = nscaff-1;
     ss = 0;
     cf = nctg-1;
     cs = 0;
-    gf = nctg-1;
+    gf = ngap-1;
     gs = 0;
     printf("\n             Contigs%*sScaffolds%*sGaps\n",cwide-4,"",swide-6,"");
     printf("       MAX:  ");
-    Print_Number(reads[ctgsort[cf]].rlen,cwide,stdout);
+    Print_Number(CONTIGS[ctgsort[cf]].clen,cwide,stdout);
     printf("   ");
-    Print_Number(slen[scfsort[sf]],swide,stdout);
+    Print_Number(SCAFFS[scfsort[sf]].slen,swide,stdout);
     printf("   ");
-    Print_Number(reads[gapsort[gf]].fpulse,gwide,stdout);
+    Print_Number(GAPS[gapsort[gf]],gwide,stdout);
     printf("\n");
     for (n = 10; n < 100; n += 10)
-      { while (cf >= egap && cs < totbps*(n/100.))
-          { cs += reads[ctgsort[cf]].rlen;
+      { while (cf >= 0 && cs < totbps*(n/100.))
+          { cs += CONTIGS[ctgsort[cf]].clen;
             cf -= 1;
           }
         while (sf >= 0 && ss < totspan*(n/100.))
-          { ss += slen[scfsort[sf]];
+          { ss += SCAFFS[scfsort[sf]].slen;
             sf -= 1;
           }
-        while (gf >= ngap && gs < totgap*(n/100.))
-          { gs += reads[gapsort[cf]].fpulse;
+        while (gf >= 0 && gs < totgap*(n/100.))
+          { gs += GAPS[gapsort[gf]];
             gf -= 1;
           }
         printf("       N%2d:  ",n);
-        Print_Number(reads[ctgsort[cf+1]].rlen,cwide,stdout);
+        Print_Number(CONTIGS[ctgsort[cf+1]].clen,cwide,stdout);
         printf("   ");
-        Print_Number(slen[scfsort[sf+1]],swide,stdout);
+        Print_Number(SCAFFS[scfsort[sf+1]].slen,swide,stdout);
         printf("   ");
-        Print_Number(reads[gapsort[gf+1]].fpulse,gwide,stdout);
+        Print_Number(GAPS[gapsort[gf+1]],gwide,stdout);
         printf("\n");
       }
     printf("       MIN:  ");
-    Print_Number(reads[ctgsort[egap]].rlen,cwide,stdout);
+    Print_Number(CONTIGS[ctgsort[0]].clen,cwide,stdout);
     printf("   ");
-    Print_Number(slen[scfsort[0]],swide,stdout);
+    Print_Number(SCAFFS[scfsort[0]].slen,swide,stdout);
     printf("   ");
-    Print_Number(reads[gapsort[ngap]].fpulse,gwide,stdout);
+    Print_Number(GAPS[gapsort[0]],gwide,stdout);
     printf("\n");
   }
 
@@ -309,8 +288,8 @@ int main(int argc, char *argv[])
       int   ccwide, scwide;
       int   cwide, swide;
   
-      cwide = Number_Digits(reads[ctgsort[nctg-1]].rlen);
-      swide = Number_Digits(slen[scfsort[nscaff-1]]);
+      cwide = Number_Digits(CONTIGS[ctgsort[nctg-1]].clen);
+      swide = Number_Digits(SCAFFS[scfsort[nscaff-1]].slen);
       cwide += (cwide-1)/3;
       swide += (swide-1)/3;
       if (cwide < (int) strlen("Contigs"))
@@ -318,28 +297,28 @@ int main(int argc, char *argv[])
       ccwide = Number_Digits(nctg);
       scwide = Number_Digits(nscaff);
 
-      cmin = nice_round(reads[ctgsort[egap]].rlen,1,&cmod);
-      cbin = nice_round(reads[ctgsort[nctg-1]].rlen,1,&cmod);
+      cmin = nice_round(CONTIGS[ctgsort[0]].clen,1,&cmod);
+      cbin = nice_round(CONTIGS[ctgsort[nctg-1]].clen,1,&cmod);
 
-      smin = nice_round(slen[scfsort[0]],1,&smod);
-      sbin = nice_round(slen[scfsort[nscaff-1]],1,&smod);
+      smin = nice_round(SCAFFS[scfsort[0]].slen,1,&smod);
+      sbin = nice_round(SCAFFS[scfsort[nscaff-1]].slen,1,&smod);
 
       cf   = nctg-1;
       cs = 0;
       sf   = nscaff-1;
       ss = 0;
       printf("\n       Contigs%*sScaffolds\n",cwide+ccwide+13,"");
-      while (cf >= egap || sf >= 0)
+      while (cf >= 0 || sf >= 0)
         { ct = 0;
-          while (cf >= egap && reads[ctgsort[cf]].rlen >= cbin)
+          while (cf >= 0 && CONTIGS[ctgsort[cf]].clen >= cbin)
             { ct += 1;
-              cs += reads[ctgsort[cf]].rlen;
+              cs += CONTIGS[ctgsort[cf]].clen;
               cf -= 1;
             }
           st = 0;
-          while (sf >= 0 && slen[scfsort[sf]] >= sbin)
+          while (sf >= 0 && SCAFFS[scfsort[sf]].slen >= sbin)
             { st += 1;
-              ss += slen[scfsort[sf]];
+              ss += SCAFFS[scfsort[sf]].slen;
               sf -= 1;
             }
           printf("       ");
@@ -380,8 +359,8 @@ int main(int argc, char *argv[])
       int   ccwide, scwide;
       int   cwide, swide;
   
-      cwide = Number_Digits(reads[ctgsort[nctg-1]].rlen);
-      swide = Number_Digits(slen[scfsort[nscaff-1]]);
+      cwide = Number_Digits(CONTIGS[ctgsort[nctg-1]].clen);
+      swide = Number_Digits(SCAFFS[scfsort[nscaff-1]].slen);
       cwide += (cwide-1)/3;
       swide += (swide-1)/3;
       if (cwide < (int) strlen("Contigs"))
@@ -390,8 +369,8 @@ int main(int argc, char *argv[])
       scwide = Number_Digits(nscaff);
       
       if (CBUCK == 0)
-        { cbin = reads[ctgsort[nctg-1]].rlen - reads[ctgsort[egap]].rlen;
-          sbin = slen[scfsort[nscaff-1]] - slen[scfsort[0]];
+        { cbin = CONTIGS[ctgsort[nctg-1]].clen - CONTIGS[ctgsort[0]].clen;
+          sbin = SCAFFS[scfsort[nscaff-1]].slen - SCAFFS[scfsort[0]].slen;
   
           cbuck = nice_round(cbin,NBINS,&cbin);
           sbuck = nice_round(sbin,NBINS,&sbin);
@@ -402,25 +381,25 @@ int main(int argc, char *argv[])
         }
   
       cf   = nctg-1;
-      cbin = (reads[ctgsort[cf]].rlen/cbuck)*cbuck;
-      cmin = (reads[ctgsort[0]].rlen/cbuck)*cbuck;
+      cbin = (CONTIGS[ctgsort[cf]].clen/cbuck)*cbuck;
+      cmin = (CONTIGS[ctgsort[0]].clen/cbuck)*cbuck;
       cs = 0;
       sf   = nscaff-1;
-      sbin = (slen[scfsort[sf]]/sbuck)*sbuck;
-      smin = (slen[scfsort[0]]/sbuck)*sbuck;
+      sbin = (SCAFFS[scfsort[sf]].slen/sbuck)*sbuck;
+      smin = (SCAFFS[scfsort[0]].slen/sbuck)*sbuck;
       ss = 0;
       printf("\n       Contigs%*sScaffolds\n",cwide+ccwide+13,"");
-      while (cf >= egap || sf >= 0)
+      while (cf >= 0 || sf >= 0)
         { ct = 0;
-          while (cf >= egap && reads[ctgsort[cf]].rlen >= cbin)
+          while (cf >= 0 && CONTIGS[ctgsort[cf]].clen >= cbin)
             { ct += 1;
-              cs += reads[ctgsort[cf]].rlen;
+              cs += CONTIGS[ctgsort[cf]].clen;
               cf -= 1;
             }
           st = 0;
-          while (sf >= 0 && slen[scfsort[sf]] >= sbin)
+          while (sf >= 0 && SCAFFS[scfsort[sf]].slen >= sbin)
             { st += 1;
-              ss += slen[scfsort[sf]];
+              ss += SCAFFS[scfsort[sf]].slen;
               sf -= 1;
             }
           printf("       ");
@@ -442,10 +421,11 @@ int main(int argc, char *argv[])
         }
     }
 
+  free(gapsort);
   free(ctgsort);
   free(scfsort);
-  free(slen);
-  Close_DB(db);
+  free(GAPS);
+  Close_GDB(gdb);
 
   exit (0);
 }

@@ -21,348 +21,23 @@
 #include <sys/uio.h>
 #include <fcntl.h>
 
-#include "DB.h"
+#include "GDB.h"
+#include "hash.h"
 #include "align.h"
+#include "select.h"
 #include "alncode.h"
-#include "DNAsource.h"
 
 static char *Usage[] =
     { "[-arU] [-i<int(4)>] [-w<int(100)>] [-b<int(10)>] ",
-      "    <alignments:path>[.1aln] [ <range> [<range>] ]"
+      "    <alignments:path>[.1aln] [<selection>|<FILE> [<selection>|<FILE>]]"
     };
 
-#define LAST_SYMBOL  '#'
-#define SCAF_SYMBOL  '@'
-
-static char      *AHEADERS;
-static DAZZ_READ *AREADS;
-static int       *AMAP;
-static int       *HPERMA;
-
-static char      *BHEADERS;
-static DAZZ_READ *BREADS;
-static int       *BMAP;
-static int       *HPERMB;
-
-//  Sorted table of Headers
-
-static int HSORTA(const void *l, const void *r)
-{ int x = *((int *) l);
-  int y = *((int *) r);
-
-  return (strcmp(AHEADERS+AREADS[AMAP[x]].coff,AHEADERS+AREADS[AMAP[y]].coff));
-}
-
-static int HSORTB(const void *l, const void *r)
-{ int x = *((int *) l);
-  int y = *((int *) r);
-
-  return (strcmp(BHEADERS+BREADS[BMAP[x]].coff,BHEADERS+BREADS[BMAP[y]].coff));
-}
-
-static char *AHEAD(int x)
-{ return (AHEADERS+AREADS[AMAP[HPERMA[x]]].coff); }
-
-static char *BHEAD(int x)
-{ return (BHEADERS+BREADS[BMAP[HPERMB[x]]].coff); }
-
-static int lookup(char *x, char *(*head)(int), int nscaff)
-{ int l, r, m;
-
-  // smallest l s.t. HPERM(l) >= x (or NSCAFF if does not exist)
-
-  l = 0;
-  r = nscaff;
-  while (l < r)
-    { m = ((l+r) >> 1);
-      if (strcmp(head(m),x) < 0)
-        l = m+1;
-      else
-        r = m;
-    }
-
-  if (l >= nscaff || strncmp(head(l),x,strlen(x)) != 0)
-    return (-1);
-
-  return (l);
-}
-
-static int matches(char *x, int *pe, char *(*head)(int), int nscaff)
-{ int b, e;
-
-  b = lookup(x,head,nscaff);
-  for (e = b+1; b < nscaff; e++)
-    if (strncmp(head(e),x,strlen(x)) != 0)
-      break;
-  *pe = e-1;
-  return (b);
-}
-
-
-//  Parse read range grabbing up to 4 values from it as follows:
-//    type 1
-//          val[0][.val[1]]
-//    type 2
-//          val[0][.val[1]] - val[2][.val[3]]
-//    type 3
-//          val[0][.val[1]] _ val[2] - val[3]
-//  Return 0 if there is a syntactic error, otherwise return the type.
-//  0 values indicate #, -1 indicates not present, -2 (only in val[1] or val[3])
-//      indicates val[0] or val[2], respectively, is a scaffold index, -3 (like -2)
-//      implies val is index into arg of string value.
-
-static char *white(char *x)
-{ while (isspace(*x))
-    x += 1;
-  return (x);
-}
-
-static char *getint(char *x, int *v)
-{ int n;
-
-  n = 0;
-  while (isdigit(*x))
-    n = 10*n + (*x++ - '0');
-  *v = n;
-  return (x);
-}
-
-static char *address(char *x, int *v, int sep)
-{ int a;
-       //  parse sep = '.':  (#|<int>)[.(#|<int>)]
-       //        sep = '-':  (#|<int>)-(#|<int>)
-       //        sep = ' ':  (#|<int>)
-  x = white(x);
-  a = *x++;
-  if (a == LAST_SYMBOL)
-    v[0] = 0;
-  else if (isdigit(a))
-    x = getint(x-1,v);
-  else
-    return (NULL);
-  x = white(x);
-  if (*x == sep)
-    { x = white(x+1);
-      a = *x++;
-      if (a == LAST_SYMBOL)
-        v[1] = 0;
-      else if (isdigit(a))
-        x = getint(x-1,v+1);
-      else
-        return (NULL);
-      x = white(x);
-    }
-  else if (sep == ' ')
-    v[1] = -2;
-  else if (sep == '.')
-    v[1] = -1;
-  else  // sep == '-'
-    return (NULL);
-  return (x);
-}
-
-static int range(char *src, int *v, char *(*head)(int), int nscaff)
-{ int   t, sep;
-  char *x, *y, *z;
-
-  v[2] = -1;
-  x = white(src);
-  if (*x == SCAF_SYMBOL)
-    { x += 1;
-      sep = ' ';
-    }
-  else
-    sep = '.';
-  y = address(x,v,sep);
-  if (y == NULL)
-    { if (sep == ' ')
-        goto try_string;
-      else
-        return (0);
-    }
-  t = 1;
-  if (*y == '-')
-    { y = address(y+1,v+2,sep);
-      t = 2;
-    }
-  else if (*y == '_')
-    { y = address(y+1,v+2,'-');
-      t = 3;
-    }
-  if (y == NULL || *y != '\0')
-    { if (sep == ' ')
-        goto try_string;
-      else
-        return (0);
-    }
-  return (t);
-
-try_string:
-  if (lookup(x,head,nscaff) >= 0)
-    { v[1] = -3;
-      v[0] = x-src;
-      return (1);
-    }
-  y = rindex(x,'_');
-  if (y != NULL)
-    { *y = '\0';
-      if (lookup(x,head,nscaff) >= 0)
-        { z = address(y+1,v+2,'-');
-          if (z != NULL && *z == '\0')
-            { v[1] = -3;
-              v[0] = x-src;  
-              return (3);
-            }
-        }
-      *y = '_';
-    }
-  for (y = index(x,'-'); y != NULL; y = index(y+1,'-'))
-    { *y = '\0'; 
-      if (lookup(x,head,nscaff) >= 0 && lookup(y+1,head,nscaff) >= 0)
-        { v[1] = v[3] = -3;
-          v[0] = x-src;
-          v[2] = (y+1)-src;
-          return (2);
-        }
-      *y = '-';
-    }
-  return (0);
-}
-
- //  Interpret value pair s.c into an absolute contig range (1-based)
-
-static int interpret_address(int s, int c, int ncontig, int nscaff, int *map)
-{ if (c == -1)
-    { if (s == 0)
-        return (ncontig);
-      if (s > ncontig)
-        { fprintf(stderr,"%s: Absolute contig index '%d' is out of bounds\n",Prog_Name,s);
-          exit (1);
-        }
-      return (s);
-    }
-  if (s == 0)
-    s = nscaff;
-  else if (s > nscaff)
-    { fprintf(stderr,"%s: Scaffold index '%d' is out of bounds\n",Prog_Name,s);
-      exit (1);
-    }
-  if (c == 0)
-    return (map[s]);
-  if (c == -2)
-    return (s);
-  if (c > map[s]-map[s-1])
-    { fprintf(stderr,"%s: Relative contig index '%d' is out of bounds\n",Prog_Name,c);
-      exit (1);
-    }
-  return (map[s-1] + c);
-}
-
-  //  Interpret argument x as a range and map to contig level ranges
-
-static void contig_range(char *x, DAZZ_DB *db, int ncontig, int nscaff, int *map,
-                         char *(*head)(int), int *hperm,
-                         int *pbeg, int *pend, int *pfst, int *plst)
-{ int t, vals[4], len, sunit;
-  int beg, end, fst, lst;
-
-  t = range(x,vals,head,nscaff);
-  if (t == 0)
-    { fprintf(stderr,"%s: Command line argument %s not a valid read range\n",Prog_Name,x);
-      exit (1);
-    }
-
-  sunit = (vals[1] <= -2);
-
-  if (vals[1] == -3)
-    { beg = matches(x+vals[0],&end,head,nscaff);
-      if (t == 2)
-        { matches(x+vals[2],&end,head,nscaff);
-          if (beg > end)
-            { fprintf(stderr,"%s: Scaffold range in '%s' is empty\n",Prog_Name,x);
-              exit (1);
-            }
-        }
-      if (t == 3)
-        { if (end > beg)
-            { fprintf(stderr,"%s: String in %s matches multiple scaffolds,",Prog_Name,x);
-              fprintf(stderr," so substring ambiguous.\n");
-              exit (1);
-            }
-          beg = end = hperm[beg];
-        }
-      else
-        { *pbeg = beg;
-          *pend = end;
-          *pfst = -1;
-          return;
-        }
-    }
-  else
-    { beg = end = interpret_address(vals[0],vals[1],ncontig,nscaff,map) - 1;
-      fst = 0;
-      if (t == 2)
-        { end = interpret_address(vals[2],vals[3],ncontig,nscaff,map) - 1;
-          if (beg > end)
-            { fprintf(stderr,"%s: Read range in '%s' is empty\n",Prog_Name,x);
-              exit (1);
-            }
-        }
-    }
-
-  if (sunit)
-    { beg = map[beg];
-      end = map[end+1]-1; 
-    }
-  if (t <= 2)
-    lst = db->reads[end].rlen;
-  else // t == 3
-    { fst = vals[2]; //  Type 3: intepret vals[2] and vals[3] as the substring interval
-      lst = vals[3];
-      if (sunit)
-        len = db->reads[end].fpulse + db->reads[end].rlen;
-      else
-        len = db->reads[beg].rlen;
-      if (lst == 0)
-        lst = len;
-      else if (lst > len)
-        { fprintf(stderr,"%s: Substring interval in '%s' is out of bounds\n",Prog_Name,x);
-          exit (1);
-        }
-      if (fst >= lst)
-        { fprintf(stderr,"%s: Substring interval in '%s' is empty\n",Prog_Name,x);
-          exit (1);
-        }
-      if (sunit)
-        { for ( ; beg <= end; beg++)
-            if (fst < db->reads[beg].fpulse + db->reads[beg].rlen)
-              break;
-          fst -= db->reads[beg].fpulse; 
-          if (fst < 0)
-            fst = 0;
-          for (; end >= beg; end--)
-            if (lst > db->reads[end].fpulse)
-              break;
-          lst -= db->reads[end].fpulse;
-          if (lst > db->reads[end].rlen)
-            lst = db->reads[end].rlen;
-        }
-    }
-  *pbeg = beg;
-  *pend = end;
-  *pfst = fst;
-  *plst = lst;
-}
-
-
 int main(int argc, char *argv[])
-{ DAZZ_DB   _db1, *db1 = &_db1; 
-  DAZZ_DB   _db2, *db2 = &_db2; 
+{ GDB       _gdb1, *gdb1 = &_gdb1; 
+  GDB       _gdb2, *gdb2 = &_gdb2; 
   Overlap   _ovl, *ovl = &_ovl;
   Alignment _aln, *aln = &_aln;
 
-  char    *db1_name, *db2_name;
-  int      hdrs1, hdrs2;
   OneFile *input;
   int64    novl;
   int      tspace;
@@ -371,12 +46,20 @@ int main(int argc, char *argv[])
   int     INDENT, WIDTH, BORDER, UPPERCASE;
   int     ISTWO;
 
-  int    *amap, *alen, *actg, *ascf, nascaff, nacontig, amaxlen, actgmax;
-  int    *bmap, *blen, *bctg, *bscf, nbscaff, nbcontig, bmaxlen, bctgmax;
-  int     abeg, aend, afst, alst;
-  int     bbeg, bend, bfst, blst;
-  char   *abst, *aest;
-  char   *bbst, *best;
+  GDB_SCAFFOLD *ascaffs;
+  GDB_SCAFFOLD *bscaffs;
+
+  GDB_CONTIG   *acontigs;
+  GDB_CONTIG   *bcontigs;
+
+  Hash_Table   *ahash;
+  Hash_Table   *bhash;
+
+  Contig_Range *ACHORD;
+  Contig_Range *BCHORD;
+
+  int     nascaff, nacontig, amaxlen, actgmax;
+  int     nbscaff, nbcontig, bmaxlen, bctgmax;
 
   //  Process options
 
@@ -419,7 +102,9 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"     <range> =    <contig>[-<contig>]     |  <contig>_<int>-(<int>|#)\n");
+        fprintf(stderr,"     <selection> = <range> [ , <range> ]*\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"     <range> =     <contig>[-<contig>]    |  <contig>_<int>-(<int>|#)\n");
         fprintf(stderr,"             | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"        <contig>   = (<int>|#)[.(<int>|#)]\n");
@@ -441,7 +126,7 @@ int main(int argc, char *argv[])
   
   { char  *pwd, *root, *cpath;
     char  *src1_name, *src2_name;
-    char  *spath;
+    char  *spath, *tpath;
     int    type;
     FILE  *test;
 
@@ -489,209 +174,134 @@ int main(int argc, char *argv[])
     //  Prepare GDBs from sources if necessary
 
     ISTWO = 0;
-    type  = get_dna_paths(src1_name,src1_name,&spath,&db1_name,0);
+    type  = Get_GDB_Paths(src1_name,NULL,&spath,&tpath,0);
     if (type != IS_GDB)
-      make_temporary_gdb(spath,db1_name,db1,&hdrs1,1);
+      Create_GDB(gdb1,spath,type,1,tpath);
     else
-      { if (Open_DB(db1_name,db1) < 0)
-          exit (1);
+      Read_GDB(gdb1,tpath);
+    if ((ALIGN || REFERENCE) && gdb1->seqs == NULL)
+      { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
+        exit (1);
       }
-
     free(spath);
+    free(tpath);
+
     if (src2_name != NULL)
-      { type = get_dna_paths(src2_name,src2_name,&spath,&db2_name,0);
+      { type = Get_GDB_Paths(src2_name,NULL,&spath,&tpath,0);
         if (type != IS_GDB)
-          make_temporary_gdb(spath,db2_name,db2,&hdrs2,1);
+          Create_GDB(gdb2,spath,type,1,tpath);
         else
-          { if (Open_DB(db2_name,db2) < 0)
-              exit (1);
+          Read_GDB(gdb2,tpath);
+        if ((ALIGN || REFERENCE) && gdb2->seqs == NULL)
+          { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
+            exit (1);
           }
         free(spath);
+        free(tpath);
         ISTWO = 1;
       }
     else
-      db2 = db1;
+      gdb2 = gdb1;
+
+    free(src1_name);
+    free(src2_name);
   }
 
   //  Set up scaffold->contig maps & scaffold name dictionary
 
-  { int r, s;
-    struct stat state;
+  { int   s;
+    char *head, *sptr, *eptr;
 
-    nacontig = db1->nreads;
-    nbcontig = db2->nreads;
-    AREADS   = db1->reads;
-    BREADS   = db2->reads;
+    nacontig = gdb1->ncontig;
+    nbcontig = gdb2->ncontig;
+    nascaff  = gdb1->nscaff;
+    nbscaff  = gdb2->nscaff;
+    ascaffs  = gdb1->scaffolds;
+    bscaffs  = gdb2->scaffolds;
+    acontigs = gdb1->contigs;
+    bcontigs = gdb2->contigs;
 
-    ascf = (int *) Malloc(sizeof(int)*(4*nacontig+1),"Allocating scaffold map");
-    if (ascf == NULL)
-      exit (1);
-    alen = ascf + nacontig;
-    actg = alen + nacontig;
-    amap = actg + nacontig;
-
-    s = -1;
+    ahash = New_Hash_Table(nascaff,0);
+    head  = gdb2->headers;
     amaxlen = 0;
-    for (r = 0; r < nacontig; r++)
-      { if (db1->reads[r].origin == 0)
-          { s += 1;
-            amap[s] = r;
-          }
-        alen[s] = db1->reads[r].fpulse + db1->reads[r].rlen;
-        ascf[r] = s;
-        if (alen[s] > amaxlen)
-          amaxlen = alen[s];
-      }
-    nascaff = s+1;
-    amap[nascaff] = nacontig;
     actgmax = 0;
-    for (r = nacontig-1; r >= 0; r--)
-      { alen[r] = alen[ascf[r]];
-        actg[r] = r - amap[ascf[r]];
-        if (actg[r] > actgmax)
-          actgmax = actg[r];
+    for (s = 0; s < nascaff; s++)
+      { sptr = head + ascaffs[s].hoff;
+        for (eptr = sptr; *eptr != '\n'; eptr++)
+          if (isspace(*eptr))
+            break;
+        *eptr = '\0';
+        if (Hash_Lookup(ahash,sptr) < 0)
+          Hash_Add(ahash,sptr);
+        else
+          { fprintf(stderr,"%s: Duplicate scaffold name: %s\n",Prog_Name,sptr);
+            exit (1);
+          }
+        if (ascaffs[s].slen > amaxlen)
+          amaxlen = ascaffs[s].slen;
+        if (ascaffs[s].ectg - ascaffs[s].fctg > actgmax)
+          actgmax = ascaffs[s].ectg - ascaffs[s].fctg;
       }
 
-    if (fstat(hdrs1,&state) < 0)
-      { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,db1_name);
-        exit (1);
-      }
-
-    AMAP     = amap;
-    HPERMA   = Malloc(sizeof(int)*nascaff,"Allocating header table");
-    AHEADERS = Malloc(state.st_size,"Allocating header table");
-    if (HPERMA == NULL || AHEADERS == NULL)
-      exit (1);
-
-    if (read(hdrs1,AHEADERS,state.st_size) < 0)
-      { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,db1_name);
-        exit (1);
-      }
-    AHEADERS[state.st_size-1] = '\0';
-    close(hdrs1);
-
-    HPERMA[0] = 0;
-    for (s = 1; s < nascaff; s++)
-      { AHEADERS[AREADS[AMAP[s]].coff-1] = '\0';
-        HPERMA[s] = s;
-      }
-
-    qsort(HPERMA,nascaff,sizeof(int),HSORTA);
-
-    if (db2_name != NULL)
-      { bscf = (int *) Malloc(sizeof(int)*(4*nbcontig+1),"Allocating scaffold map");
-        if (bscf == NULL)
-          exit (1);
-        blen = bscf + nbcontig;
-        bctg = blen + nbcontig;
-        bmap = bctg + nbcontig;
-
-        s = -1;
+    if (ISTWO)
+      { bhash = New_Hash_Table(nbscaff,0);
+        head  = gdb2->headers;
         bmaxlen = 0;
-        for (r = 0; r < nbcontig; r++)
-          { if (db2->reads[r].origin == 0)
-              { s += 1;
-                bmap[s] = r;
-              }
-            blen[s] = db2->reads[r].fpulse + db2->reads[r].rlen;
-            bscf[r] = s;
-            if (blen[s] > bmaxlen)
-              bmaxlen = blen[s];
-          }
-        nbscaff = s+1;
-        bmap[nbscaff] = nbcontig;
         bctgmax = 0;
-        for (r = nbcontig-1; r >= 0; r--)
-          { blen[r] = blen[bscf[r]];
-            bctg[r] = r - bmap[bscf[r]];
-            if (bctg[r] > bctgmax)
-              bctgmax = bctg[r];
+        for (s = 0; s < nbscaff; s++)
+          { sptr = head + bscaffs[s].hoff;
+            for (eptr = sptr; *eptr != '\n'; eptr++)
+              if (isspace(*eptr))
+                break;
+            *eptr = '\0';
+            if (Hash_Lookup(bhash,sptr) < 0)
+              Hash_Add(bhash,sptr);
+            else
+              { fprintf(stderr,"%s: Duplicate scaffold name: %s\n",Prog_Name,sptr);
+                exit (1);
+              }
+            if (bscaffs[s].slen > bmaxlen)
+              bmaxlen = bscaffs[s].slen;
+            if (bscaffs[s].ectg - bscaffs[s].fctg > bctgmax)
+              bctgmax = bscaffs[s].ectg - bscaffs[s].fctg;
           }
-
-        if (fstat(hdrs2,&state) < 0)
-          { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,db2_name);
-            exit (1);
-          }
-
-        BMAP     = bmap;
-        HPERMB   = Malloc(sizeof(int)*nbscaff,"Allocating header table");
-        BHEADERS = Malloc(state.st_size,"Allocating header table");
-        if (HPERMB == NULL || BHEADERS == NULL)
-          exit (1);
-
-        if (read(hdrs2,BHEADERS,state.st_size) < 0)
-          { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,db2_name);
-            exit (1);
-          }
-        BHEADERS[state.st_size-1] = '\0';
-        close(hdrs2);
-
-        HPERMB[0] = 0;
-        for (s = 1; s < nbscaff; s++)
-          { BHEADERS[BREADS[BMAP[s]].coff-1] = '\0';
-            HPERMB[s] = s;
-          }
-
-        qsort(HPERMB,nbscaff,sizeof(int),HSORTB);
       }
     else
-      { bmap = amap;
-        blen = alen;
-        bctg = actg;
-        bscf = ascf;
-        nbscaff = nascaff;
-        bctgmax = actgmax;
+      { bhash   = ahash;
         bmaxlen = amaxlen;
-
-        BMAP     = bmap;
-        HPERMB   = HPERMA;
-        BHEADERS = AHEADERS;
+        bctgmax = actgmax;
       }
   }
 
   //  Setup up contig reporting ranges
 
-  if (argc > 2)
-    { contig_range(argv[2],db1,nacontig,nascaff,amap,AHEAD,HPERMA,&abeg,&aend,&afst,&alst);
-      if (argc > 3)
-        contig_range(argv[3],db2,nbcontig,nbscaff,bmap,BHEAD,HPERMB,&bbeg,&bend,&bfst,&blst);
-      else
-        { bbeg = 0;
-          bend = db2->nreads-1;
-          bfst = 0;
-          blst = db2->reads[bend].rlen;
-        }
-    }
-  else
-    { abeg = bbeg = 0;
-      aend = db1->nreads-1;
-      bend = db2->nreads-1;
-      afst = bfst = 0;
-      alst = db1->reads[aend].rlen;
-      blst = db2->reads[bend].rlen;
-    }
-  if (afst < 0)
-    { abst = AHEAD(abeg);
-      aest = AHEAD(aend);
-    }
-  else
-    abst = aest = "";
-  if (bfst < 0)
-    { bbst = BHEAD(bbeg);
-      best = BHEAD(bend);
-    }
-  else
-    bbst = best = "";
+  { char *aseq, *bseq;
+
+    aseq = NULL;
+    bseq = NULL;
+    if (argc == 3)
+      aseq = argv[2];
+    else if (argc == 4)
+      { aseq = argv[2];
+        bseq = argv[3];
+      }
+
+    ACHORD = get_selection_contigs(aseq,gdb1,ahash,0);
+    BCHORD = get_selection_contigs(bseq,gdb2,bhash,0);
+  }
 
   //  Read the file and display selected records
   
-  { int        j;
-    uint16    *trace;
-    Work_Data *work;
-    int        tmax;
-    int64      tps;
+  { int           j;
+    uint16       *trace;
+    Work_Data    *work;
+    Contig_Range *aptr;
+    Contig_Range *bptr;
+    int           tmax;
+    int64         tps;
 
     int        aread, bread;
+    int        ascaf, bscaf;
     int        aoffs, boffs;
     int        alens, blens, bclen;
     char      *abuffer, *bbuffer, *root;
@@ -704,10 +314,8 @@ int main(int argc, char *argv[])
     aln->path = &(ovl->path);
     if (ALIGN || REFERENCE)
       { work = New_Work_Data();
-        abuffer = New_Read_Buffer(db1);
-        bbuffer = New_Read_Buffer(db2);
-        if (abuffer == NULL || bbuffer == NULL)
-          exit (1);
+        abuffer = New_Contig_Buffer(gdb1);
+        bbuffer = New_Contig_Buffer(gdb2);
       }
     else
       { abuffer = NULL;
@@ -729,19 +337,19 @@ int main(int argc, char *argv[])
     bi_wide = Number_Digits((int64) bmaxlen);
     bc_wide = Number_Digits((int64) bctgmax+1);
 
-    if (db1->maxlen < db2->maxlen)
-      { mn_wide = Number_Digits((int64) db1->maxlen);
+    if (gdb1->maxctg < gdb2->maxctg)
+      { mn_wide = Number_Digits((int64) gdb1->maxctg);
         mx_wide = bi_wide;
         if (tspace > 0)
-          tp_wide = Number_Digits((int64) db1->maxlen/tspace+2);
+          tp_wide = Number_Digits((int64) gdb1->maxctg/tspace+2);
         else
           tp_wide = 0;
       }
     else
-      { mn_wide = Number_Digits((int64) db2->maxlen);
+      { mn_wide = Number_Digits((int64) gdb2->maxctg);
         mx_wide = ai_wide;
         if (tspace > 0)
-          tp_wide = Number_Digits((int64) db2->maxlen/tspace+2);
+          tp_wide = Number_Digits((int64) gdb2->maxctg/tspace+2);
         else
           tp_wide = 0;
       }
@@ -768,71 +376,56 @@ int main(int argc, char *argv[])
         ovl->path.tlen  = Read_Aln_Trace(input,(uint8 *) trace);
         ovl->path.trace = trace;
 
-        aread = ovl->aread;
-        bread = ovl->bread;
-
-        if (aread >= db1->nreads)
-          { fprintf(stderr,"%s: A-read is out-of-range of DB %s\n",Prog_Name,argv[1]);
-            exit (1);
-          }
-        if (bread >= db2->nreads)
-          { fprintf(stderr,"%s: B-read is out-of-range of DB %s\n",Prog_Name,argv[1+ISTWO]);
-            exit (1);
-          }
-
         //  Determine if it should be displayed
 
-        if (afst < 0)
-          { char *ahead = AHEADERS+AREADS[aread].coff;
-
-            if (strcmp(ahead,abst) < 0)
-              continue;
-            if (strcmp(aest,ahead) < 0)
-              continue;
-          }
-        else
-          { if (aread < abeg || (aread == abeg && ovl->path.aepos <= afst))
-              continue;
-            if (aread > aend)
-              break;
-            if (aread == aend && ovl->path.abpos >= alst)
-              continue;
-          }
-        if (bfst < 0)
-          { char *bhead = BHEADERS+BREADS[bread].coff;
-
-            if (strcmp(bhead,bbst) < 0)
-              continue;
-            if (strcmp(best,bhead) < 0)
-              continue;
-          }
-        else
-          { if (bread < bbeg || (bread == bbeg && ovl->path.bepos <= bfst))
-              continue;
-            if (bread > bend || (bread == bend && ovl->path.bbpos >= blst))
-              continue;
+        aread = ovl->aread;
+        if (aread >= nacontig)
+          { fprintf(stderr,"%s: A-read is out-of-range of GDB %s\n",Prog_Name,argv[1]);
+            exit (1);
           }
 
-        aln->alen  = db1->reads[aread].rlen;
-        aln->blen  = db2->reads[bread].rlen;
-        aoffs = db1->reads[aread].fpulse;
-        alens = alen[aread];
-	boffs = db2->reads[bread].fpulse;
-	bclen = db2->reads[bread].rlen;
-	blens = blen[bread];
+        aptr = ACHORD+aread;
+        if ( ! aptr->order)
+          continue;
+
+        bread = ovl->bread;
+        if (bread >= nbcontig)
+          { fprintf(stderr,"%s: B-read is out-of-range of GDB %s\n",Prog_Name,argv[1+ISTWO]);
+            exit (1);
+          }
+
+        bptr = BCHORD+bread;
+        if ( ! bptr->order)
+          continue;
+        if (ovl->path.aepos <= aptr->beg || ovl->path.abpos >= aptr->end)
+          continue;
+        if (ovl->path.bepos <= bptr->beg || ovl->path.bbpos >= bptr->end)
+          continue;
+
+        //  Display it
+
+        ascaf = acontigs[aread].scaf;
+        bscaf = bcontigs[bread].scaf;
+
+        aln->alen  = acontigs[aread].clen;
+        aln->blen  = bcontigs[bread].clen;
+        aoffs      = acontigs[aread].sbeg;
+	boffs      = bcontigs[bread].sbeg;
+	bclen      = bcontigs[bread].clen;
         aln->flags = ovl->flags;
         tps        = ovl->path.tlen/2;
 
-        //  Display it
-            
+        alens = ascaffs[ascaf].slen;
+        blens = bscaffs[bscaf].slen;
+
         if (ALIGN || REFERENCE)
           printf("\n");
 
-        Print_Number((int64) ascf[aread]+1,ar_wide+1,stdout);
-        printf(".%0*d",ac_wide,actg[aread]+1);
+        Print_Number((int64) ascaf+1,ar_wide+1,stdout);
+        printf(".%0*d",ac_wide,(aread - ascaffs[ascaf].fctg)+1);
         printf("  ");
-        Print_Number((int64) bscf[bread]+1,br_wide+1,stdout);
-        printf(".%0*d",bc_wide,bctg[bread]+1);
+        Print_Number((int64) bscaf+1,br_wide+1,stdout);
+        printf(".%0*d",bc_wide,(bread - bscaffs[bscaf].fctg)+1);
         if (COMP(ovl->flags))
           printf(" c");
         else
@@ -920,9 +513,9 @@ int main(int argc, char *argv[])
                   }
               }
 
-            aseq = Load_Subread(db1,aread,amin,amax,abuffer,0);
+            aseq = Get_Contig_Piece(gdb1,aread,amin,amax,NUMERIC,abuffer);
             if (!self)
-              bseq = Load_Subread(db2,bread,bmin,bmax,bbuffer,0);
+              bseq = Get_Contig_Piece(gdb2,bread,bmin,bmax,NUMERIC,bbuffer);
             else
               bseq = aseq;
 
@@ -976,18 +569,23 @@ int main(int argc, char *argv[])
       }
   }
 
-  if (ISTWO)
-    free(bscf);
-  free(ascf);
-  Close_DB(db1);
-  if (ISTWO)
-    Close_DB(db2);
-
   oneFileClose(input);
 
+  free(BCHORD);
+  free(ACHORD);
+
+
   if (ISTWO)
-    free(db2_name);
-  free(db1_name);
+    Free_Hash_Table(bhash);
+  Free_Hash_Table(ahash);
+
+  if (ISTWO)
+    Close_GDB(gdb2);
+  Close_GDB(gdb1);
+
+  free(Prog_Name);
+  free(Command_Line);
+  Catenate(NULL,NULL,NULL,NULL);
 
   exit (0);
 }

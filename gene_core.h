@@ -51,9 +51,31 @@ typedef double             float64;
 
 extern char *Prog_Name;   //  Name of program, available everywhere
 
-#define ARG_INIT(name)                  \
-  Prog_Name = Strdup(name,"");          \
-  for (i = 0; i < 128; i++)             \
+extern char *Command_Line;   //  Name of program, available everywhere
+
+#define ARG_INIT(name)                  			\
+  { int   n, i;							\
+    char *c;							\
+								\
+    n = 0;							\
+    for (i = 0; i < argc; i++)					\
+      n += strlen(argv[i])+1;					\
+								\
+    Command_Line = Malloc(n+1,"Allocating command string");	\
+    if (Command_Line == NULL)					\
+      exit (1);							\
+								\
+    c = Command_Line;						\
+    if (argc >= 1)						\
+      { c += sprintf(c,"%s",argv[0]);				\
+        for (i = 1; i < argc; i++)				\
+          c += sprintf(c," %s",argv[i]);			\
+      }								\
+    *c = '\0';							\
+  }								\
+								\
+  Prog_Name = Strdup(name,"");          			\
+  for (i = 0; i < 128; i++)             			\
     flags[i] = 0;
 
 #define ARG_FLAGS(set)                                                                  \
@@ -144,8 +166,6 @@ void Change_Read(char *s);    //  Convert read from one case to the other
 void Letter_Arrow(char *s);   //  Convert arrow pw's from numbers to uppercase letters (0-3 to 1234)
 void Number_Arrow(char *s);   //  Convert arrow pw string from letters to numbers
 
-#endif // _CORE
-
 /*******************************************************************************************
  *
  *  RESOURCE UTILITY
@@ -154,3 +174,5 @@ void Number_Arrow(char *s);   //  Convert arrow pw string from letters to number
 
 void StartTime();
 void TimeTo(FILE *f, int all);
+
+#endif // _CORE

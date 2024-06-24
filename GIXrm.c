@@ -17,7 +17,7 @@
 
 #include "gene_core.h"
 
-static char *Usage = "[-vifg] <source:path>[.gdb|.gix] ... ";
+static char *Usage = "[-vifg] <source:path>[.1gdb|.gix] ... ";
 
 int main(int argc, char *argv[])
 { int   VERBOSE;
@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
 
   //  Determine source and target root names, paths, and extensions
 
-  { char *PATH, *ROOT;
+  { char *PATH, *ROOT, *GEXTN;
     int   HAS_GDB, HAS_GIX;
     char *p, *com;
     FILE *input;
@@ -86,14 +86,29 @@ int main(int argc, char *argv[])
             ROOT = p;
           }
 
-        input = fopen(Catenate(PATH,"/",ROOT,".gdb"),"r");
+        input = fopen(Catenate(PATH,"/",ROOT,".1gdb"),"r");
         if (input != NULL)
           { fclose(input);
             HAS_GDB = 1;
+            GEXTN   = ".1gdb";
           }
-        else if (strcmp(ROOT+(strlen(ROOT)-4),".gdb") == 0)
+        else if (strcmp(ROOT+(strlen(ROOT)-5),".1gdb") == 0)
           { HAS_GDB = 1;
-            ROOT[strlen(ROOT)-4] = '\0';
+            ROOT[strlen(ROOT)-5] = '\0';
+            GEXTN   = ".1gdb";
+          }
+        else
+          { input = fopen(Catenate(PATH,"/",ROOT,".gdb"),"r");
+            if (input != NULL)
+              { fclose(input);
+                HAS_GDB = 1;
+                GEXTN   = ".gdb";
+              }
+            else if (strcmp(ROOT+(strlen(ROOT)-4),".gdb") == 0)
+              { HAS_GDB = 1;
+                ROOT[strlen(ROOT)-4] = '\0';
+                GEXTN   = ".gdb";
+              }
           }
 
         input = fopen(Catenate(PATH,"/",ROOT,".gix"),"r");
@@ -107,11 +122,13 @@ int main(int argc, char *argv[])
           }
 
         command = Malloc(4*(strlen(PATH)+strlen(ROOT))+100,"Allocating command buffer");
-        if (command == NULL)
-          exit (1);
 
-        if (HAS_GIX + HAS_GDB == 0)
-          fprintf(stderr,"  Warning: there is no GDB or GIX with root %s/%s\n",PATH,ROOT);
+        if (HAS_GIX + HAS_GDB * GDB_TOO == 0)
+          { if (GDB_TOO)
+              fprintf(stderr,"  Warning: there is no GDB or GIX with root %s/%s\n",PATH,ROOT);
+            else
+              fprintf(stderr,"  Warning: there is no GIX with root %s/%s\n",PATH,ROOT);
+          }
 
         if (HAS_GIX)
           { yes = 1;
@@ -140,7 +157,7 @@ int main(int argc, char *argv[])
         if (HAS_GDB && GDB_TOO)
           { yes = 1;
             if (ASK)
-              { printf("Remove %s/%s.gdb? ",PATH,ROOT);
+              { printf("Remove %s/%s%s? ",PATH,ROOT,GEXTN);
                 fflush(stdout);
                 yes = 0;
                 while ((a = getc(stdin)) != '\n')
@@ -152,11 +169,10 @@ int main(int argc, char *argv[])
               }
             if (yes)
               { if (VERBOSE)
-                  { fprintf(stderr,"  Removing %s/%s.gdb\n",PATH,ROOT);
+                  { fprintf(stderr,"  Removing %s/%s%s\n",PATH,ROOT,GEXTN);
                     fflush(stderr);
                   }
-                sprintf(command,"%s %s/%s.gdb %s/.%s.hdr %s/.%s.idx %s/.%s.bps",
-                                com,PATH,ROOT,PATH,ROOT,PATH,ROOT,PATH,ROOT);
+                sprintf(command,"%s %s/%s%s %s/.%s.bps",com,PATH,ROOT,GEXTN,PATH,ROOT);
                 if (system(command) != 0) goto sys_error;
               }
           }

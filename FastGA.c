@@ -23,10 +23,9 @@
 #include <sys/resource.h>
 
 #include "libfastk.h"
-#include "DB.h"
+#include "GDB.h"
 #include "align.h"
 #include "alncode.h"
-#include "DNAsource.h"
 
 #undef    DEBUG_SPLIT
 #undef    DEBUG_MERGE
@@ -74,10 +73,11 @@ static char  *ONE_ROOT;    //  -one option path
 
 static char  *CommandLine; //  Command line in toto
 
-static char *PATH1, *PATH2;   //  GDB & GIX are PATHx/ROOTx.[gdb|gix]
+static char *PATH1, *PATH2;   //  GDB & GIX are PATHx/ROOTx[GEXTNx|.gix]
 static char *ROOT1, *ROOT2;
+static char *GEXTN1, *GEXTN2;
 
-static char *SPATH1, *SPATH2;  //  Path name of source if TYPEx <= IS_GDB
+static char *SPATH1, *SPATH2; //  Path name of source if TYPEx <= IS_GDB
 static int   TYPE1,  TYPE2;   //  Type of source file (see DNAsource.h)
 
 static int   KMER;         //  K-mer length and # of threads from genome indices
@@ -100,8 +100,8 @@ static int KBYTE;         // # of bytes for a k-mer table entry (both T1 & T2)
 static int CBYTE;         // byte of k-mer table entry containing post count
 static int LBYTE;         // byte of k-mer table entry containing lcp
 
-static int64 AMXPOS;     //  longest contig in DB1
-static int64 BMXPOS;     //  longest contig in DB1
+static int64 AMXPOS;     //  longest contig in gdb1
+static int64 BMXPOS;     //  longest contig in gdb1
 static int64 MAXDAG;     //  AMXPOS + BMXPOS
 static int   DBYTE;      // # of bytes for a pair diagonal or anti-diagonal
 
@@ -111,8 +111,8 @@ static int    ESHIFT;    //  shift to extract P1-contig # from a post
 
 static int   *Select;    //  Select[bucket] = thread file for bucket
 static int   *IDBsplit;  //  DB split: contigs [DBsplit[p],DBsplit[p+1])
-static int   *Perm1;     //  Sorted contig permutation of DB1
-static int   *Perm2;     //  Sorted contig permutation of DB2
+static int   *Perm1;     //  Sorted contig permutation of gdb1
+static int   *Perm2;     //  Sorted contig permutation of gdb2
 
 typedef struct
   { uint8 *bufr;
@@ -154,7 +154,7 @@ static void Clean_Exit(int status)
   else
     { if (TYPE1 <= IS_GDB)
         { if (TYPE1 < IS_GDB)
-            sprintf(command,"GIXrm -fg %s/%s.gdb",PATH1,ROOT1);
+            sprintf(command,"GIXrm -fg %s/%s%s",PATH1,ROOT1,GEXTN1);
           else
             sprintf(command,"GIXrm -f %s/%s.gix",PATH1,ROOT1);
           if (system(command) != 0)
@@ -164,7 +164,7 @@ static void Clean_Exit(int status)
 
       if (TYPE2 <= IS_GDB)
         { if (TYPE2 < IS_GDB)
-            sprintf(command,"GIXrm -fg %s/%s.gdb",PATH2,ROOT2);
+            sprintf(command,"GIXrm -fg %s/%s%s",PATH2,ROOT2,GEXTN2);
           else
             sprintf(command,"GIXrm -f %s/%s.gix",PATH2,ROOT2);
           if (system(command) != 0)
@@ -176,7 +176,7 @@ static void Clean_Exit(int status)
     }
 
   if (fail)
-    fprintf(stderr,"\n%s: Warning: Could not successfully remove .gdb/.gix\n",Prog_Name);
+    fprintf(stderr,"\n%s: Warning: Could not successfully remove .1gdb/.gix\n",Prog_Name);
 
   exit (status);
 }
@@ -1673,8 +1673,8 @@ typedef struct
     int       swide;
     int       comp;
     int       inum;
-    DAZZ_DB  *DB1;
-    DAZZ_DB  *DB2;
+    GDB      *gdb1;
+    GDB      *gdb2;
     int64    *buck;
     uint8    *buffer;
     uint8    *sarr;
@@ -1802,7 +1802,7 @@ static void *reimport_thread(void *args)
 }
 
 void print_seeds(uint8 *sarray, int swide, Range *range, int64 *panel,
-                 DAZZ_DB *DB1, DAZZ_DB *DB2, int comp)
+                 GDB *gdb1, GDB *gdb2, int comp)
 { uint8 *e, *x;
   int    n, p;
   int    lcp, drm;
@@ -1817,7 +1817,8 @@ void print_seeds(uint8 *sarray, int swide, Range *range, int64 *panel,
   dbuck = 0;
   jcont = 0;
 
-  (void) DB1;
+  (void) gdb1;
+  (void) gdb2;
 
   for (n = 0; n < NTHREADS; n++)
     { x = sarray + range[n].off;
@@ -1836,18 +1837,18 @@ void print_seeds(uint8 *sarray, int swide, Range *range, int64 *panel,
 
               diag = (dbuck<<BUCK_SHIFT)+drm;
               if (comp)
-                { anti += DB1->reads[Perm1[p]].rlen - AMXPOS;
-                  diag += DB1->reads[Perm1[p]].rlen - MAXDAG;
+                { anti += gdb1->contigs[Perm1[p]].clen - AMXPOS;
+                  diag += gdb1->contigs[Perm1[p]].clen - MAXDAG;
                 }
               else
                 diag -= BMXPOS;
              jpost = (anti - diag) >> 1;
              ipost = (anti + diag) >> 1;
 
-             if (jpost < 0 || jpost > DB2->reads[Perm2[jcont]].rlen)
-               printf("J index out of bounds\n");
-             if (ipost < 0 || ipost > DB1->reads[Perm1[jcont]].rlen)
-               printf("I index out of bounds\n");
+             // if (jpost < 0 || jpost > gdb2->contigs[Perm2[jcont]].clen)
+               // printf("J index out of bounds\n");
+             // if (ipost < 0 || ipost > gdb1->contigs[Perm1[jcont]].clen)
+               // printf("I index out of bounds\n");
 
              printf("  %10ld:  %5d %5lld: %8lld  %10lld x d=%10lld i=%10lld j=%10lld  (%2d)  %2d\n",
                      (x-sarray)/swide,p,jcont,dbuck,anti,diag,ipost,jpost,drm,lcp);
@@ -1997,7 +1998,7 @@ static int entwine(Path *jpath, uint8 *jtrace, Path *kpath, uint8 *ktrace, int *
 typedef struct
 
   { int         tid;
-    DAZZ_DB    *DB1, *DB2;
+    GDB        *gdb1, *gdb2;
     FILE       *ofile;
     FILE       *tfile;
     int64       nhits;
@@ -2059,15 +2060,15 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
   ctg1 = Perm1[ctg1];
   ctg2 = Perm2[ctg2];
 
-  if (pair->DB1->reads[ctg1].origin < 0 || pair->DB2->reads[ctg2].origin < 0)
+  if (pair->gdb1->contigs[ctg1].boff < 0 || pair->gdb2->contigs[ctg2].boff < 0)
     return;
 
   ndiag = 0;
   ipost = 0;
   apost = 0;
 
-  blen   = pair->DB2->reads[ctg2].rlen;
-  alen   = pair->DB1->reads[ctg1].rlen;
+  blen   = pair->gdb2->contigs[ctg2].clen;
+  alen   = pair->gdb1->contigs[ctg1].clen;
   mlen   = alen+blen;
 
   nhit   = 0;
@@ -2226,10 +2227,10 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                       //  Fetch contig sequences if not already loaded
 #ifdef CALL_ALIGNER
                       if (ctg1 != ovl->aread)
-                        { if (Load_Read(pair->DB1,ctg1,align->aseq,0))
+                        { if (Get_Contig(pair->gdb1,ctg1,NUMERIC,align->aseq) == NULL)
                             Clean_Exit(1);
                           align->alen = alen;
-                          ovl->aread = ctg1;
+                          ovl->aread  = ctg1;
                           if (comp)
                             Complement_Seq(align->aseq,align->alen);
 #ifdef DEBUG_HIT
@@ -2239,7 +2240,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
 #endif
                         }
                       if (ctg2 != ovl->bread)
-                        { if (Load_Read(pair->DB2,ctg2,align->bseq,0))
+                        { if (Get_Contig(pair->gdb2,ctg2,NUMERIC,align->bseq) == NULL)
                             Clean_Exit(1);
                           align->blen = blen;
                           ovl->bread = ctg2;
@@ -2747,8 +2748,8 @@ typedef struct
     int64    *panel;
     uint8    *sarr;
     Range    *range;
-    DAZZ_DB   DB1;
-    DAZZ_DB   DB2;
+    GDB       gdb1;
+    GDB       gdb2;
     FILE     *ofile;
     FILE     *tfile;
     int64     nhits;
@@ -2767,8 +2768,8 @@ static void *search_seeds(void *args)
   Range   *range  = parm->range;
   int      beg    = range->beg;
   int      end    = range->end;
-  DAZZ_DB *DB1    = &(parm->DB1);
-  DAZZ_DB *DB2    = &(parm->DB2);
+  GDB     *gdb1   = &(parm->gdb1);
+  GDB     *gdb2   = &(parm->gdb2);
   int      foffs  = swide-JCONT;
   FILE    *ofile  = parm->ofile;
   FILE    *tfile  = parm->tfile;
@@ -2783,11 +2784,11 @@ static void *search_seeds(void *args)
 
   jcrnt = 0;
 
-  pair->tid = parm->tid;
-  pair->DB1 = DB1;
-  pair->DB2 = DB2;
-  pair->align.aseq = New_Read_Buffer(DB1);
-  pair->align.bseq = New_Read_Buffer(DB2);
+  pair->tid  = parm->tid;
+  pair->gdb1 = gdb1;
+  pair->gdb2 = gdb2;
+  pair->align.aseq = New_Contig_Buffer(gdb1);
+  pair->align.bseq = New_Contig_Buffer(gdb2);
   if (pair->align.bseq == NULL || pair->align.bseq == NULL)
     Clean_Exit(1);
   pair->align.path = &(pair->ovl.path);
@@ -2802,7 +2803,7 @@ static void *search_seeds(void *args)
   pair->ovl.aread = -1;
   pair->ovl.bread = -1;
   pair->work = New_Work_Data();
-  pair->spec = New_Align_Spec(ALIGN_RATE,100,DB1->freq,0);
+  pair->spec = New_Align_Spec(ALIGN_RATE,100,gdb1->freq,0);
   if (pair->work == NULL || pair->spec == NULL)
     Clean_Exit(1);
   pair->ofile = ofile;
@@ -3091,14 +3092,14 @@ static int la_merge(TP *parm)
     if (TYPE1 < IS_GDB && !KEEP)
       db1_name = Strdup(SPATH1,"db1_name");
     else
-      db1_name = Strdup(Catenate(PATH1,"/",ROOT1,".gdb"),"db1_name");
+      db1_name = Strdup(Catenate(PATH1,"/",ROOT1,GEXTN1),"db1_name");
     if (SELF)
       db2_name = NULL;
     else
       { if (TYPE2 < IS_GDB && !KEEP)
           db2_name = Strdup(SPATH2, "db2_name");
         else
-          db2_name = Strdup(Catenate(PATH2,"/",ROOT2,".gdb"), "db2_name");
+          db2_name = Strdup(Catenate(PATH2,"/",ROOT2,GEXTN2), "db2_name");
       }
     cpath = getcwd(NULL,0);
 
@@ -3165,7 +3166,7 @@ static int la_merge(TP *parm)
   return (0);
 }
 
-static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
+static void pair_sort_search(GDB *gdb1, GDB *gdb2)
 { uint8 *sarray;
   int    swide;
   int64  nels;
@@ -3231,8 +3232,8 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       rarm[p].sarr   = sarray;
       rarm[p].buffer = N_Units[p].bufr;   //  NB: Units have been transposed
       rarm[p].range  = range+p;
-      rarm[p].DB1    = DB1;
-      rarm[p].DB2    = DB2;
+      rarm[p].gdb1   = gdb1;
+      rarm[p].gdb2   = gdb2;
 
       tarm[p].tid    = p;
       tarm[p].swide  = swide;
@@ -3240,16 +3241,16 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
       tarm[p].panel  = panel;
       tarm[p].range  = range+p;
 
-      tarm[p].DB1    = *DB1;
-      tarm[p].DB2    = *DB2;
+      tarm[p].gdb1   = *gdb1;
+      tarm[p].gdb2   = *gdb2;
       if (p > 0)
-        { tarm[p].DB1.bases = fopen(Catenate(DB1->path,"","",".bps"),"r");
-          if (tarm[p].DB1.bases == NULL)
+        { tarm[p].gdb1.seqs = fopen(gdb1->seqpath,"r");
+          if (tarm[p].gdb1.seqs == NULL)
             { fprintf(stderr,"%s: Cannot open another copy of DB\n",Prog_Name);
               Clean_Exit(1);
             }
-          tarm[p].DB2.bases = fopen(Catenate(DB2->path,"","",".bps"),"r");
-          if (tarm[p].DB2.bases == NULL)
+          tarm[p].gdb2.seqs = fopen(gdb2->seqpath,"r");
+          if (tarm[p].gdb2.seqs == NULL)
             { fprintf(stderr,"%s: Cannot open another copy of DB\n",Prog_Name);
               Clean_Exit(1);
             }
@@ -3345,7 +3346,7 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
         nused = rmsd_sort(sarray,nels,swide,swide-2,NCONTS,panel,NTHREADS,range);
 
 #ifdef DEBUG_SORT
-        print_seeds(sarray,swide,range,panel,DB1,DB2,u);
+        print_seeds(sarray,swide,range,panel,gdb1,gdb2,u);
 #endif
       }
 
@@ -3374,8 +3375,8 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
   for (p = 0; p < NTHREADS; p++)
     fclose(tarm[p].tfile);
   for (p = 1; p < NTHREADS; p++)
-    { fclose(tarm[p].DB2.bases);
-      fclose(tarm[p].DB1.bases);
+    { fclose(tarm[p].gdb2.seqs);
+      fclose(tarm[p].gdb1.seqs);
     }
 
   if (VERBOSE)
@@ -3421,35 +3422,32 @@ static void pair_sort_search(DAZZ_DB *DB1, DAZZ_DB *DB2)
     Clean_Exit(1);
 }
 
-
-static void short_DB_fix(DAZZ_DB *DB)
+static void short_GDB_fix(GDB *gdb)
 { int i;
 
-  if (DB->treads >= NTHREADS)
+  if (gdb->ncontig >= NTHREADS)
     return;
 
-  //  Add additional reads of length KMER that are the first bit of the 0th read/contig
+  //  Add additional conitgs of length KMER that are the first bit of the 0th read/contig
   //    Mark as "fake" with -1 in origin field.
 
-  DB->reads = Realloc(DB->reads-1,sizeof(DAZZ_READ)*(NTHREADS+2),"Reallocating DB read vector");
-  DB->reads += 1;
-  for (i = DB->treads; i < NTHREADS; i++)
-    { DB->reads[i] = DB->reads[0];
-      DB->reads[i].origin = -1;
-      DB->reads[i].rlen   = KMER;
+  gdb->contigs = Realloc(gdb->contigs,sizeof(GDB_CONTIG)*NTHREADS,"Reallocating DB read vector");
+  for (i = gdb->ncontig; i < NTHREADS; i++)
+    { gdb->contigs[i] = gdb->contigs[0];
+      gdb->contigs[i].clen = KMER;
+      gdb->contigs[i].boff = -1;
     }
-  DB->totlen += (NTHREADS-DB->treads)*KMER;
-  if (DB->maxlen < KMER)
-    DB->maxlen = KMER;
-  DB->treads = NTHREADS;
-  DB->nreads = NTHREADS;
+  gdb->seqtot += (NTHREADS-gdb->ncontig)*KMER;
+  if (gdb->maxctg < KMER)
+    gdb->maxctg = KMER;
+  gdb->ncontig = NTHREADS;
 }
 
 int main(int argc, char *argv[])
 { Kmer_Stream *T1, *T2;
   Post_List   *P1, *P2;
-  DAZZ_DB _DB1, *DB1 = &_DB1;
-  DAZZ_DB _DB2, *DB2 = &_DB2;
+  GDB _gdb1, *gdb1 = &_gdb1;
+  GDB _gdb2, *gdb2 = &_gdb2;
 
   { int   n, i;
     char *c;
@@ -3581,13 +3579,13 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"         <format> = -paf[mx] | -psl | -1:<align:path>[.1aln]\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"         <precursor> = .gix | .gdb | <fa_extn> | <1_extn>\n");
+        fprintf(stderr,"         <precursor> = .gix | .1gdb | <fa_extn> | <1_extn>\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"             <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
         fprintf(stderr,"             <1_extn>  = any valid 1-code sequence file type\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
-        fprintf(stderr,"      -k: Keep any generated .gdb's and .gix's.\n");
+        fprintf(stderr,"      -k: Keep any generated .1gdb's and .gix's.\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
         fprintf(stderr,"\n");
@@ -3640,7 +3638,7 @@ int main(int argc, char *argv[])
         TYPE1 = IS_GDB+1;
       }
     else
-      { TYPE1 = get_dna_paths(argv[1],NULL,&SPATH1,&tpath1,0);
+      { TYPE1 = Get_GDB_Paths(argv[1],NULL,&SPATH1,&tpath1,0);
         ROOT1 = Root(tpath1,NULL);
       }
 
@@ -3667,7 +3665,7 @@ int main(int argc, char *argv[])
             TYPE2 = IS_GDB+1;
           }
         else
-          { TYPE2 = get_dna_paths(argv[2],NULL,&SPATH2,&tpath2,0);
+          { TYPE2 = Get_GDB_Paths(argv[2],NULL,&SPATH2,&tpath2,0);
             ROOT2 = Root(tpath2,NULL);
           }
       }
@@ -3787,17 +3785,35 @@ int main(int argc, char *argv[])
   Perm2  = P2->perm;
   KMER   = T1->kmer;
 
-  if (Open_DB(Catenate(PATH1,"/",ROOT1,".gdb"),DB1) < 0)
-    Clean_Exit(1);
-  short_DB_fix(DB1);
+  { FILE *file;
+    char *fname;
 
-  if (SELF)
-    DB2 = DB1;
-  else
-    { if (Open_DB(Catenate(PATH2,"/",ROOT2,".gdb"),DB2) < 0)
-        Clean_Exit(1);
-      short_DB_fix(DB2);
-    }
+    GEXTN1 = ".gdb";
+    fname = Catenate(PATH1,"/",ROOT1,GEXTN1);
+    if ((file = fopen(fname,"r")) == NULL)
+      GEXTN1 = ".1gdb";
+    else
+      fclose(file);
+
+    if (Read_GDB(gdb1,Catenate(PATH1,"/",ROOT1,GEXTN1)) < 0)
+      Clean_Exit(1);
+    short_GDB_fix(gdb1);
+
+    if (SELF)
+      gdb2 = gdb1;
+    else
+      { GEXTN2 = ".gdb";
+        fname = Catenate(PATH1,"/",ROOT1,GEXTN2);
+        if ((file = fopen(fname,"r")) == NULL)
+          GEXTN2 = ".1gdb";
+        else
+          fclose(file);
+
+        if (Read_GDB(gdb2,Catenate(PATH2,"/",ROOT2,GEXTN2)) < 0)
+          Clean_Exit(1);
+        short_GDB_fix(gdb2);
+      }
+  }
 
   if (OUT_TYPE != 2)
     { ONE_ROOT = Strdup(Numbered_Suffix("_oaln.",getpid(),""),"Allocating temp name");
@@ -3868,8 +3884,8 @@ int main(int argc, char *argv[])
     int   r, len;
 
     AMXPOS = 0;
-    for (r = 0; r < DB1->treads; r++)
-      { len = DB1->reads[r].rlen;
+    for (r = 0; r < gdb1->ncontig; r++)
+      { len = gdb1->contigs[r].clen;
         if (len > AMXPOS)
           AMXPOS = len;
       }
@@ -3878,8 +3894,8 @@ int main(int argc, char *argv[])
       BMXPOS = AMXPOS;
     else
       { BMXPOS = 0;
-        for (r = 0; r < DB2->treads; r++)
-          { len = DB2->reads[r].rlen;
+        for (r = 0; r < gdb2->ncontig; r++)
+          { len = gdb2->contigs[r].clen;
             if (len > BMXPOS)
               BMXPOS = len;
           }
@@ -3902,20 +3918,20 @@ int main(int argc, char *argv[])
   { int64 npost, cum, t;   //  Compute DB split into NTHREADS parts
     int   p, r, x;
 
-    NCONTS = DB1->treads;
+    NCONTS = gdb1->ncontig;
 
-    IDBsplit = Malloc((NTHREADS+1)*sizeof(int),"Allocating DB1 partitions");
-    Select   = Malloc(NCONTS*sizeof(int),"Allocating DB1 partition");
+    IDBsplit = Malloc((NTHREADS+1)*sizeof(int),"Allocating GDB1 partitions");
+    Select   = Malloc(NCONTS*sizeof(int),"Allocating GDB1 partition");
     if (IDBsplit == NULL || Select == NULL)
       Clean_Exit(1);
 
-    npost = DB1->totlen;
+    npost = gdb1->seqtot;
     IDBsplit[0] = 0;
     Select[0] = 0;
     p = 0;
     r = NTHREADS;
     t = npost/NTHREADS;
-    cum = DB1->reads[Perm1[0]].rlen;
+    cum = gdb1->contigs[Perm1[0]].clen;
     for (x = 1; x < NCONTS; x++)
       { if (cum >= t && x >= r)
           { p += 1;
@@ -3924,7 +3940,7 @@ int main(int argc, char *argv[])
             r += NTHREADS;
           }
         Select[x] = p;
-        cum += DB1->reads[Perm1[x]].rlen;
+        cum += gdb1->contigs[Perm1[x]].clen;
       }
     NPARTS = p+1;
     IDBsplit[NPARTS] = NCONTS;
@@ -4040,7 +4056,7 @@ int main(int argc, char *argv[])
       }
 #endif
   
-    pair_sort_search(DB1,DB2);
+    pair_sort_search(gdb1,gdb2);
 
     if (VERBOSE)
       TimeTo(stderr,0);
@@ -4099,8 +4115,8 @@ int main(int argc, char *argv[])
   free(ONE_ROOT);
 
   if ( ! SELF)
-    Close_DB(DB2);
-  Close_DB(DB1);
+    Close_GDB(gdb2);
+  Close_GDB(gdb1);
 
   if ( ! SELF)
     Free_Post_List(P2);

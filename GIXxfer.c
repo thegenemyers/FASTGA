@@ -14,8 +14,9 @@
 #include <sys/stat.h>
 
 #include "gene_core.h"
+#include "GDB.h"
 
-static char *Usage = "[-vinfx] <source:path>[.gdb|.gix] <target:path>[.gdb|.gix]";
+static char *Usage = "[-vinfx] <source:path>[.1gdb|.gix] <target:path>[.1gdb|.gix]";
 
 int main(int argc, char *argv[])
 { int   VERBOSE;
@@ -75,9 +76,10 @@ int main(int argc, char *argv[])
 
   //  Determine source and target root names, paths, and extensions
 
-  { char *SPATH, *SROOT;
-    char *TPATH, *TROOT;
+  { char *SPATH, *SROOT, *SEXTN;
+    char *TPATH, *TROOT, *TEXTN;
     int   HAS_GDB, HAS_GIX;
+    GDB  _gdb, *gdb = &_gdb;
     struct stat status;
     char  com[10];
     int   a, yes;
@@ -102,14 +104,29 @@ int main(int argc, char *argv[])
         SROOT = p;
       }
 
-    input = fopen(Catenate(SPATH,"/",SROOT,".gdb"),"r");
+    input = fopen(Catenate(SPATH,"/",SROOT,".1gdb"),"r");
     if (input != NULL)
       { fclose(input);
         HAS_GDB = 1;
+        SEXTN   = ".1gdb";
       }
-    else if (strcmp(SROOT+(strlen(SROOT)-4),".gdb") == 0)
+    else if (strcmp(SROOT+(strlen(SROOT)-5),".1gdb") == 0)
       { HAS_GDB = 1;
-        SROOT[strlen(SROOT)-4] = '\0';
+        SROOT[strlen(SROOT)-5] = '\0';
+        SEXTN   = ".1gdb";
+      }
+    else
+      { input = fopen(Catenate(SPATH,"/",SROOT,".gdb"),"r");
+        if (input != NULL)
+          { fclose(input);
+            HAS_GDB = 1;
+            SEXTN   = ".gdb";
+          }
+        else if (strcmp(SROOT+(strlen(SROOT)-4),".gdb") == 0)
+          { HAS_GDB = 1;
+            SROOT[strlen(SROOT)-4] = '\0';
+            SEXTN   = ".gdb";
+          }
       }
 
     input = fopen(Catenate(SPATH,"/",SROOT,".gix"),"r");
@@ -122,6 +139,7 @@ int main(int argc, char *argv[])
         SROOT[strlen(SROOT)-4] = '\0';
       }
 
+    TEXTN = ".1gdb";
     TPATH = argv[2];
     if (stat(TPATH,&status) == 0 && (status.st_mode & S_IFMT) == S_IFDIR)
       TROOT = SROOT;
@@ -135,12 +153,19 @@ int main(int argc, char *argv[])
           { *p++ = '\0';
             TROOT = p;
           }
+        p = rindex(TROOT,'.');
+        if (p != NULL)
+          { if (strcmp(p+1,"gdb") == 0)
+              { *p = '\0';
+                TEXTN = ".gdb";
+              }
+            else if (strcmp(p+1,"1gdb") == 0 || strcmp(p+1,"gix") == 0)
+              *p = '\0';
+          }
       }
 
     command = Malloc(strlen(SPATH)+strlen(SROOT)+strlen(TPATH)+strlen(TROOT)+100,
                     "Allocating command buffer");
-    if (command == NULL)
-      exit (1);
 
     if (HAS_GIX + HAS_GDB == 0)
       fprintf(stderr,"  There is no GDB or GIX with root %s/%s\n",SPATH,SROOT);
@@ -193,9 +218,9 @@ int main(int argc, char *argv[])
         if (ASK)
           { yes = 0;
 #ifdef MOVE
-            printf("Move %s/%s.gdb? ",SPATH,SROOT);
+            printf("Move %s/%s%s? ",SPATH,SROOT,SEXTN);
 #else
-            printf("Copy %s/%s.gdb? ",SPATH,SROOT);
+            printf("Copy %s/%s%s? ",SPATH,SROOT,SEXTN);
 #endif
             fflush(stdout);
             while ((a = getc(stdin)) != '\n')
@@ -206,23 +231,28 @@ int main(int argc, char *argv[])
             fflush(stdout);
           }
         if (yes)
-          { if (!NO_OVER || stat(Catenate(TPATH,"/",TROOT,".gdb"),&status) != 0)
+          { if (!NO_OVER || stat(Catenate(TPATH,"/",TROOT,SEXTN),&status) != 0)
               { if (VERBOSE)
 #ifdef MOVE
-                  { fprintf(stderr,"  Moving %s/%s.gdb to %s/%s.gdb\n",SPATH,SROOT,TPATH,TROOT);
+                  { fprintf(stderr,"  Moving %s/%s%s to %s/%s%s\n",
+                                   SPATH,SROOT,SEXTN,TPATH,TROOT,TEXTN);
 #else
-                  { fprintf(stderr,"  Copying %s/%s.gdb to %s/%s.gdb\n",SPATH,SROOT,TPATH,TROOT);
+                  { fprintf(stderr,"  Copying %s/%s%s to %s/%s%s\n",
+                                   SPATH,SROOT,SEXTN,TPATH,TROOT,TEXTN);
 #endif
                     fflush(stderr);
                   }
-                sprintf(command,"%s %s/%s.gdb %s/%s.gdb",op,SPATH,SROOT,TPATH,TROOT);
+                Read_GDB(gdb,Catenate(SPATH,"/",SROOT,SEXTN));
+#ifdef MOVE
+                sprintf(command,"rm %s/%s%s",SPATH,SROOT,SEXTN);
                 if (system(command) != 0) goto sys_error;
-                sprintf(command,"%s %s/.%s.hdr %s/.%s.hdr",op,SPATH,SROOT,TPATH,TROOT);
-                if (system(command) != 0) goto sys_error;
-                sprintf(command,"%s %s/.%s.idx %s/.%s.idx",op,SPATH,SROOT,TPATH,TROOT);
-                if (system(command) != 0) goto sys_error;
+#endif
+
                 sprintf(command,"%s %s/.%s.bps %s/.%s.bps",op,SPATH,SROOT,TPATH,TROOT);
                 if (system(command) != 0) goto sys_error;
+
+                Write_GDB(gdb,Catenate(TPATH,"/",TROOT,TEXTN));
+                Close_GDB(gdb);
               }
           }
       }

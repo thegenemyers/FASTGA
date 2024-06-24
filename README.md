@@ -31,7 +31,7 @@
 **FastGA** searches for all local DNA alignments between two high quality genomes.
 The core assumption is that the genomes are nearly complete involving at most several
 thousand contigs with a sequence quality of Q40 or better.
-Based on a novel adaptive seed finding algorithm and the wave-based local aligner developed for
+Based on a novel adaptive seed finding algorithm and the first wave-based local aligner developed for
 [daligner (2012)](https://github.com/thegenemyers/DALIGNER), the tool can for example compare
 two 2Gbp bat genomes finding almost all regions over 100bp that are 70% or more similar
 in about 5.0 minutes wall clock time on my MacPro with 8 cores (about 28 CPU minutes).
@@ -48,21 +48,22 @@ subdirectory ```EXAMPLE``` you will find a pair of sample input files, an output
 Try it for yourself.
 
 Under the surface, a number of intermediate steps take place.  First, the FASTA files
-are converted to **genome databases** with extension **.gdb** that compress and index the ASCII DNA sequences into 2-bit compressed form.  This allows FastGA to randomly access contigs
+are converted to **genome databases** with extension **.1gdb** that are a [ONEcode](https://github.com/thegenemyers/ONEcode) binary file and associated hidden file containing the
+ASCII DNA sequences in 2-bit compressed form.  This allows FastGA to randomly access contigs
 and do so with four times less IO and no text parsing.  Second, a **genome index**
 with extension **.gidx** is then built for each genome that is basically a truncated suffix array.
 One of the things that makes FastGA fast is that it compares these two indices against
 each other directly rather than looking up sequences of one genome in the index of the
 other.
-Third, FastGA records all the alignments it finds in a [ONEcode](https://github.com/thegenemyers/ONEcode) binary file we refer to here as a 1-ALN formated file with extension **.1aln** that uses a very space efficient trace point encoding of each alignment.  Finally in linear time, this trace point representation is converted into the desired PAF output.
-Note carefully, that one has the option to keep the results in the very disk efficient 1-ALN format, and then convert it to any of PAF, PSL, or other desired alignment format on demand.  The diagram immediately below summarizes and details the data flow just described.
+Third, FastGA records all the alignments it finds in a [ONEcode](https://github.com/thegenemyers/ONEcode) binary file we refer to here as a ALN-formated file with extension **.1aln** that uses a very space efficient trace point encoding of each alignment.  Finally in linear time, this trace point representation is converted into the desired PAF output.
+Note carefully, that one has the option to keep the results in the very disk efficient ALN format, and then convert it to any of PAF, PSL, or other desired alignment format on demand.  The diagram immediately below summarizes and details the data flow just described.
 
 ![Fig. 1](System.Fig1.png)
 
 While the entire set of blue shadowed processes can be fired off by simply calling FastGA, we
 provide routines to perform each step under direct control (labeled in blue along dataflow arrows).
 In addition we provide utilities labeled in brown that allow one to examine the intermediate
-GDB, GIX, and 1-ALN files.  An invocation of FastGA with the -k option or direct application of the sub-process routines, create persistent GDB and GIX entities that can be reused saving time if
+GDB, GIX, and ALN files.  An invocation of FastGA with the -k option or direct application of the sub-process routines, create persistent GDB and GIX entities that can be reused saving time if
 a given genome is to be compared repeatedly.  The GDB and GIX items are actually an ensemble, consisting of a proxy file and a number of hidden
 files.  So we provide the utilities GIXmv, GIXcp, and GIXrm to
 manipulate these as an ensemble.  Finally, we provide the utility GDBtoFA that inverts
@@ -70,10 +71,10 @@ the process of converting a FASTA file into a GDB, providing the option of remov
 all your fasta files, compressed or not, for the space efficient GDB representation.
 
 FastGA features the use of the [ONEcode](https://github.com/thegenemyers/ONEcode) data encoding
-framework with its' 1-ALN files that encode all the alignments found.  As such FastGA also
+framework with both its' GDB and ALN files that encode all the alignments found.  As such FastGA also
 supports as input ONEcode sequence files that encode a genome, in addition to the usual
 Fasta format.  So both FAtoGDB and GDBtoFA (despite their names) also recognize and support
-1-SEQ files as well as FASTA.
+ONEcode SEQ files as well as FASTA.
 
 There are three conventions for all the tools in this package designed for your convenience.
 First, suffix extensions need not be given for arguments of a known set of types.  For example,
@@ -101,7 +102,7 @@ FastGA [-vk] [-T<int(8)>] [-P<dir(/tmp)] [<format(-paf)>]
           
     <format> = -paf[mx] | -psl | -1:<alignment:path>[.1aln] 
         
-    <precursor> = .gix | .gdb | <fa_extn> | <1_extn>
+    <precursor> = .gix | .1gdb | <fa_extn> | <1_extn>
     
     <fa_extn> = (.fa|.fna|.fasta)[.gz]
     <1_extn>  = any valid 1-code sequence file type
@@ -110,7 +111,7 @@ FastGA [-vk] [-T<int(8)>] [-P<dir(/tmp)] [<format(-paf)>]
 Performing a FastGA comparison can be as simple as issuing the command ```FastGA A B``` where A and B are FASTA, gzip'd FASTA, or ONEcode sequence files.  By default 8 threads will be used but this can be changed with the -T
 parameter.  By default the myriad temporary files produced by FastGA are located in /tmp but this directory
 can be changed with the -P option.  All the alignments found by FastGA are streamed to the standard output
-and by default will be in PAF format.  You can change this to PSL, or ONEcode 1-ALN formatted output with
+and by default will be in PAF format.  You can change this to PSL, or ONEcode ALN formatted output with
 the -psl and -1, options, respectively.
 Note carefully however, that the ONEcode -1 option produces binary output and the output is stored at the path given with the option, and is not streamed to the standard output.
 The -paf option can further be modulated with an 'x' or 'm', e.g. -pafx, which further requests that CIGAR
@@ -123,7 +124,7 @@ genome (and their degree of repetitiveness), and for finding homologous regions 
 The one or two source arguments to FastGA can be either a FASTA file, a ONEcode sequence file (e.g. .1seq), a precomputed genome database
 (GDB), or a precomputed genome index (GIX).  FastGA determines this by looking at the extension of
 the argument if it is given explicitly, or if only the "root" name is given then it looks first for
-a GIX with extenxion .gix, then a GDB with extension .gdb, then a fasta file with one of
+a GIX with extenxion .gix, then a GDB with extension .1gdb, then a fasta file with one of
 the extensions .fa, .fna, .fasta, .fa.gz, .fna.gz, or .fasta.gz, and if all else fails then FastGA
 tries to open the file as a ONEcode (sequence) file.  If a GIX is not present then FastGA
 makes one, and if in turn a GDB is not present than one is made.  The objects so made are removed
@@ -147,9 +148,9 @@ adaptamer is deemed *repetitive* and is not considered.  Otherwise **adpatamer s
 at (p,q) for each q in  source2 where the adaptamer at p also occurs.
 If GIXmake is invoked separately to make the index in advance of calling FastGA,
 then the option -f, if specified,
-must be less than or equal to the value of -f given when running GIXmake.
+must be less than or equal to the value of -f given when GIXmake was run.
 
-FastGA then searches for runs or chains of adaptamer seed hits that (a) all lie within a diagonal band of width 128, (b) the spacing between every two consecutive seeds is less than -s(500), and
+FastGA then searches for runs or chains of adaptamer seed hits that (a) all lie within a diagonal band of width 128, (b) the spacing between every pair of consecutive seeds is less than -s(500), and
 (c) the seeds in the chain cover at least -c(100) bases in both genomes.  For these **chain
 hits**, FastGA then runs a wave-based local alignment routine that searches for a local alignment
 of length at least -l(100)bp with a similarity of -i(70%) or better that contains at least one
@@ -165,7 +166,7 @@ thresholds for chaining and alignment just described.
 <a name="FAtoGDB"></a>
 
 ```
-1. FAtoGDB [-v] <source:path>(.1seq|[<fa_extn>|<1_extn>]) [<target:path>[.gdb]]
+1. FAtoGDB [-v] <source:path>(.1seq|[<fa_extn>|<1_extn>]) [<target:path>[.1gdb]]
 
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
        <1_extn>  = any valid 1-code sequence file type
@@ -173,7 +174,7 @@ thresholds for chaining and alignment just described.
 
 FAtoGDB takes as input a FASTA file with extension .fa, .fna, .fasta, .fa.gz, .fna.gz, or .fasta.gz,
 or a ONEcode sequence file (e.g. with extension .1seq)
-and produces a **genome database** or GDB with extension .gdb.
+and produces a **genome database** or GDB with extension .1gdb.
 The name and location of the resulting GDB is determined as follows:
 
 * If only a source file is given, then the GDB is built in the same directory and with the same core name as the FASTA file.
@@ -185,12 +186,17 @@ The name and location of the resulting GDB is determined as follows:
 A few examples: ```FAtoGDB A.fa``` and ```FAtoGDB PATH/A.fna .``` both produce A.gdb in the current directory, ```FAtoGDB PATH/A.fa.gz BLUE/AG.gdb``` produces AG.gdb in the directory BLUE (which must
 exist).
 
+The GDB actually consists of two files.  The first, *visible* file, is a ONEcode binary file with extension
+.1gdb that contains all the information about an assembly except for the base-pair sequences which
+are kept in a separate hidden file in 2-bit compressed format.  If the visible file has name say,
+```foo.1gdb``` then this hidden file has name ```.foo.bps```.  We split the GDB this way as many application do not actually need the sequence, but simply need the sizes of contigs, gaps, & scaffolds and their names which are kept in the "light-weight" .1gdb portion.
+
 
 <a name="GIXmake"></a>
 
 ```
 2. GIXmake [-v] [-T<int(8)>] [-P<dir(/tmp)>] [-k<int(40)>] [-f<int(10)>]
-            ( <source:path>[.gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )
+            ( <source:path>[.1gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )
             
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
        <1_extn>  = any valid 1-code sequence file type
@@ -235,15 +241,15 @@ decreasing it, the converse.  The effect is quadratic in -f so take care.
 3. ALNtoPAF [-mx] [-T<int(8)>] <alignments:path>[.1aln]
 ```
 
-ALNtoPAF converts a 1-ALN file into a [PAF](https://github.com/lh3/miniasm/blob/master/PAF.md) file, streaming the PAF to the standard output.
+ALNtoPAF converts a ALN file into a [PAF](https://github.com/lh3/miniasm/blob/master/PAF.md) file, streaming the PAF to the standard output.
 ALNtoPAF uses 8 threads by default, but this can be changed with the -T option.
 
-The command must have access to the one or two GDB's from which the 1-ALN file was derived.
-So the path, both relative and absolute, of these is recorded within the 1-ALN file at the time
+The command must have access to the one or two GDB's from which the ALN file was derived.
+So the path, both relative and absolute, of these is recorded within the ALN file at the time
 it is created.  So one should be careful not to move or rename these GDBs, the one exception being
 if you move them so that when you call ALNtoPAF they are at the same relative location from the
 current directory as was true at the time of creation.
-If you do have to rename or otherwise move the GDBs, then you can change the 1-ALN file's internal
+If you do have to rename or otherwise move the GDBs, then you can change the ALN file's internal
 references to the new GDB locations with [ALNreset](#ALNreset).
 
 In addition to the standard PAF fields, ALNtoPAF outputs a ```dv:F:<fraction>``` SAM-tag that gives the divergences of the query from the target and a ```df:I:<diffs>``` SAM-tag that gives the number
@@ -263,19 +269,19 @@ be ameliorated somewhat by running ALNtoPAF with more threads, controllable with
 4. ALNtoPSL [-T<int(8)>] <alignments:path>[.1aln]
 ```
 
-ALNtoPSL converts a 1-ALN file into a [PSL](https://www.ensembl.org/info/website/upload/psl.html) file,
+ALNtoPSL converts a ALN file into a [PSL](https://www.ensembl.org/info/website/upload/psl.html) file,
 streaming the PSL to the standard output.
 ALNtoPSL uses 8 threads by default, but this can be changed with the -T option.
 
-The command must have access to the one or two GDB's from which the 1-ALN file was derived.
-So the path, both relative and absolute, of these is recorded within the 1-ALNfile at the time
+The command must have access to the one or two GDB's from which the ALN file was derived.
+So the path, both relative and absolute, of these is recorded within the ALN file at the time
 it is created.  So one should be careful not to move or rename these GDBs, the one exception being
 if you move them so that when you call ALNtoPAF they are at the same relative location from the
 current directory as was true at the time of creation.
-If you do have to rename or otherwise move the GDBs, then you can change the 1-ALN file's internal
+If you do have to rename or otherwise move the GDBs, then you can change the ALN file's internal
 references to the new GDB locations with [ALNreset](#ALNreset).
 
-*Warning*, the PSL output is almost 15 times larger than the 1-ALN file.
+*Warning*, the PSL output is almost 15 times larger than the ALN file.
 
 <a name="viewing"></a>
 
@@ -284,8 +290,10 @@ references to the new GDB locations with [ALNreset](#ALNreset).
 <a name="GDBshow"></a>
 
 ```
-1. GDBshow [-hU] [-w<int(80)>] <source:path[.gdb] [ <ranges:FILE> | <range> ... ]
+1. GDBshow [-hU] [-w<int(80)>] <source:path[.1gdb] [ <selection> | <FILE> ]
 
+       <selection> = <range> [ , <range> ]*
+       
        <range> =    <contig>[-<contig>]     |  <contig>_<int>-(<int>|#)
                | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)
 
@@ -295,15 +303,14 @@ references to the new GDB locations with [ALNreset](#ALNreset).
 ```
 
 GDBshow allows one to view a given set of scaffolds/contigs or portions thereof for the source GDB.
-If the -h option is set then only the header lines are shown.  By default DNA sequence is lower-case,
+If the <nobr>-h</nobr> option is set then only the header lines are shown.  By default DNA sequence is lower-case,
 80bp per row.  You can request upper-case with -U, and set the line width with -w.  If no arguments
-besides the source DB are given, then the contigs of the entire GDB are output (in order).  If a file name follows, then GDB interprets each line of the file as a display directive.  Otherwise each argument after the source GDB is interpreted as a display directive where the syntax and meaning is as follows:
+besides the source GDB are given, then all the contigs of the GDB are output (in order).  If a file name follows, then GDB interprets each line of the file as a \<range\> display directive.  Otherwise the argument after the source GDB is interpreted as a display directive where the syntax and meaning is as follows:
 
 * A contig (index) is either (1) a single integer, say c, denoting the c'th contig in the genome, or (2) a pair of integers separated by a ., say s.c, denoting the c'th contig of the s'th scaffold in the genome.
 
 * A scaffold (index) is either a single integer, say s, denoting the s'th scaffold in the genome, or
-   it can be a string in which case it denotes every scaffold whose header prefix (excluding any leading
-   white space) matches the string. 
+   it can be the string name of the scaffold given in the originating fasta header. 
 
 * The special symbol # which may substitute for an integer denotes "the last", e.g. # adresses the last contig in the genome, #.1 addresses the 1st contig of the last scaffold, and 1_500-# selects the substring from 500 to the end of contig 1.
 
@@ -311,23 +318,25 @@ besides the source DB are given, then the contigs of the entire GDB are output (
  in which case all indices are to contigs.  If the range is (1) a single index, then the given contig or scaffold is displayed, (2) a pair of indices separated by a hyphen, then the range of contigs or scaffolds are displayed (inclusively), or (3) a single index followed by an under-bar and then two integers separated by a hyphen, then the substring
 of the contig or scaffold between the indices given by the two integers is displayed.
 
+* A selection on the command line is a list of ranges separated by commas.
+
 * If no directives are given then every contig is output in order, i.e. 1-#, and if a single
  @-sign is given then every scaffold is output in order, i.e. @1-#.
 
-* A request to display a contig, prints the contig's scaffold's header with the relative contig
- number and interval of the scaffold appended followed by the sequence of the contig.  A request to display a scaffold, prints the scaffold's header followed by the sequence of the scaffold which is each of its' individual contigs separated by runs of N's of the same length as they occurred in the originating FASTA file.
+A request to display a contig, prints the contig's scaffold's header with the relative contig
+number and interval of the scaffold appended followed by the sequence of the contig.  A request to display a scaffold, prints the scaffold's header followed by the sequence of the scaffold which is each of its' individual contigs separated by runs of N's of the same length as they occurred in the originating FASTA file.
 
 While contigs and scaffolds are referenced by ordinal numbers starting at 1, sequence positions are
 between characters and so start at 0 (the position immediately to the left of the 1st character).
 The convenience of this 0-based numbering is that the length of an interval [b,e] is e-b.  Further
 note that when the item for a substring is a contig then the interval is with respect to the contig,
-while when the item is a scaffold it is respect to the scaffold considered as a single string
+while when the item is a scaffold it is with respect to the scaffold considered as a single string
 with intervening N's between contigs.
  
 <a name="GDBstat"></a>
 
 ```
-2. GDBstat [-h[<ctg:int>,<scaf:int>]] [-hlog] <source:path[.gdb]
+2. GDBstat [-h[<ctg:int>,<scaf:int>]] [-hlog] <source:path[.1gdb]
 ```
 GDBstat gives you summary statistics about the genome in the source GDB.  It always outputs the number,
 cumulative base pairs, and average size of scaffolds, contigs, and gaps.  It also outputs the max, min,
@@ -358,7 +367,9 @@ the string (or the last if it is the second argument of a range).
 
 ```
 4. ALNshow [-arU] [-i<int(4).] [-w<int(100)>] [-b<int(10)>>
-              <alignments:path>[.1aln] [ <range> [<range>] ]
+              <alignments:path>[.1aln] [ <selection>|<FILE> [<selection>|<FILE>] ]
+
+       <selection> = <range> [ , <range> ]*
 
        <range> =    <contig>[-<contig>]     |  <contig>_<int>-(<int>|#)
                | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)
@@ -369,21 +380,23 @@ the string (or the last if it is the second argument of a range).
 ```
 
 ALNshow produces a printed listing of a subset of the local alignments contained in the specified
-.1aln file, where one can optionally view the alignments in a BLAST like format.  If just the 1-ALN is given
-as an argument then every alignment is displayed.  If a single range is given in addition, then only
-those alignments whose interval in the 1st genome intersects the range are displayed.
-If a pair of ranges are given then those alignments where its interval in the 1st genome intersects
-the 1st range and its interval in the 2nd genome intersects the 2nd range are displayed.
+ALN file, where one can optionally view the alignments in a BLAST like format.  If just the ALN is given
+as an argument then every alignment is displayed.  If a single selection is given in addition, then only
+those alignments whose interval in the 1st genome intersects the selection are displayed.
+If a pair of selections are given then those alignments where its interval in the 1st genome intersects
+the 1st selection and its interval in the 2nd genome intersects the 2nd selection are displayed.
 See the documentation for [GDBshow](#GDBshow) for a detailed explanation of the format and meaning
-of ranges.
+of selections.
 
-The command must have access to the one or two GDB's from which the 1-ALN file was derived.
-So the path, both relative and absolute, of these is recorded within the 1-ALNfile at the time
-it is created.  So one should be careful not to move or rename these GDBs, the one exception being
+The command must have access to the one or two source files from which the ALN file was derived.
+This can be either a Fasta file, a ONEcode SEQ file, or a GDB depending on how the ALN file was created.
+For example, if FastGA is run on two FASTA files without the -k option then the recorded sources
+will be the FASTA file.  But with the -k option, then the GDB's (that are kept) are recorded.
+The path, both relative and absolute, of these sources is recorded within the ALN file at the time
+it is created.  So one should be careful not to move, rename, or remove the sources, the one exception being
 if you move them so that when you call ALNshow they are at the same relative location from the
 current directory as was true at the time of creation.
-If you do have to rename or otherwise move the GDBs, then you can change the 1-ALN file's internal
-references to the new GDB locations with [ALNreset](#ALNreset).
+If you do have to rename or otherwise move the source files, then you can change the ALN file's internal references to their new locations with [ALNreset](#ALNreset).
 
 If the -a or -r option is set then an alignment of the local alignment is displayed.
 The -a option puts exactly -w columns per segment of the display, whereas the -r option
@@ -445,7 +458,7 @@ of a square bracket [].
 <a name="GDBtoFA"></a>
 
 ```
-1. GDBtoFA [-vU] [-w<int(80)> <source:path>[.gdb] [ @ | <target:path>[<fa_sten>|.1seq] ]
+1. GDBtoFA [-vU] [-w<int(80)> <source:path>[.1gdb] [ @ | <target:path>[<fa_sten>|.1seq] ]
 
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
 
@@ -470,18 +483,17 @@ follows.  Where the FASTA file is placed by GDBtoFA and what it is named is as f
 <a name="GIXmv"></a>
 
 ```
-2.a GIXrm [-vifg] <source:path>[.gix|.gdb] ...
-2.b GIXmv [-vinf] <source:path>[.gix|.gdb] <target:path>[.gix|.gdb]
-2.c GIXcp [-vinf] <source:path>[.gix|.gdb] <target:path>[.gix|.gdb]
+2.a GIXrm [-vifg] <source:path>[.gix|.1gdb] ...
+2.b GIXmv [-vinf] <source:path>[.gix|.1gdb] <target:path>[.gix|.1gdb]
+2.c GIXcp [-vinf] <source:path>[.gix|.1gdb] <target:path>[.gix|.1gdb]
 ```
 
-A GDB consists of not only a proxy file with a .gdb extension but 3 hidden files as well with extensions
-.hdr, .idx, and .bps.
+A GDB consists of not only a "skeleton" file with a .1gdb extension but also a hidden file with extension .bps.
 Likewise a GIX consists of not only a proxy file with a .gix extension but 2T hidden files with
 extensions of the form .ktab.\<int\> and .post.\<int\> where T is the number of threads used to
 create the index.
 As such it is cumbersome to remove, move, or copy a GDB or GIX directly with the UNIX OS as it requires
-you to utter 2T+5 commands or possibly only one if wild cards are used, albeit this has the potential for
+you to utter 2T+3 commands or possibly only one if wild cards are used, albeit this has the potential for
 surprising matches affecting unexpected files.
 So we provide the commands GIXrm, GIXmv, and GIXcp to remove, move, or copy GDBs and/or GIXs as a
 single entity.
@@ -495,13 +507,13 @@ then deleting the GDB is tantamount to deleting your genome source!
 
 ```
 3. ALNreset [-T<int(8)>] <alignments:path>[.1aln]
-                         <source1:path>[.gdb|<fa_extn>|<1_extn>] [<source2:path>[.gdb|<fa_extn>|<1_extn>]]
+                 <source1:path>[.1gdb|<fa_extn>|<1_extn>] [<source2:path>[.1gdb|<fa_extn>|<1_extn>]]
                                      
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
        <1_extn>  = any valid 1-code sequence file type
 ```
 
-In the unfortunate event that the internal reference of 1-code alignment file (.1aln) to its genome source files have become
+In the unfortunate event that the internal references of a 1-code alignment file (.1aln) to its genome source files have become
 "stale", ALNreset allows you to reset these paths within the given file.  Note carefully, that the references can be not only to a GDB but also the source 1-code or FASTA files from which a GDB can be
 built.
 
@@ -514,4 +526,3 @@ built.
 ```
 
 Under construction.
-

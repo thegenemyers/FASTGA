@@ -19,10 +19,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "DB.h"
+#include "GDB.h"
 #include "align.h"
 #include "alncode.h"
-#include "DNAsource.h"
 
 #undef DEBUG_THREADS
 
@@ -36,19 +35,13 @@ static int  ISTWO;     // one gdb or two?
 
 static int TSPACE;   // Trace spacing
 
-static int  AMAX,  BMAX;   //  Max sequence length in A and B
-static int *AMAP, *BMAP;   //  Map contig to its scaffold
-static int *ALEN, *BLEN;   //  Map contig to its scaffold length
-
-static char *AHEADER, *BHEADER;  //  Tables of all headers
-
 //  THREAD ROUTINE TO GENERATE A SECTION OF THE DESIRED .PAF FILE
 
 typedef struct
   { int64    beg;
     int64    end;
-    DAZZ_DB  db1;
-    DAZZ_DB  db2;
+    GDB      gdb1;
+    GDB      gdb2;
     OneFile *in;
     FILE    *out;
   } Packet;
@@ -56,35 +49,42 @@ typedef struct
 void *gen_paf(void *args)
 { Packet *parm = (Packet *) args;
 
-  int64    beg = parm->beg;
-  int64    end = parm->end;
-  DAZZ_DB *db1 = &(parm->db1);
-  DAZZ_DB *db2 = &(parm->db2);
-  OneFile *in  = parm->in;
-  FILE    *out = parm->out;
+  int64    beg  = parm->beg;
+  int64    end  = parm->end;
+  GDB     *gdb1 = &(parm->gdb1);
+  GDB     *gdb2 = &(parm->gdb2);
+  OneFile *in   = parm->in;
+  FILE    *out  = parm->out;
 
   Overlap   _ovl, *ovl = &_ovl;
   Alignment _aln, *aln = &_aln;
 
-  uint16    *trace;
-  int        tmax;
-  DAZZ_READ *reads1, *reads2;
-  int        aread, bread;
-  int        alast;
-  int        aoff, boff;
-  char      *aseq, *bseq;
-  Path      *path;
-  Work_Data *work;
-  int        blocksum, iid;
+  uint16       *trace;
+  int           tmax;
+  GDB_CONTIG   *contigs1, *contigs2;
+  GDB_SCAFFOLD *scaff1, *scaff2;
+  char         *ahead, *bhead;
+  int           acontig, bcontig;
+  int           ascaff, bscaff;
+  int           alast;
+  int64         aoff, boff;
+  char         *aseq, *bseq;
+  Path         *path;
+  Work_Data    *work;
+  int           blocksum, iid;
 
   work = New_Work_Data();
-  aseq = New_Read_Buffer(db1);
-  bseq = New_Read_Buffer(db2);
+  aseq = New_Contig_Buffer(gdb1);
+  bseq = New_Contig_Buffer(gdb2);
   if (aseq == NULL || bseq == NULL)
     exit (1);
 
-  reads1 = db1->reads;
-  reads2 = db2->reads;
+  contigs1 = gdb1->contigs;
+  contigs2 = gdb2->contigs;
+  scaff1   = gdb1->scaffolds;
+  scaff2   = gdb2->scaffolds;
+  ahead    = gdb1->headers;
+  bhead    = gdb2->headers;
 
   aln->path = path = &(ovl->path);
   aln->aseq = aseq;
@@ -108,31 +108,33 @@ void *gen_paf(void *args)
       path->tlen  = Read_Aln_Trace(in,(uint8 *) trace);
       path->trace = trace;
 
-      aread = ovl->aread;
-      aln->alen = reads1[aread].rlen;
-      bread = ovl->bread;
-      aln->blen  = reads2[bread].rlen;
+      acontig = ovl->aread;
+      aln->alen = contigs1[acontig].clen;
+      bcontig = ovl->bread;
+      aln->blen  = contigs2[bcontig].clen;
       aln->flags = ovl->flags;
+      ascaff = contigs1[acontig].scaf;
+      bscaff = contigs2[bcontig].scaf;
 
-      aoff = reads1[aread].fpulse;
-      fprintf(out,"%s",AHEADER + reads1[aread].coff);
-      fprintf(out,"\t%d",ALEN[aread]);
-      fprintf(out,"\t%d",aoff + path->abpos);
-      fprintf(out,"\t%d",aoff + path->aepos);
+      aoff = contigs1[acontig].sbeg;
+      fprintf(out,"%s",ahead + scaff1[ascaff].hoff);
+      fprintf(out,"\t%lld",scaff1[ascaff].slen);
+      fprintf(out,"\t%lld",aoff + path->abpos);
+      fprintf(out,"\t%lld",aoff + path->aepos);
 
       fprintf(out,"\t%c",COMP(aln->flags)?'-':'+');
 
-      fprintf(out,"\t%s",BHEADER + reads2[bread].coff);
-      fprintf(out,"\t%d",BLEN[bread]);
+      fprintf(out,"\t%s",bhead + scaff2[bscaff].hoff);
+      fprintf(out,"\t%lld",scaff2[bscaff].slen);
       if (COMP(aln->flags))
-        { boff = reads2[bread].fpulse + reads2[bread].rlen;
-          fprintf(out,"\t%d",boff - path->bepos);
-          fprintf(out,"\t%d",boff - path->bbpos);
+        { boff = contigs2[bcontig].sbeg + contigs2[bcontig].clen;
+          fprintf(out,"\t%lld",boff - path->bepos);
+          fprintf(out,"\t%lld",boff - path->bbpos);
         }
       else
-        { boff = reads2[bread].fpulse;
-          fprintf(out,"\t%d",boff + path->bbpos);
-          fprintf(out,"\t%d",boff + path->bepos);
+        { boff = contigs2[bcontig].sbeg;
+          fprintf(out,"\t%lld",boff + path->bbpos);
+          fprintf(out,"\t%lld",boff + path->bepos);
         }
 
       blocksum = (path->aepos-path->abpos) + (path->bepos-path->bbpos);
@@ -151,10 +153,8 @@ void *gen_paf(void *args)
 
           Decompress_TraceTo16(ovl);
 
-          if (aread != alast)
-            { if (Load_Read(db1,aread,aseq,0))
-                exit (1);
-            }
+          if (acontig != alast)
+            Get_Contig(gdb1,acontig,NUMERIC,aseq);
 
           if (COMP(aln->flags))
             { bmin = (aln->blen-path->bepos);
@@ -165,7 +165,7 @@ void *gen_paf(void *args)
               bmax = path->bepos;
             }
 
-          bact = Load_Subread(db2,bread,bmin,bmax,bseq,0);
+          bact = Get_Contig_Piece(gdb2,bcontig,bmin,bmax,NUMERIC,bseq);
           if (COMP(aln->flags))
             { Complement_Seq(bact,bmax-bmin);
               aln->bseq = bact - (aln->blen-bmax);
@@ -340,7 +340,7 @@ void *gen_paf(void *args)
         }
 
       fprintf(out,"\n");
-      alast = aread;
+      alast = acontig;
     }
 
   free(trace);
@@ -353,11 +353,9 @@ void *gen_paf(void *args)
 
 int main(int argc, char *argv[])
 { Packet    *parm;
-  DAZZ_DB   _db1, *db1 = &_db1;
-  DAZZ_DB   _db2, *db2 = &_db2;
-  char      *db1_name, *db2_name;
-  int        hdrs1, hdrs2;
-  FILE     **bps1, **bps2;
+  GDB       _gdb1, *gdb1 = &_gdb1;
+  GDB       _gdb2, *gdb2 = &_gdb2;
+  char      *gdb1_name, *gdb2_name;
   OneFile   *input;
   int64      novl;
 
@@ -461,132 +459,34 @@ int main(int argc, char *argv[])
     //  Prepare GDBs from sources if necessary
 
     ISTWO = 0;
-    type  = get_dna_paths(src1_name,src1_name,&spath,&db1_name,0);
+    type  = Get_GDB_Paths(src1_name,src1_name,&spath,&gdb1_name,0);
     if (type != IS_GDB)
-      bps1 = make_temporary_gdb(spath,db1_name,db1,&hdrs1,NTHREADS);
+      Create_GDB(gdb1,spath,type,CIGAR,gdb1_name);
     else
-      { if (Open_DB(db1_name,db1) < 0)
-          exit (1);
+      { Read_GDB(gdb1,gdb1_name);
+        if (CIGAR && gdb1->seqs == NULL)
+          { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,gdb1_name);
+            exit (1);
+          }
       }
-
     free(spath);
+
     if (src2_name != NULL)
-      { type = get_dna_paths(src2_name,src2_name,&spath,&db2_name,0);
+      { type = Get_GDB_Paths(src2_name,src2_name,&spath,&gdb2_name,0);
         if (type != IS_GDB)
-          bps2 = make_temporary_gdb(spath,db2_name,db2,&hdrs2,NTHREADS);
+          Create_GDB(gdb2,spath,type,CIGAR,gdb2_name);
         else
-          { if (Open_DB(db2_name,db2) < 0)
-              exit (1);
+          { Read_GDB(gdb2,gdb2_name);
+            if (CIGAR && gdb2->seqs == NULL)
+              { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,gdb2_name);
+                exit (1);
+              }
           }
         free(spath);
         ISTWO = 1;
       }
     else
-      { db2 = db1;
-        bps2 = bps1;
-      }
-  }
-
-  //  Setup scaffold->contig maps & scaffold name dictionary
-
-  { int   s, r;
-
-    AMAX = db1->maxlen;
-    BMAX = db2->maxlen;
-
-    if (ISTWO)
-      AMAP = (int *) Malloc(sizeof(int)*2*(db1->treads+db2->treads),"Allocating scaffold map");
-    else
-      AMAP = (int *) Malloc(sizeof(int)*2*db1->treads,"Allocating scaffold map");
-    if (AMAP == NULL)
-      exit (1);
-    ALEN = AMAP + db1->treads;
-
-    s = -1;
-    for (r = 0; r < db1->treads; r++)
-      { if (db1->reads[r].origin == 0)
-          s += 1;
-        ALEN[s] = db1->reads[r].fpulse + db1->reads[r].rlen;
-        AMAP[r] = s;
-      }
-    for (r = db1->treads-1; r >= 0; r--)
-      ALEN[r] = ALEN[AMAP[r]];
-
-    if (ISTWO)
-      { BMAP = ALEN + db1->treads;
-        BLEN = BMAP + db2->treads;
-
-        s = -1;
-        for (r = 0; r < db2->treads; r++)
-          { if (db2->reads[r].origin == 0)
-              s += 1;
-            BLEN[s] = db2->reads[r].fpulse + db2->reads[r].rlen;
-            BMAP[r] = s;
-          }
-        for (r = db2->treads-1; r >= 0; r--)
-          BLEN[r] = BLEN[BMAP[r]];
-      }
-    else
-      { BMAP = AMAP;
-        BLEN = ALEN;
-      }
-  }
-
-  //  Preload all scaffold headers
-
-  { int r;
-    char *eptr;
-    struct stat state;
-
-    if (fstat(hdrs1,&state) < 0)
-      { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,argv[1]);
-        exit (1);
-      }
-
-    AHEADER = Malloc(state.st_size,"Allocating header table");
-    if (AHEADER == NULL)
-      exit (1);
-
-    if (read(hdrs1,AHEADER,state.st_size) < 0)
-      { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[1]);
-        exit (1);
-      }
-    close(hdrs1);
-
-    for (r = 0; r < db1->nreads; r++)
-      if (db1->reads[r].origin == 0)
-        { for (eptr = AHEADER + db1->reads[r].coff; *eptr != '\n'; eptr++)
-            if (isspace(*eptr))
-              break;
-          *eptr = '\0';
-        }
-
-    if (ISTWO)
-      { if (fstat(hdrs2,&state) < 0)
-          { fprintf(stderr,"%s: Cannot fetch size of %s's header file\n",Prog_Name,argv[2]);
-            exit (1);
-          }
-
-        BHEADER = Malloc(state.st_size,"Allocating header table");
-        if (BHEADER == NULL)
-          exit (1);
-
-        if (read(hdrs2,BHEADER,state.st_size) < 0)
-          { fprintf(stderr,"%s: Cannot read header file of %s\n",Prog_Name,argv[2]);
-            exit (1);
-          }
-        close(hdrs2);
-
-        for (r = 0; r < db2->nreads; r++)
-          if (db2->reads[r].origin == 0)
-            { for (eptr = BHEADER + db2->reads[r].coff; *eptr != '\n'; eptr++)
-                if (isspace(*eptr))
-                  break;
-              *eptr = '\0';
-            }
-      }
-    else
-      BHEADER = AHEADER;
+      gdb2 = gdb1;
   }
 
   //  Divide .1aln into NTHREADS parts
@@ -615,11 +515,19 @@ int main(int argc, char *argv[])
     oprefix = Strdup(Numbered_Suffix("_paf.",getpid(),"."),"Allocating temp file prefix");
 
     for (p = 0; p < NTHREADS; p++)
-      { parm[p].db1   = *db1;
-        parm[p].db2   = *db2;
+      { parm[p].gdb1 = *gdb1;
+        parm[p].gdb2 = *gdb2;
         if (p > 0)
-          { parm[p].db1.bases = bps1[p];
-            parm[p].db2.bases = bps2[p];
+          { parm[p].gdb1.seqs = fopen(gdb1->seqpath,"r");
+            if (parm[p].gdb1.seqs == NULL)
+              { fprintf(stderr,"%s: Cannot open another copy of GDB %s\n",Prog_Name,gdb1->seqpath);
+                exit (1);
+              }
+            parm[p].gdb2.seqs = fopen(gdb2->seqpath,"r");
+            if (parm[p].gdb2.seqs == NULL)
+              { fprintf(stderr,"%s: Cannot open another copy of GDB %s\n",Prog_Name,gdb2->seqpath);
+                exit (1);
+              }
           }
         parm[p].in  = input + p ;
         parm[p].out = fopen(Numbered_Suffix(oprefix,p,".paf"),"w+");
@@ -645,8 +553,8 @@ int main(int argc, char *argv[])
 #endif
 
     for (p = 1; p < NTHREADS; p++)
-      { fclose(bps1[p]);
-        fclose(bps2[p]);
+      { fclose(parm[p].gdb1.seqs);
+        fclose(parm[p].gdb2.seqs);
       }
 
     //  Concatenate thread generated paf parts to stdout
@@ -671,10 +579,9 @@ int main(int argc, char *argv[])
     free(buffer);
   }
 
-  free(AMAP);
-  Close_DB(db1);
+  Close_GDB(gdb1);
   if (ISTWO)
-    Close_DB(db2);
+    Close_GDB(gdb2);
 
   oneFileClose(input);
 

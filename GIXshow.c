@@ -398,7 +398,29 @@ static int dna[128] =
     0, 0, 0, 0, 0, 0, 0, 0,
   };
 
-static int64 Interpret(Kmer_Stream *T, char *x)
+static int shiftup[128] =
+  { 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    0, 'C', 0, 'G', 0, 0, 0, 'T',
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    0, 'c', 0, 'g', 0, 0, 0, 't',
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+  };
+
+static int64 Interpret(Kmer_Stream *T, char *x, int beg)
 { int   d, n;
   char *u;
 
@@ -411,19 +433,32 @@ static int64 Interpret(Kmer_Stream *T, char *x)
         { fprintf(stderr,"%s: Index %s is out of bounds\n",Prog_Name,x);
           exit (1);
         }
-      return ((int64) d);
+      if (beg)
+        return ((int64) d);
+      else
+        return ((int64) d+1);
     }
   for (n = 0; x[n] != '\0'; n++)
     if (!dna[(int) x[n]])
-      { fprintf(stderr,"%s: Index %s is out of bounds\n",Prog_Name,x);
+      { fprintf(stderr,"%s: String %s is not dna (acgt)\n",Prog_Name,x);
         exit (1);
       }
   if (n > T->kmer)
-    { fprintf(stderr,"%s: Index %s is out of bounds\n",Prog_Name,x);
+    { fprintf(stderr,"%s: String %s is longer than k-mer size (%d)\n",Prog_Name,x,T->kmer);
       exit (1);
     }
   u = Current_Kmer(T,NULL);
   strcpy(u,x);
+  if (!beg)
+    { n -= 1;
+      while (n >= 0 && (u[n] == 't' || u[n] == 'T'))
+        n -= 1;
+      if (n < 0)
+        return (T->nels);
+      else
+        u[n] = shiftup[(int) u[n]];
+      n += 1;
+    }
   while (n < T->kmer)
     u[n++] = 'a';
   GoTo_Kmer_String(T,u);
@@ -483,12 +518,12 @@ int main(int argc, char *argv[])
       char *p = index(x,'-');
       if (p != NULL)
         { *p++ = '\0';
-          bidx = Interpret(T,x);
-          eidx = Interpret(T,p) + 1;
+          bidx = Interpret(T,x,1);
+          eidx = Interpret(T,p,0);
         }
       else
-        { bidx = Interpret(T,x);
-          eidx = bidx + 1;
+        { bidx = Interpret(T,x,1);
+          eidx = Interpret(T,x,0);
         }
     }
 

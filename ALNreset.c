@@ -19,13 +19,12 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
-#include "DB.h"
+#include "GDB.h"
 #include "alncode.h"
-#include "DNAsource.h"
 
 static char *Usage[] = 
             { "[-T<int(8)>] <alignments:path>[.1aln]",
-              " <source1:path>[.gdb|<fa_extn>|<1_extn>] [<source2:path>[.gdb|<fa_extn>|<1_extn>]]"
+              " <source1:path>[.1gdb|<fa_extn>|<1_extn>] [<source2:path>[.1gdb|<fa_extn>|<1_extn>]]"
             };
 
 typedef struct
@@ -123,10 +122,10 @@ int main(int argc, char *argv[])
 
   { char *tpath;
 
-    get_dna_paths(argv[2],NULL,&SPATH1,&tpath,0);
+    Get_GDB_Paths(argv[2],NULL,&SPATH1,&tpath,0);
     free(tpath);
     if (argc == 4)
-      { get_dna_paths(argv[3],NULL,&SPATH2,&tpath,0);
+      { Get_GDB_Paths(argv[3],NULL,&SPATH2,&tpath,0);
         free(tpath);
       }
   }

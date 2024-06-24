@@ -24,12 +24,11 @@
 #include <sys/resource.h>
 
 #include "libfastk.h"
-#include "DB.h"
-#include "DNAsource.h"
+#include "GDB.h"
 
 static char *Usage[] =
     { "[-v] [-T<int(8)>] [-P<dir(/tmp)>] [-k<int(40)] [-f<int(10)>]",
-      "( <source:path>[.gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )"
+      "( <source:path>[.1gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )"
     };
 
 static int   FREQ;       //  -f
@@ -267,7 +266,7 @@ static void *distribute_thread(void *args)
 // Distribute posts to the appropriate NTHREADS^2 files based on section of the DB and 1st byte
 //   of its canonical k-mer
 
-void distribute(DAZZ_DB *DB)
+void distribute(GDB *gdb)
 { uint8 *seq;
   int    len, ren;
   uint8 *neq, *ceq;
@@ -279,13 +278,13 @@ void distribute(DAZZ_DB *DB)
   pthread_t threads[NTHREADS];
 #endif
 
-  seq = (uint8 *) New_Read_Buffer(DB);   //  Allocate work vectorss and set up fixed parts of
-  neq = (uint8 *) New_Read_Buffer(DB);   //    of the thread records
-  ceq = (uint8 *) New_Read_Buffer(DB);
+  seq = (uint8 *) New_Contig_Buffer(gdb);   //  Allocate work vectorss and set up fixed parts of
+  neq = (uint8 *) New_Contig_Buffer(gdb);   //    of the thread records
+  ceq = (uint8 *) New_Contig_Buffer(gdb);
   if (seq == NULL || neq == NULL || ceq == NULL)
     exit (1);
 
-  parm[0].buffer = Malloc(BUFFER_LEN*NTHREADS,"IO Buffer");
+  parm[0].buffer = Malloc(BUFFER_LEN*NTHREADS,"Allocating IO buffer");
   for (i = 0; i < NTHREADS; i++)
     { parm[i].tid    = i;
       parm[i].seq    = seq;
@@ -315,12 +314,11 @@ void distribute(DAZZ_DB *DB)
 
       ren = DBsplit[p+1];
       for (r = DBsplit[p]; r < ren; r++)
-        { if (Load_Read(DB,r,(char *) seq,0))   //  Load the contig
-            exit (1);
-    
-          len = DB->reads[r].rlen;
-          if (len == 0)
+        { if (gdb->contigs[r].boff < 0)
             continue;
+
+          len = gdb->contigs[r].clen;
+          Get_Contig(gdb,r,NUMERIC,(char *) seq);   //  Load the contig
     
 #ifdef DEBUG_MAP
           printf("Src:");
@@ -507,7 +505,7 @@ static void print_table(uint8 *array, int swide, int64 nelem)
 #endif
 
 typedef struct
-  { DAZZ_DB  DB;
+  { GDB      gdb;
     int      tid;
     int      inum;
     int      in;
@@ -527,8 +525,8 @@ static void *setup_thread(void *args)
   int swide     = parm->swide;
   uint8 *sarr   = parm->sarr;
   uint8 *buffer = parm->buff;
-  DAZZ_DB *DB   = &(parm->DB);
-  int64   *buck = Buckets[tid];
+  GDB   *gdb    = &(parm->gdb);
+  int64 *buck   = Buckets[tid];
 
   int    iamt;
   uint8 *seq;
@@ -544,9 +542,9 @@ static void *setup_thread(void *args)
   int64  nextpost, basepost;
   uint8 *bend, *btop, *b;
 
-  seq = (uint8 *) New_Read_Buffer(DB);
-  neq = (uint8 *) New_Read_Buffer(DB);
-  ceq = (uint8 *) New_Read_Buffer(DB);
+  seq = (uint8 *) New_Contig_Buffer(gdb);
+  neq = (uint8 *) New_Contig_Buffer(gdb);
+  ceq = (uint8 *) New_Contig_Buffer(gdb);
   if (seq == NULL || neq == NULL || ceq == NULL)
     exit (1);
   keq = ceq+(KMER-4);
@@ -615,15 +613,15 @@ static void *setup_thread(void *args)
           uint8 *s1, *s2, *s3, *n1;
 
           do
-            { len = DB->reads[ncntg].rlen;
+            { len = gdb->contigs[ncntg].clen;
               basepost = nextpost;
-              ncntg    += 1;
-              nextpost += len;
+              if (gdb->contigs[ncntg].boff >= 0)
+                nextpost += len;
+              ncntg += 1;
             }
           while (post >= nextpost);
 
-          if (Load_Read(DB,ncntg-1,(char *) seq,0))
-            exit (1);
+          Get_Contig(gdb,ncntg-1,NUMERIC,(char *) seq);
 
           cont = InvP[ncntg-1];
           nont = cont | flag;
@@ -920,7 +918,7 @@ pout_write_fail:
   return (NULL);
 }
 
-void k_sort(DAZZ_DB *DB)
+void k_sort(GDB *gdb)
 { uint8 *sarray;
   uint8 *buffer;
   int    p, part, swide;
@@ -946,12 +944,10 @@ void k_sort(DAZZ_DB *DB)
       }
 
     swide  = KBYTES + PostBytes + ContBytes;
-    prefix = Malloc(sizeof(int64)*0x1000000,"Prefix array");
-    posfix = Malloc(sizeof(int64)*0x10000,"Postfix array");
-    sarray = Malloc(nelmax*swide+1,"Sort Array");
-    buffer = Malloc(NTHREADS*BUFFER_LEN,"Input Buffers");
-    if (prefix == NULL || posfix == NULL || sarray == NULL || buffer == NULL)
-      exit (1);
+    prefix = Malloc(sizeof(int64)*0x1000000,"Allocating prefix array");
+    posfix = Malloc(sizeof(int64)*0x10000,"Allocating postfix array");
+    sarray = Malloc(nelmax*swide+1,"Allocating sort array");
+    buffer = Malloc(NTHREADS*BUFFER_LEN,"Allocating input buffers");
     bzero(prefix,sizeof(int64)*0x1000000);
     bzero(posfix,sizeof(int64)*0x10000);
   }
@@ -975,11 +971,11 @@ void k_sort(DAZZ_DB *DB)
       sarm[p].swide = swide;
       sarm[p].sarr  = sarray;
       sarm[p].buff  = buffer + p*BUFFER_LEN;
-      sarm[p].DB    = *DB;
+      sarm[p].gdb   = *gdb;
       if (p > 0)
-        { sarm[p].DB.bases = fopen(Catenate(DB->path,"","",".bps"),"r");
-          if (sarm[p].DB.bases == NULL)
-            { fprintf(stderr,"%s: Cannot open another copy of DB\n",Prog_Name);
+        { sarm[p].gdb.seqs = fopen(gdb->seqpath,"r");
+          if (sarm[p].gdb.seqs == NULL)
+            { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
               exit (1);
             }
         }
@@ -1105,7 +1101,7 @@ void k_sort(DAZZ_DB *DB)
     }
 
   for (p = 1; p < NTHREADS; p++)
-    fclose(sarm[p].DB.bases);
+    fclose(sarm[p].gdb.seqs);
 
   for (p = 0; p < NTHREADS; p++)
     { carm[p].tout = open(Catenate(TPATH,"/.",TROOT,
@@ -1142,7 +1138,7 @@ void k_sort(DAZZ_DB *DB)
       goto remove_parts;
 
   if (VERBOSE)
-    { int64 npost = DB->totlen - DB->treads*(KMER-1);
+    { int64 npost = gdb->seqtot - gdb->ncontig*(KMER-1);
 
       fprintf(stderr,"\r    Done                                           \n");
       fprintf(stderr,"\n  Kept:    %11lld kmers, %11lld(%5.1f%%) positions\n",
@@ -1181,8 +1177,8 @@ void k_sort(DAZZ_DB *DB)
     if (write(tab,&NTHREADS,sizeof(int)) < 0) goto gix_error;
     if (write(tab,&maxpre,sizeof(int64)) < 0) goto gix_error;
     if (write(tab,&FREQ,sizeof(int)) < 0) goto gix_error;
-    if (write(tab,&(DB->treads),sizeof(int)) < 0) goto gix_error;
-    if (write(tab,Perm,sizeof(int)*DB->treads) < 0) goto gix_error;
+    if (write(tab,&(gdb->ncontig),sizeof(int)) < 0) goto gix_error;
+    if (write(tab,Perm,sizeof(int)*gdb->ncontig) < 0) goto gix_error;
 
     for (x = 1; x < 0x10000; x++)
       posfix[x] += posfix[x-1];
@@ -1217,40 +1213,38 @@ remove_parts:
  *
  **********************************************************************************************/
 
-static void short_DB_fix(DAZZ_DB *DB)
+static void short_GDB_fix(GDB *gdb)
 { int i;
 
-  if (DB->treads >= NTHREADS)
+  if (gdb->ncontig >= NTHREADS)
     return;
 
-  //  Add additional reads of length KMER that are the first bit of the 0th read/contig
+  //  Add additional conitgs of length KMER that are the first bit of the 0th read/contig
   //    Mark as "fake" with -1 in origin field.
 
-  DB->reads = Realloc(DB->reads-1,sizeof(DAZZ_READ)*(NTHREADS+2),"Reallocating DB read vector");
-  DB->reads += 1;
-  for (i = DB->treads; i < NTHREADS; i++)
-    { DB->reads[i] = DB->reads[0];
-      DB->reads[i].origin = -1;
-      DB->reads[i].rlen   = KMER;
+  gdb->contigs = Realloc(gdb->contigs,sizeof(GDB_CONTIG)*NTHREADS,"Reallocating DB read vector");
+  for (i = gdb->ncontig; i < NTHREADS; i++)
+    { gdb->contigs[i] = gdb->contigs[0];
+      gdb->contigs[i].clen = KMER;
+      gdb->contigs[i].boff = -1;
     }
-  DB->totlen += (NTHREADS-DB->treads)*KMER;
-  if (DB->maxlen < KMER)
-    DB->maxlen = KMER;
-  DB->treads = NTHREADS;
-  DB->nreads = NTHREADS;
+  gdb->seqtot += (NTHREADS-gdb->ncontig)*KMER;
+  if (gdb->maxctg < KMER)
+    gdb->maxctg = KMER;
+  gdb->ncontig = NTHREADS;
 }
 
-static DAZZ_READ *READS;
+static GDB_CONTIG *CONTIGS;
 
 static int LSORT(const void *l, const void *r)
 { int x = *((int *) l);
   int y = *((int *) r);
 
-  return (READS[y].rlen - READS[x].rlen);
+  return (CONTIGS[y].clen - CONTIGS[x].clen);
 }
 
 int main(int argc, char *argv[])
-{ DAZZ_DB _DB, *DB = &_DB;
+{ GDB    _gdb, *gdb = &_gdb;
   int     ftype;
   char   *spath, *tpath;
 
@@ -1324,9 +1318,9 @@ int main(int argc, char *argv[])
   //  Determine source and target root names, paths, and extensions
 
   if (argc == 3)
-    ftype = get_dna_paths(argv[1],argv[2],&spath,&tpath,0);
+    ftype = Get_GDB_Paths(argv[1],argv[2],&spath,&tpath,0);
   else
-    ftype = get_dna_paths(argv[1],NULL,&spath,&tpath,0);
+    ftype = Get_GDB_Paths(argv[1],NULL,&spath,&tpath,0);
   TPATH = PathTo(tpath);
   TROOT = Root(tpath,NULL);
 
@@ -1340,12 +1334,12 @@ int main(int argc, char *argv[])
   if (VERBOSE)
     { if (ftype != IS_GDB)
         if (strcmp(TPATH,".") == 0)
-          { fprintf(stderr,"\n  Creating genome data base and index (GDB/GIX) %s.gdb/gix",TROOT);
+          { fprintf(stderr,"\n  Creating genome data base and index (GDB/GIX) %s.1gdb/gix",TROOT);
             fprintf(stderr," in the current directory\n\n");
           }
         else
           { fprintf(stderr,"\n  Creating genome data base and index (GDB/GIX)");
-            fprintf(stderr," %s.gdb/gix in directory %s\n\n",TROOT,TPATH);
+            fprintf(stderr," %s.1gdb/gix in directory %s\n\n",TROOT,TPATH);
           }
       else
         if (strcmp(TPATH,".") == 0)
@@ -1361,8 +1355,6 @@ int main(int argc, char *argv[])
     { char *command;
 
       command = Malloc(strlen(spath)+strlen(tpath)+100,"Allocating command string");
-      if (command == NULL)
-        exit (1);
       sprintf(command,"FAtoGDB %s %s",spath,tpath);
       if (system(command) != 0)
         { fprintf(stderr,"\n%s: Call to FAtoGDB failed\n",Prog_Name);
@@ -1390,11 +1382,11 @@ int main(int argc, char *argv[])
           }
         else
           spath = Catenate(cpath,"/",SORT_PATH,"");
-        SORT_PATH = Strdup(spath,"Allocating path");
+        SORT_PATH = Strdup(spath,"Allocating temporary sort path");
         free(cpath);
       }
     else
-      SORT_PATH = Strdup(SORT_PATH,"Allocating path");
+      SORT_PATH = Strdup(SORT_PATH,"Allocating temporary sort path");
 
     if ((dirp = opendir(SORT_PATH)) == NULL)
       { fprintf(stderr,"\n%s: -P option: cannot open directory %s\n",Prog_Name,SORT_PATH);
@@ -1431,13 +1423,10 @@ int main(int argc, char *argv[])
   //  Open GDB
 
   POST_NAME = Strdup(Catenate(SORT_PATH,"/.",Numbered_Suffix("post.",getpid(),"."),""),
-                     "Allocating temp name");
+                     "Allocating post index name");
 
-  if (Open_DB(tpath,DB) < 0)
-    { fprintf(stderr,"%s: Cannot open GDB %s/%s.gdb\n",Prog_Name,TPATH,TROOT);
-      exit (1);
-    }
-  short_DB_fix(DB);
+  Read_GDB(gdb,tpath);
+  short_GDB_fix(gdb);
 
   { int i, l0, l1, l2, l3;   //  Compute byte complement table
 
@@ -1452,17 +1441,15 @@ int main(int argc, char *argv[])
   { int    i, n;     //  Compute NTHREADS 1st byte partitions based on bp frequency
     double p, t;
 
-    Ksplit = Malloc((NTHREADS+1)*sizeof(int),"Allocating Kmer Split");
-    if (Ksplit == NULL)
-      exit (1);
+    Ksplit = Malloc((NTHREADS+1)*sizeof(int),"Allocating Kmer split array");
 
     p = 0.;
     n = 0;
     t = 1./NTHREADS;
     Ksplit[0] = 0;
     for (i = 0; i < 256; i++)
-      { p += DB->freq[i >> 6] * DB->freq[(i >> 4) & 0x3] 
-           * DB->freq[(i >> 2) & 0x3] * DB->freq[i&0x3];
+      { p += gdb->freq[i >> 6] * gdb->freq[(i >> 4) & 0x3] 
+           * gdb->freq[(i >> 2) & 0x3] * gdb->freq[i&0x3];
         while (p*(2.-p) > t)
           { n += 1;
             Ksplit[n] = i;
@@ -1476,12 +1463,10 @@ int main(int argc, char *argv[])
   { int64 npost, range, cum, t;   //  Compute DB split into NTHREADS parts
     int   p, r, len;
 
-    DBsplit = Malloc((NTHREADS+1)*sizeof(int),"Allocating DB Split");
-    DBpost  = Malloc((NTHREADS+1)*sizeof(int64),"Allocating DB Split");
-    if (DBsplit == NULL || DBpost == NULL)
-      exit (1);
+    DBsplit = Malloc((NTHREADS+1)*sizeof(int),"Allocating DB split arrays");
+    DBpost  = Malloc((NTHREADS+1)*sizeof(int64),"Allocating DB split arrays");
 
-    npost = DB->totlen;
+    npost = gdb->seqtot;
     cum   = 0;
     range = 0;
 
@@ -1489,8 +1474,8 @@ int main(int argc, char *argv[])
     DBpost [0] = 0;
     p = 1;
     t = (npost*p)/NTHREADS;
-    for (r = 0; r < DB->treads; r++)
-      { len = DB->reads[r].rlen;
+    for (r = 0; r < gdb->ncontig; r++)
+      { len = gdb->contigs[r].clen;
         cum += len;
         while (cum >= t)
           { DBsplit[p] = r+1;
@@ -1501,7 +1486,7 @@ int main(int argc, char *argv[])
         if (range < len)
           range = len;
       }
-    DBsplit[NTHREADS] = DB->treads;
+    DBsplit[NTHREADS] = gdb->ncontig;
     DBpost [NTHREADS] = npost;
 
     PostBytes = 0;                 //  # of bytes for encoding a post
@@ -1511,7 +1496,7 @@ int main(int argc, char *argv[])
         PostBytes += 1;
       }
 
-    range = 2*DB->treads;
+    range = 2*gdb->ncontig;
     ContBytes = 0;                 //  # of bytes for encoding a contig + sign bit
     cum = 1;
     while (cum < range)
@@ -1522,16 +1507,16 @@ int main(int argc, char *argv[])
 
   { int i;   //  Produce perms for length sorted order of contigs
  
-    Perm = Malloc(2*DB->treads*sizeof(int),"Allocating sort permutation\n");
-    InvP = Perm + DB->treads;
+    Perm = Malloc(2*gdb->ncontig*sizeof(int),"Allocating sort permutation arrays");
+    InvP = Perm + gdb->ncontig;
 
-    for (i = 0; i < DB->treads; i++)
+    for (i = 0; i < gdb->ncontig; i++)
       Perm[i] = i;
   
-    READS = DB->reads;
-    qsort(Perm,DB->treads,sizeof(int),LSORT);
+    CONTIGS = gdb->contigs;
+    qsort(Perm,gdb->ncontig,sizeof(int),LSORT);
 
-    for (i = 0; i < DB->treads; i++)
+    for (i = 0; i < gdb->ncontig; i++)
       InvP[Perm[i]] = i;
   }
 
@@ -1542,12 +1527,8 @@ int main(int argc, char *argv[])
 
   { int p;   //  Setup distribution bucket array
 
-    Buckets = Malloc(NTHREADS*sizeof(int64 *),"Allocating Distribution Buckets");
-    if (Buckets == NULL)
-      exit (1);
-    Buckets[0] = Malloc(NTHREADS*256*sizeof(int64),"Allocating Distribution Buckets");
-    if (Buckets[0] == NULL)
-      exit (1);
+    Buckets = Malloc(NTHREADS*sizeof(int64 *),"Allocating distribution buckets");
+    Buckets[0] = Malloc(NTHREADS*256*sizeof(int64),"Allocating distribution buckets");
     bzero(Buckets[0],NTHREADS*256*sizeof(int64));
     for (p = 1; p < NTHREADS; p++)
       Buckets[p] = Buckets[p-1] + 256;
@@ -1556,9 +1537,7 @@ int main(int argc, char *argv[])
   { int   p, i, k;         //  Open IO units for distribution and reimport
     char *name;
 
-    Units = Malloc(2*NTHREADS*NTHREADS*sizeof(int),"IO Units");
-    if (Units == NULL)
-      exit (1);
+    Units = Malloc(2*NTHREADS*NTHREADS*sizeof(int),"Allocating IO Units");
     Pnits = Units + NTHREADS*NTHREADS;
 
     k = 0;
@@ -1575,16 +1554,16 @@ int main(int argc, char *argv[])
         }
   }
 
-  distribute(DB);   //  Distribute k-mers to 1st byte partitions, encoded as compressed
-                    //    relative positions of the given k-mers
+  distribute(gdb);   //  Distribute k-mers to 1st byte partitions, encoded as compressed
+                     //    relative positions of the given k-mers
 
   if (VERBOSE)
     { fprintf(stderr,"  Starting sort & index output of each part\n");
       fflush(stderr);
     }
 
-  k_sort(DB);       //  Reimport the post listings, recreating the k-mers and sorting
-                    //    them with their posts to produce the final genome index.
+  k_sort(gdb);  //  Reimport the post listings, recreating the k-mers and sorting
+                //    them with their posts to produce the final genome index.
 
   free(Units);
 
@@ -1595,7 +1574,7 @@ int main(int argc, char *argv[])
   free(DBsplit);
   free(Ksplit);
 
-  Close_DB(DB);
+  Close_GDB(gdb);
 
   free(POST_NAME);
 

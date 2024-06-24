@@ -23,14 +23,17 @@ char Ebuffer[1000];
 
 char *Prog_Name;
 
+char *Command_Line;
+
 void *Malloc(int64 size, char *mesg)
 { void *p;
 
   if ((p = malloc(size)) == NULL)
     { if (mesg == NULL)
-        fprintf(stderr,"%s: Out of memory\n",Prog_Name);
+        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
       else
-        fprintf(stderr,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+      EXIT(NULL);
     }
   return (p);
 }
@@ -40,9 +43,10 @@ void *Realloc(void *p, int64 size, char *mesg)
     size = 1;
   if ((p = realloc(p,size)) == NULL)
     { if (mesg == NULL)
-        fprintf(stderr,"%s: Out of memory\n",Prog_Name);
+        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
       else
-        fprintf(stderr,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+      EXIT(NULL);
     }
   return (p);
 }
@@ -54,9 +58,10 @@ char *Strdup(char *name, char *mesg)
     return (NULL);
   if ((s = strdup(name)) == NULL)
     { if (mesg == NULL)
-        fprintf(stderr,"%s: Out of memory\n",Prog_Name);
+        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
       else
-        fprintf(stderr,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+      EXIT(NULL);
     }
   return (s);
 }
@@ -68,9 +73,10 @@ char *Strndup(char *name, int len, char *mesg)
     return (NULL);
   if ((s = strndup(name,len)) == NULL)
     { if (mesg == NULL)
-        fprintf(stderr,"%s: Out of memory\n",Prog_Name);
+        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
       else
-        fprintf(stderr,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+      EXIT(NULL);
     }
   return (s);
 }
@@ -81,7 +87,9 @@ FILE *Fopen(char *name, char *mode)
   if (name == NULL || mode == NULL)
     return (NULL);
   if ((f = fopen(name,mode)) == NULL)
-    fprintf(stderr,"%s: Cannot open %s for '%s'\n",Prog_Name,name,mode);
+    { EPRINTF(EPLACE,"%s: Cannot open %s for '%s'\n",Prog_Name,name,mode);
+      EXIT(NULL);
+    }
   return (f);
 }
 
@@ -91,7 +99,7 @@ char *PathTo(char *name)
   if (name == NULL)
     return (NULL);
   if ((find = rindex(name,'/')) != NULL)
-    path = Strndup(name,find-name,"Extracting path from");
+    path = Strndup(name,find-name,"Extracting path");
   else
     path = Strdup(".","Allocating default path");
   return (path);
@@ -110,13 +118,13 @@ char *Root(char *name, char *suffix)
     find += 1;
   if (suffix == NULL)
     { dot = strrchr(find,'.');
-      path = Strndup(find,dot-find,"Extracting root from");
+      path = Strndup(find,dot-find,"Extracting root");
     }
   else
     { epos  = strlen(find);
       epos -= strlen(suffix);
       if (epos > 0 && strcasecmp(find+epos,suffix) == 0)
-        path = Strndup(find,epos,"Extracting root from");
+        path = Strndup(find,epos,"Extracting root");
       else
         path = Strdup(find,"Allocating root");
     }
@@ -140,8 +148,8 @@ char *Catenate(char *path, char *sep, char *root, char *suffix)
   if (len > max)
     { max = ((int) (1.2*len)) + 100;
       if ((cat = (char *) realloc(cat,max+1)) == NULL)
-        { fprintf(stderr,"%s: Out of memory (Making path name for %s)\n",Prog_Name,root);
-          return (NULL);
+        { EPRINTF(EPLACE,"%s: Out of memory (Cat'ing 4 strings)\n",Prog_Name);
+          EXIT(NULL);
         }
     }
   sprintf(cat,"%s%s%s%s",path,sep,root,suffix);
@@ -163,8 +171,8 @@ char *Numbered_Suffix(char *left, int num, char *right)
   if (len > max)
     { max = ((int) (1.2*len)) + 100;
       if ((suffix = (char *) realloc(suffix,max+1)) == NULL)
-        { fprintf(stderr,"%s: Out of memory (Making number suffix for %d)\n",Prog_Name,num);
-          return (NULL);
+        { EPRINTF(EPLACE,"%s: Out of memory (Making number suffix for %d)\n",Prog_Name,num);
+          EXIT(NULL);
         }
     }
   sprintf(suffix,"%s%d%s",left,num,right);
@@ -264,7 +272,7 @@ void Compress_Read(int len, char *s)
   s0[len] = s1[len] = s2[len] = 0;
   
   for (i = 0; i < len; i += 4)
-    *s++ = (char ) ((s0[i] << 6) | (s1[i] << 4) | (s2[i] << 2) | s3[i]);
+    *s++ = (char ) ((s3[i] << 6) | (s2[i] << 4) | (s1[i] << 2) | s0[i]);
   
   s1[len] = c;
   s2[len] = d;
@@ -287,10 +295,10 @@ void Uncompress_Read(int len, char *s)
   t = s+tlen;
   for (i = tlen*4; i >= 0; i -= 4)
     { byte = *t--;
-      s0[i] = (char) ((byte >> 6) & 0x3);
-      s1[i] = (char) ((byte >> 4) & 0x3);
-      s2[i] = (char) ((byte >> 2) & 0x3);
-      s3[i] = (char) (byte & 0x3);
+      s3[i] = (char) ((byte >> 6) & 0x3);
+      s2[i] = (char) ((byte >> 4) & 0x3);
+      s1[i] = (char) ((byte >> 2) & 0x3);
+      s0[i] = (char) (byte & 0x3);
     }
   s[len] = 4;
 }

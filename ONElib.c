@@ -988,7 +988,7 @@ static void readStringList(OneFile *vf, char t, I64 len)
   free (string);
 }
 
-static bool addProvenance(OneFile *vf, OneProvenance *from, int n) ; // need forward declaration
+bool addProvenance(OneFile *vf, OneProvenance *from, int n) ; // need forward declaration
 
 char oneReadLine (OneFile *vf)
 { bool      isAscii;
@@ -1816,7 +1816,7 @@ bool oneFileCheckSchemaText (OneFile *vf, const char *textSchema)
  *
  **********************************************************************************/
 
-static bool addProvenance(OneFile *vf, OneProvenance *from, int n)
+bool addProvenance(OneFile *vf, OneProvenance *from, int n)
 { I64 i ;
   OneInfo   *l = vf->info['!'];
   I64         o = l->accum.count;

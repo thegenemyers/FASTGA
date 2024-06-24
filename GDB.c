@@ -481,6 +481,8 @@ int Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
       if (bases == NULL)
         EXIT(1);
     }
+  else
+    seqpath = "";
 
   //  Setup expanding arrays for headers, scaffolds, & contigs
 
@@ -1272,7 +1274,9 @@ int Load_Sequences(GDB *gdb, int stype)
   else if (stype == UPPER_CASE)
     translate = Upper_Read;
   else
-    seq[-1] = 4;
+    { seq[-1] = 4;
+      translate = Upper_Read;
+    }
 
   rewind(b);
   off = 0;

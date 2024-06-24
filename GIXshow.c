@@ -7,7 +7,7 @@
 #include <pthread.h>
 
 #include "libfastk.h"
-#include "DB.h"
+#include "GDB.h"
 
 static char *Usage = "<source>[.gix] [ <address>[-<address>] ] ";
 

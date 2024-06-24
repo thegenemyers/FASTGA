@@ -404,7 +404,7 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
   order = 1;
   nline = 1;
   while ((line = read_line(fp,0,nline++,filename)) != NULL)
-    { p = q = white(q);
+    { p = q = white(line);
       while (*q != '\0' && !isspace(*q))
         q += 1;
       if (p == q)      // empty line
@@ -570,7 +570,7 @@ static Selection *get_selection_list_from_file(FILE *fp, GDB *gdb, Hash_Table *h
 
   len = 0;
   while ((line = read_line(fp,0,nline,filename)) != NULL)
-    { p = q = white(q);
+    { p = q = white(line);
       while (*q != '\0' && !isspace(*q))
         q += 1;
       if (p == q)      // empty line

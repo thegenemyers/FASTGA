@@ -166,9 +166,9 @@ int main(int argc, char *argv[])
         else
           { b = select[c].beg;
             e = select[c].end;
+            fst = lst = 0;
             substr = 0;
           }
-printf("%d %d: %d %d %d %d :: %d %d\n",c,llen,b,e,substr,select[c].type,gdb->nscaff,gdb->ncontig);
 
         if (select[c].type >= 2)
 

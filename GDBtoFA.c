@@ -181,7 +181,7 @@ int main(int argc, char *argv[])
 
     if (is_one)
 
-      { int64 last, spos;
+      { int64 spos;
         int   len;
         int   i, k;
 
@@ -231,7 +231,6 @@ int main(int argc, char *argv[])
 
                 gtot = gcnt = 0;
                 stot = scnt = 0;
-                last = 0;
                 spos = 0;
                 for (k = scf[i].fctg; k < scf[i].ectg; k++)
                   { if (ctg[k].sbeg > spos)

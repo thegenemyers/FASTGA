@@ -25,7 +25,7 @@
 #include "hash.h"
 #include "select.h"
 
-#define DEBUG_PARSE_SEQ
+#undef DEBUG_PARSE_SEQ
 
   //  Syntax symbols
 

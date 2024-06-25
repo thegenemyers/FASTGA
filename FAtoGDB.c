@@ -68,25 +68,25 @@ int main(int argc, char *argv[])
     ftype = Get_GDB_Paths(argv[1],NULL,&spath,&tpath,1);
   else
     ftype = Get_GDB_Paths(argv[1],argv[2],&spath,&tpath,1);
-  TPATH = PathTo(tpath);
-  TROOT = Root(tpath,NULL);
 
   if (VERBOSE)
-    { if (strcmp(TPATH,".") == 0)
+    { TPATH = PathTo(tpath);
+      TROOT = Root(tpath,NULL);
+      if (strcmp(TPATH,".") == 0)
         fprintf(stderr,"\n  Creating genome data base (GDB) %s.1gdb in the current directory\n",
                        TROOT);  
       else
         fprintf(stderr,"\n  Creating genome data base (GDB) %s.1gdb in directory %s\n",
                        TROOT,TPATH);  
       fflush(stderr);
+      free(TROOT);
+      free(TPATH);
     }
 
   Create_GDB(&gdb,spath,ftype,1,tpath);
 
   Write_GDB(&gdb,tpath);
 
-  free(TROOT);
-  free(TPATH);
   free(tpath);
   free(spath);
 

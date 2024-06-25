@@ -29,12 +29,12 @@ static char *Usage =
 
 #define MAX_BUFFER   10001
 
-static int           NCONTIG;  // # of contigs (across all scaffolds)
-static int           NSCAFF;   // # of scaffolds
+static int           NCONTIG;   // # of contigs (across all scaffolds)
+static int           NSCAFF;    // # of scaffolds
 static char         *HEADERS;   // All headers
 static GDB_CONTIG   *CONTIGS;   // contig vector of the database
 static GDB_SCAFFOLD *SCAFFS;    // scaffold vector of the database
-static Hash_Table   *HASH;
+static Hash_Table   *HASH;      // Hash table of all scaffold names
 
 int main(int argc, char *argv[])
 { GDB        _gdb, *gdb = &_gdb;
@@ -126,23 +126,24 @@ int main(int argc, char *argv[])
       }
   }
 
-  //  Determine if extra arg is a range or a file, and if a file then initialize it
+  //  Get the selection list (every contig by default)
 
   if (argc == 3)
     select = get_selection_list(argv[2],gdb,HASH,&llen);
   else
     select = get_selection_list(NULL,gdb,HASH,&llen);
 
-  //  Display each read (and/or QV streams) in the active DB according to the
-  //    range pairs in pts[0..reps) and according to the display options.
+  //  Display each contig or scaffold in the GDB according to the 
+  //     range list of the selection, observing the display option
 
   { GDB_CONTIG   *r;
     GDB_SCAFFOLD *s;
     char         *contig;
-    int           c, b, e, k;
-    int           substr;
-    int           len, fst, lst;
     char         *nstring;
+    int           c, b, e, k;
+    int           substr, fst, lst;
+
+    //  Setup 'n' string for printing scaffold gaps and buffer for contigs
 
     nstring = Malloc(WIDTH+1,"Allocating write buffer\n");
     if (UPPER == 2)
@@ -154,14 +155,13 @@ int main(int argc, char *argv[])
     nstring[WIDTH] = '\0';
 
     contig = New_Contig_Buffer(gdb);
-    substr = 0;
 
     for (c = 0; c < llen; c++)
       { if (select[c].type % 2)
           { b = e = select[c].src;
-            substr = 1;
             fst = select[c].beg;
             lst = select[c].end;
+            substr = 1;
           }
         else
           { b = select[c].beg;
@@ -178,11 +178,8 @@ int main(int argc, char *argv[])
                 int j, u, w, f, l;
 
                 r   = CONTIGS + SCAFFS[k].fctg;
-                len = SCAFFS[k].slen;
                 if (!substr)
-                  { fst = 0;
-                    lst = len;
-                  }
+                  lst = SCAFFS[k].slen;
 
                 printf(">%s",HEADERS+SCAFFS[k].hoff);
                 if (substr)
@@ -248,15 +245,11 @@ int main(int argc, char *argv[])
           { for (k = b; k <= e; k++)
               { r   = CONTIGS + k;
                 s   = SCAFFS + r->scaf;
-                len = r->clen;
                 if (!substr)
-                  { fst = 0;
-                    lst = len;
-                  }
+                  lst = r->clen;
 
-                if (len > 0)
-                  printf(">%s :: Contig %d[%lld,%lld]\n",
-                         HEADERS+s->hoff,k-(s->fctg)+1,r->sbeg+fst,r->sbeg+lst);
+                printf(">%s :: Contig %d[%lld,%lld]\n",
+                       HEADERS+s->hoff,k-(s->fctg)+1,r->sbeg+fst,r->sbeg+lst);
 
                 if (DOSEQ)
                   { int j;

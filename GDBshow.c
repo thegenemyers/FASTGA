@@ -111,7 +111,7 @@ int main(int argc, char *argv[])
     HASH  = New_Hash_Table(NSCAFF,1);
     for (s = 0; s < NSCAFF; s++)
       { sptr = HEADERS + SCAFFS[s].hoff;
-        for (eptr = sptr; *eptr != '\n'; eptr++)
+        for (eptr = sptr; *eptr != '\0'; eptr++)
           if (isspace(*eptr))
             break;
         c = *eptr;

@@ -267,7 +267,7 @@ int Hash_Add(Hash_Table *hash_table, char *entry)
     { table->cells[chain].text = entry;
       return (table->count++);
     }
-    
+
   len = (int) (strlen(entry) + 1);
   if (table->strtop + len > table->strmax)
     { smax = ((table->strtop+len)*1.1*table->cntmax) / table->count + 1000;
@@ -281,6 +281,8 @@ int Hash_Add(Hash_Table *hash_table, char *entry)
       table->cells = (Entry *) room;
       room += size*sizeof(Entry);
       table->vector = (int *) room;
+      room += vlen*sizeof(int);
+      table->strings = room;
       table->strmax = smax;
     }
   strcpy(table->strings + table->strtop, entry);

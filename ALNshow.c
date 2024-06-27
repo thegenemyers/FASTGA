@@ -222,12 +222,12 @@ int main(int argc, char *argv[])
     bcontigs = gdb2->contigs;
 
     ahash = New_Hash_Table(nascaff,0);
-    head  = gdb2->headers;
+    head  = gdb1->headers;
     amaxlen = 0;
     actgmax = 0;
     for (s = 0; s < nascaff; s++)
       { sptr = head + ascaffs[s].hoff;
-        for (eptr = sptr; *eptr != '\n'; eptr++)
+        for (eptr = sptr; *eptr != '\0'; eptr++)
           if (isspace(*eptr))
             break;
         *eptr = '\0';
@@ -250,7 +250,7 @@ int main(int argc, char *argv[])
         bctgmax = 0;
         for (s = 0; s < nbscaff; s++)
           { sptr = head + bscaffs[s].hoff;
-            for (eptr = sptr; *eptr != '\n'; eptr++)
+            for (eptr = sptr; *eptr != '\0'; eptr++)
               if (isspace(*eptr))
                 break;
             *eptr = '\0';

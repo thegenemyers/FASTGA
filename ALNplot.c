@@ -455,7 +455,7 @@ void read_1aln(char *oneAlnFile)
     head  = AGDB->headers;
     for (s = 0; s < NASCAFF; s++)
       { sptr = head + ASCAFFS[s].hoff;
-        for (eptr = sptr; *eptr != '\n'; eptr++)
+        for (eptr = sptr; *eptr != '\0'; eptr++)
           if (isspace(*eptr))
             break;
         *eptr = '\0';
@@ -472,7 +472,7 @@ void read_1aln(char *oneAlnFile)
         head  = BGDB->headers;
         for (s = 0; s < NBSCAFF; s++)
           { sptr = head + BSCAFFS[s].hoff;
-            for (eptr = sptr; *eptr != '\n'; eptr++)
+            for (eptr = sptr; *eptr != '\0'; eptr++)
               if (isspace(*eptr))
                 break;
             *eptr = '\0';

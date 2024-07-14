@@ -447,7 +447,7 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
           chord[pbeg].beg   = pfst;
         }
       if (pbeg != pend)
-        { chord[pbeg].end = gdb->contigs[i].clen;
+        { chord[pbeg].end = gdb->contigs[pbeg].clen;
           chord[pend].beg = 0;
         }
 
@@ -527,7 +527,7 @@ Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ord
                   chord[pbeg].beg   = pfst;
                 }
               if (pbeg != pend)
-                { chord[pbeg].end = gdb->contigs[i].clen;
+                { chord[pbeg].end = gdb->contigs[pbeg].clen;
                   chord[pend].beg = 0;
                 }
 

@@ -121,6 +121,9 @@ void *gen_psl(void *args)
       ascaff = contig1[acontig].scaf;
       bscaff = contig2[bcontig].scaf;
 
+      if (COMP(ovl->flags))                                                //  Correct ?
+        boff = scaff2[bscaff].slen - (contig2[bcontig].clen + boff);
+
       if (COMP(aln->flags))
         { bmin = (aln->blen-path->bepos);
           if (bmin < 0) bmin = 0;

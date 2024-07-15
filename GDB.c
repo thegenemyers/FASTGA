@@ -41,9 +41,9 @@ static char *gdbSchemaText =
   ".\n"
   "P 3 gdb                     GDB\n"
   "D f 4 4 REAL 4 REAL 4 REAL 4 REAL   global: base frequency vector\n"
-  "G S 2 3 INT 6 STRING        count and id for a scaffold\n"
+  "O S 2 3 INT 6 STRING        count and id for a scaffold\n"
   "D G 1 3 INT                 gap of given length\n"
-  "O C 1 3 INT                 contig of given length\n"
+  "D C 1 3 INT                 contig of given length\n"
 ;
 
 static OneSchema *make_GDB_Schema()

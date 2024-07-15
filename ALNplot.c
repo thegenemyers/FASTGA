@@ -1087,7 +1087,7 @@ static int DSORT(const void *l, const void *r)
 void aln_filter()
 { int      i, digits;
   int64    nseg;
-  double   alen;
+  int64    alen;
   int     *sarray;
   Segment *s;
 
@@ -1152,7 +1152,7 @@ void aln_filter()
   free(sarray);
 
   if (VERBOSE)
-    { fprintf(stderr, "  Using length filter threshold %.0f\n",alen);
+    { fprintf(stderr, "  Using length filter threshold %lld\n",alen);
       fprintf(stderr, "  Selected %lld alignments to plot\n",nseg); 
     }
 }

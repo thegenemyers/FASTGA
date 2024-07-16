@@ -55,17 +55,21 @@
 #define MAX_XY_LEN 10000   // Max/Min plotting width/height
 #define MIN_XY_LEN 50
 
+#define MAX_LAB_LEN 20     // Max number characters for sequence names
+#define MAX_LAB_FRC .2     // Max ratio of label to line plot panel
+
   //  Command line syntax and global parameter variables
 
 static char *Usage[] =
-  { "[-vdSL] [-T<int(4)>] [-p[:<output:path>[.pdf]]]",
+  { "[-vSL] [-T<int(4)>] [-p[:<output:path>[.pdf]]]",
     "[-a<int(100)>] [-e<float(0.7)>] [-n<int(100000)>]",
     "[-H<int(600)>] [-W<int>] [-f<int>] [-t<float>]",
     "<alignment:path>[.1aln|.paf[.gz]]> [<selection>|<FILE> [<selection>|<FILE>]]",
   };
 
 static int    VERBOSE;            // -v
-static int    TRYADIAG;           // -d
+// static int    HIGHLIGHT;          // -h
+// static int    TRYADIAG;           // -d
 static int    PRINTSID;           // -S
 static int    LABELS;             // ! -L
 
@@ -81,7 +85,6 @@ static int    IMGWIDTH = 0;       // -W
 static int    FONTSIZE = 0;       // -f
 static double LINESIZE = 0;       // -t
 
-
   //  Array of segments to plot
 
 typedef struct
@@ -89,12 +92,13 @@ typedef struct
     int   aread, bread;
     int   abpos, bbpos;
     int   aepos, bepos;
+    // int   group; // segment group - e.g. chain
   } Segment;
 
 #define DEL_FLAG 0x1
-#define COL_RED  0x2
-#define COL_BLUE 0x4
-#define COL_GRAY 0x8
+#define COL_GRAY 0x2
+#define COL_RED  0x4
+#define COL_BLUE 0x8
 
 #define IS_DEL(flag) ((flag)&DEL_FLAG)
 #define SET_DEL(flag) ((flag)|=DEL_FLAG)
@@ -118,15 +122,15 @@ static int ISTWO;                           // If two GDBs are different
 static GDB           _AGDB, *AGDB = &_AGDB;  //  1st genome skeleton with parts ...
 static GDB           _BGDB, *BGDB = &_BGDB;  //  2nd genome skeleton with parts ...
 
-  static int           NASCAFF;     // Number scaffolds
-  static int           NACONTIG;    // Number contigs
-  static GDB_SCAFFOLD *ASCAFFS;     // Scaffold record array
-  static GDB_CONTIG   *ACONTIG;     // Contig record array
+static int           NASCAFF;     // Number scaffolds
+static int           NACONTIG;    // Number contigs
+static GDB_SCAFFOLD *ASCAFFS;     // Scaffold record array
+static GDB_CONTIG   *ACONTIG;     // Contig record array
 
-  static int           NBSCAFF;     // Number scaffolds
-  static int           NBCONTIG;    // Number contigs
-  static GDB_SCAFFOLD *BSCAFFS;     // Scaffold record array
-  static GDB_CONTIG   *BCONTIG;     // Contig record array
+static int           NBSCAFF;     // Number scaffolds
+static int           NBCONTIG;    // Number contigs
+static GDB_SCAFFOLD *BSCAFFS;     // Scaffold record array
+static GDB_CONTIG   *BCONTIG;     // Contig record array
 
 static Hash_Table   *AHASH;       // Scaffold names hash table
 static Hash_Table   *BHASH;       // Scaffold names hash table
@@ -145,6 +149,18 @@ typedef struct
     GDB_CONTIG *bctg;
   } Packet;
 
+
+  // Helvetica font character width
+static double HELVETICA[128] = 
+  { 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000,
+    0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000,
+    0.278, 0.278, 0.355, 0.556, 0.556, 0.889, 0.667, 0.222, 0.333, 0.333, 0.389, 0.584, 0.278, 0.333, 0.278, 0.278, 
+    0.556, 0.556, 0.556, 0.556, 0.556, 0.556, 0.556, 0.556, 0.556, 0.556, 0.278, 0.278, 0.584, 0.584, 0.584, 0.556, 
+    1.015, 0.667, 0.667, 0.722, 0.722, 0.667, 0.611, 0.778, 0.722, 0.278, 0.500, 0.667, 0.556, 0.833, 0.722, 0.778, 
+    0.667, 0.778, 0.722, 0.667, 0.611, 0.722, 0.667, 0.944, 0.667, 0.667, 0.611, 0.278, 0.278, 0.278, 0.469, 0.556, 
+    0.222, 0.556, 0.556, 0.500, 0.556, 0.556, 0.278, 0.556, 0.556, 0.222, 0.222, 0.500, 0.222, 0.833, 0.556, 0.556, 
+    0.556, 0.556, 0.333, 0.500, 0.278, 0.556, 0.500, 0.722, 0.500, 0.500, 0.500, 0.334, 0.260, 0.334, 0.584, 0.000
+  };
 
 /*******************************************************************************************
  *
@@ -283,15 +299,19 @@ void *read_1aln_block(void *args)
   OneFile    *in   = parm->in;
   Segment    *segs = parm->segs;
   int64       nseg = 0;
+  // int         ngroup;
 
   //  For each alignment do
 
-  if (!oneGotoObject (parm->in, beg))
-    { fprintf(stderr,"%s: Could not locate to object %lld in 1aln file\n",Prog_Name,beg);
+  if (!oneGoto (parm->in, 'A', beg+1))
+    { fprintf(stderr,"%s: Could not locate to object %lld in 1aln file\n",Prog_Name,beg+1);
       exit (1);
     }
-  
   oneReadLine(parm->in);
+
+  //  Get the group id of the first alignment
+  // ngroup = -1; // oneGetGroup (parm->in, beg);
+  // if (ngroup < 0) ngroup = 0;
 
   { int64 i;
     uint32   flags;
@@ -299,11 +319,14 @@ void *read_1aln_block(void *args)
     int      aread, bread;
     int      abpos, bbpos;
     int      aepos, bepos;
+    // int      group;
     int      diffs;
     int      blocksum, iid;
 
-    for (i = beg; i < end; i++)
+    //  Set group to be the first
+    // group = ngroup;
 
+    for (i = beg; i < end; i++)
       { // read i-th alignment record 
 
         if (in->lineType != 'A')
@@ -342,10 +365,7 @@ void *read_1aln_block(void *args)
         if (COMP(flags))
           { bbpos = bctg[bread].clen - bbpos;
             bepos = bctg[bread].clen - bepos;
-            SET_BLUE(flag);
           }
-        else
-          SET_RED(flag);
 
         // add to output
         segs->flag  = flag;
@@ -355,8 +375,12 @@ void *read_1aln_block(void *args)
         segs->bread = bread;
         segs->bbpos = bbpos;
         segs->bepos = bepos;
+        // segs->group = group;
         segs += 1;
         nseg += 1;
+
+        //  change group after this alignment
+        // group = ngroup;
       }
   }
 
@@ -495,7 +519,7 @@ void read_1aln(char *oneAlnFile)
     fprintf(stderr,"%s: List of contigs (NACTG=%d)\n",Prog_Name,NACONTIG);
     fprintf(stderr,"%s:  INDEX   SCAF     OFFSET     LENGTH\n",Prog_Name);
     for (i = 0; i < NACONTIG; i++)
-      fprintf(stderr,"%s: %6d %6d %10d %10d\n",Prog_Name,i,
+      fprintf(stderr,"%s: %6d %6d %10lld %10lld\n",Prog_Name,i,
                      ACONTIG[i].scaf,ACONTIG[i].sbeg,ACONTIG[i].clen);
     fprintf(stderr,"%s: List of scaffolds (NASCAFF=%d)\n",Prog_Name,NASCAFF);
     for (i = 0; i < NASCAFF; i++)
@@ -505,7 +529,7 @@ void read_1aln(char *oneAlnFile)
         fprintf(stderr,"%s: List of contigs (NBCTG=%d)\n",Prog_Name,NBCONTIG);
         fprintf(stderr,"%s:  INDEX   SCAF     OFFSET     LENGTH\n",Prog_Name);
         for (i = 0; i < NBCONTIG; i++)
-          fprintf(stderr,"%s: %6d %6d %10d %10d\n",Prog_Name,i,
+          fprintf(stderr,"%s: %6d %6d %10lld %10lld\n",Prog_Name,i,
                          BCONTIG[i].scaf,BCONTIG[i].sbeg,BCONTIG[i].clen);
         fprintf(stderr,"%s: List of scaffolds (NBSCAFF=%d)\n",Prog_Name,NBSCAFF);
         for (i = 0; i < NBSCAFF; i++)
@@ -583,6 +607,7 @@ void read_paf(char *pafAlnFile, int gzipd)
   int aread, bread;
   int abpos, bbpos;
   int aepos, bepos;
+  // int group;
   int blocksum, iid;
   uint8 flag;
 
@@ -622,6 +647,7 @@ void read_paf(char *pafAlnFile, int gzipd)
             }
           else
             { *eptr = '\0';
+              *fptr = '\0';
               break; 
             }
         }
@@ -665,15 +691,28 @@ void read_paf(char *pafAlnFile, int gzipd)
       if (2.*iid / blocksum < MINAIDNT)                    // filter by segment identity
         continue;
 
+      /***
+      group = 0;                     // parse 'cn:i' tag to find segment group if exists
+      while (fptr)
+        { eptr = fptr;
+          while (*eptr != '\t' && *eptr != '\n' && *eptr != '\0')
+            eptr++;
+          if (eptr - fptr > 5 && !strncmp(fptr, "cn:i:", 5))
+            { group = strtol(fptr + 5, 0, 10);
+              break;
+            }
+          if (*eptr != '\t')
+            break;
+          fptr = ++eptr;
+        }
+      **/
+
       flag = 0;                      // Add to segment array
       if (*fptrs[4] == '-')
         { int tmp = bbpos;
           bbpos = bepos;
           bepos = tmp;
-          SET_BLUE(flag);
         }
-      else
-        SET_RED(flag);
 
       segs->flag  = flag;
       segs->aread = aread;
@@ -682,6 +721,7 @@ void read_paf(char *pafAlnFile, int gzipd)
       segs->aepos = aepos;
       segs->bbpos = bbpos;
       segs->bepos = bepos;
+      // segs->group = group;
     
       nsegs += 1;
       if (nsegs == msegs)
@@ -703,7 +743,7 @@ void read_paf(char *pafAlnFile, int gzipd)
   //  Contigs = Scaffolds so the underlying GDB is ...
 
   AGDB->nscaff = AGDB->ncontig = NASCAFF = NACONTIG = naseq;
-  BGDB->nscaff = BGDB->ncontig = NBSCAFF = NBCONTIG = naseq;
+  BGDB->nscaff = BGDB->ncontig = NBSCAFF = NBCONTIG = nbseq;
 
   AGDB->scaffolds = ASCAFFS = Malloc(sizeof(GDB_SCAFFOLD)*(NASCAFF+NBSCAFF),"Allocating scaffolds");
   AGDB->contigs   = ACONTIG = Malloc(sizeof(GDB_CONTIG)*(NACONTIG+NBCONTIG),"Allocating contigs");
@@ -740,6 +780,32 @@ void read_paf(char *pafAlnFile, int gzipd)
       BCONTIG[i].boff = 0;
       BCONTIG[i].scaf = i;
     }
+
+#ifdef DEBUG_MAKE_HASH
+  { int i;
+
+    fprintf(stderr,"%s: DB_A\n",Prog_Name);
+    fprintf(stderr,"%s: List of contigs (NACTG=%d)\n",Prog_Name,NACONTIG);
+    fprintf(stderr,"%s:  INDEX   SCAF     OFFSET     LENGTH\n",Prog_Name);
+    for (i = 0; i < NACONTIG; i++)
+      fprintf(stderr,"%s: %6d %6d %10lld %10lld\n",Prog_Name,i,
+                     ACONTIG[i].scaf,ACONTIG[i].sbeg,ACONTIG[i].clen);
+    fprintf(stderr,"%s: List of scaffolds (NASCAFF=%d)\n",Prog_Name,NASCAFF);
+    for (i = 0; i < NASCAFF; i++)
+      fprintf(stderr,"%s: %6d %s\n",Prog_Name,i,Get_Hash_String(AHASH,i));
+    if (ISTWO)
+      { fprintf(stderr,"%s: DB_B\n",Prog_Name);
+        fprintf(stderr,"%s: List of contigs (NBCTG=%d)\n",Prog_Name,NBCONTIG);
+        fprintf(stderr,"%s:  INDEX   SCAF     OFFSET     LENGTH\n",Prog_Name);
+        for (i = 0; i < NBCONTIG; i++)
+          fprintf(stderr,"%s: %6d %6d %10lld %10lld\n",Prog_Name,i,
+                         BCONTIG[i].scaf,BCONTIG[i].sbeg,BCONTIG[i].clen);
+        fprintf(stderr,"%s: List of scaffolds (NBSCAFF=%d)\n",Prog_Name,NBSCAFF);
+        for (i = 0; i < NBSCAFF; i++)
+          fprintf(stderr,"%s: %6d %s\n",Prog_Name,i,Get_Hash_String(BHASH,i));
+      }
+  }
+#endif
 
   free(alens);
   free(blens);
@@ -780,13 +846,17 @@ static void axisReverse(uint64 *sarray, int64 *caxis, int64 soff, int beg, int e
 
 */
 
+// Now string length of a name is capped by MAX_LAB_LEN
+// If the length N exceeds the limit then 
+// substring name[MAX_LAB_LEN-2,N-2] is replaced by a "*"
 static void addSeqName(char *names, uint32 n, uint32 m, int c0, int c1, 
                        uint32 s, Hash_Table *hash, GDB *gdb, Contig_Range *chord, int rank,
                        char **_names, uint32 *_n, uint32 *_m)
-{ int i;
-  uint32 l;
+{ uint32 l, n0;
   int64 p;
   char *name;
+
+  n0 = n;
 
   if (PRINTSID)
     { l = Number_Digits(s+1);
@@ -803,23 +873,17 @@ static void addSeqName(char *names, uint32 n, uint32 m, int c0, int c1,
     }
   if (chord[c0].beg > 0 ||
           gdb->scaffolds[s].fctg != c0 ||      // start from first
-          gdb->scaffolds[s+1].fctg != c1+1 ||
+          gdb->scaffolds[s].ectg != c1+1 ||
           chord[c1].end != gdb->contigs[c1].clen) // end at last
     { // partial scaffold
-      p = 0;
-      for (i = gdb->scaffolds[s].fctg; i < c0; i++)
-        p += gdb->contigs[i].clen;
-      p += chord[c0].beg;
-      p += 1;
+      p = gdb->contigs[c0].sbeg + chord[c0].beg;
+      p += 1; // make it 1-based
       l = Number_Digits(p);
       l += 1;
       expandBuffer(&names, &n, &m, l+1);
       sprintf(names+n,"_%lld",p);
       n += l;
-      p -= 1;
-      p += chord[c0].end - chord[c0].beg;
-      for (i = c0 + 1; i <= c1; i++)
-        p += chord[i].beg - chord[i].end;
+      p = gdb->contigs[c1].sbeg + chord[c1].end;
       l = Number_Digits(p);
       l += 1;
       expandBuffer(&names, &n, &m, l+1);
@@ -832,12 +896,74 @@ static void addSeqName(char *names, uint32 n, uint32 m, int c0, int c1,
       names[n++] = '\'';
       names[n]   = '\0';
     }
+  if (n > n0 + MAX_LAB_LEN) {
+    // string length exceed limits
+    l = n - n0;
+    if (rank < 0) {
+      names[n0+MAX_LAB_LEN-3] = '*';
+      names[n0+MAX_LAB_LEN-2] = names[n-2]; // the last character
+      names[n0+MAX_LAB_LEN-1] = names[n-1]; // the prime
+      names[n0+MAX_LAB_LEN]   = '\0';
+    } else {
+      names[n0+MAX_LAB_LEN-2] = '*';
+      names[n0+MAX_LAB_LEN-1] = names[n-1]; // the last character
+      names[n0+MAX_LAB_LEN]   = '\0';
+    }
+    n = n0 + MAX_LAB_LEN;
+  }
   n++; // the null terminator
 
 // assign_vars:
   *_names = names;
   *_n = n;
   *_m = m;
+}
+
+static double seqNameWidth(char *names, int n)
+{ int i, c;
+  double l, w;
+  w = 0;
+  for (i = 0; i < n; i++)
+  { l = 0;
+    while (*names != '\0')
+      { c = (uint8) (*names);
+        if (c < 33 || c > 126)
+          { fprintf(stderr,"%s: unsupported character '%c'\n",Prog_Name,*names);
+            exit (1);
+          }
+        l += HELVETICA[c];
+        names++;
+      }
+    if (l > w) w = l;
+    names++;
+  }
+  return w;
+}
+
+static double seqNameRenderWidth(char *names, int n, int64 *soff, double unit, double space)
+{ int i, c;
+  double l, w, s;
+  w = 0;
+  for (i = 0; i < n; i++)
+  { s = (i == 0 ? soff[0] : soff[i] - soff[i-1]);
+    if (s * unit < space)
+      { names += strlen(names) + 1;
+        continue;
+      }
+    l = 0;
+    while (*names != '\0')
+      { c = (uint8) (*names);
+        if (c < 33 || c > 126)
+          { fprintf(stderr,"%s: unsupported character '%c'\n",Prog_Name,*names);
+            exit (1);
+          }
+        l += HELVETICA[c];
+        names++;
+      }
+    if (l > w) w = l;
+    names++;
+  }
+  return w;
 }
 
 int axisConfig(Hash_Table *hash, GDB *gdb, Contig_Range *chord,
@@ -971,6 +1097,9 @@ static void alnConfig()
       a = abpos - aepos;
       b = bbpos - bepos;
 
+      // if (HIGHLIGHT && !segment->group)
+      //   SET_GRAY(segment->flag);
+      // else 
       if (INT_SIGN(a) == INT_SIGN(b))
         SET_RED(segment->flag);
       else
@@ -1087,8 +1216,7 @@ static int DSORT(const void *l, const void *r)
 void aln_filter()
 { int      i, digits;
   int64    nseg;
-  int64    alen;
-  int     *sarray;
+  int     *sarray, alen;
   Segment *s;
 
   // recalculate alignment coordinates
@@ -1152,7 +1280,7 @@ void aln_filter()
   free(sarray);
 
   if (VERBOSE)
-    { fprintf(stderr, "  Using length filter threshold %lld\n",alen);
+    { fprintf(stderr, "  Using length filter threshold %d\n",alen);
       fprintf(stderr, "  Selected %lld alignments to plot\n",nseg); 
     }
 }
@@ -1181,6 +1309,15 @@ void aln_filter()
     fprintf(fp,"/%s findfont FS scalefont setfont\n\n",f); \
 } while (0)
 
+#define eps_Rstr(fp,x,y,r,s) do { \
+    fprintf(fp,"/str (%s) def\n",s); \
+    fprintf(fp,"gsave\n"); \
+    fprintf(fp,"%g %g moveto\n",(float)(x),(float)(y)); \
+    fprintf(fp,"%g rotate\n",(float)(r)); \
+    fprintf(fp,"str show\n"); \
+    fprintf(fp,"grestore\n"); \
+} while (0)
+
 #define eps_bottom(fp) fprintf(fp,"stroke showpage\n")
 #define eps_color(fp,col) fprintf(fp,"stroke %d C\n",col)
 #define eps_gray(fp,gray) fprintf(fp, "%g setgray\n",(float)gray)
@@ -1193,20 +1330,21 @@ void aln_filter()
 #define eps_Mint(fp,x,y,i) fprintf(fp,"%g %g (%d) MS\n",(float)(x),(float)(y),i)
 #define eps_stroke(fp) fprintf(fp,"stroke\n")
 
+#define G_COLOR 0x808080
 #define N_COLOR 0xFF0000
 #define C_COLOR 0x0080FF
 
-static int SEG_COLOR[2] = { N_COLOR, C_COLOR };
+static int SEG_COLOR[3] = { G_COLOR, N_COLOR, C_COLOR };
 
   // generate eps file
 
 void make_plot(FILE *fo)
-{ int    width, height, fsize, maxis;
+{ int    width, height, fsize, maxis, xmargin, ymargin;
   int    nxseq, nyseq;
   char  *xnames, *ynames;
   int64  txseq, tyseq, *cxoff, *sxoff, *cyoff, *syoff;
   double sx, sy;
-  double lsize;
+  double lsize, bsize, gsize; // line size, border size, grid size
   int    i, c;
 
   // find total length of x- and y-axis and order of plotting
@@ -1272,71 +1410,103 @@ void make_plot(FILE *fo)
         }
     }
 
-  maxis = width < height? width : height;
+  maxis = (width < height ? width : height);
   
   fsize = FONTSIZE;
-  if (!fsize) fsize = maxis / 60;
+  if (!fsize) fsize = maxis / 50;
   
   lsize = LINESIZE;
   if (lsize < 1e-6)
     lsize = (double) maxis / 500;
+  bsize = lsize * 2;
+  gsize = lsize / 2;
 
   sx = (double)  width / txseq;
   sy = (double) height / tyseq;
 
-  eps_header(fo, width, height, lsize);
+  xmargin = bsize*2;
+  ymargin = bsize*2;
+
+  if (LABELS)
+    { double xlabw, ylabw; // x/y lab width
+    
+      xlabw   = seqNameWidth(xnames, nxseq);
+      ylabw   = seqNameWidth(ynames, nyseq);
+
+      // reduce font size if label panel is too big
+      if (xlabw * fsize > height * MAX_LAB_FRC)
+        fsize = height * MAX_LAB_FRC / xlabw;
+      if (ylabw * fsize > width * MAX_LAB_FRC)
+        fsize = width * MAX_LAB_FRC / ylabw;
+
+      // adjust x/y lab width
+      // some labels will be excluded since no enough space
+      xlabw = seqNameRenderWidth(xnames, nxseq, sxoff, sx, fsize);
+      ylabw = seqNameRenderWidth(ynames, nyseq, syoff, sy, fsize);
+
+      xmargin += fsize * ylabw;
+      ymargin += fsize * xlabw;
+    }
+
+  eps_header(fo, width+xmargin+bsize*3, height+ymargin+bsize*3, lsize);
   eps_font(fo, "Helvetica-Narrow", fsize);
-  eps_gray(fo, .8);
 
   if (LABELS)
     { char *names;
-
+      double aoff;
+      aoff  = xmargin > ymargin ? ymargin * 0.1 : xmargin * 0.1;
       // write x labels
-
       names = xnames;
-      eps_Mstr(fo, .5 * sxoff[0] * sx, fsize * .5, names);
+      if (sxoff[0] * sx >= fsize)
+        eps_Rstr(fo, xmargin + bsize + .5 * sxoff[0] * sx - fsize / 2, ymargin - aoff, 270, names);
       names += strlen(names) + 1;
       for (i = 1; i < nxseq; i++)
-        { eps_Mstr(fo, .5 * (sxoff[i-1] + sxoff[i]) * sx, fsize * .5, names);
+        { if ((sxoff[i] - sxoff[i-1]) * sx >= fsize)
+            eps_Rstr(fo, xmargin + bsize + .5 * (sxoff[i-1] + sxoff[i]) * sx - fsize / 2, ymargin - aoff, 270, names);
           names += strlen(names) + 1;
         }
-      eps_stroke(fo);
-      fprintf(fo, "gsave %g 0 translate 90 rotate\n", fsize * 1.25);
-      
       // write y labels
-
       names = ynames;
-      eps_Mstr(fo, .5 * syoff[0] * sy, 0, names);
+      if (syoff[0] * sy >= fsize)
+        eps_Rstr(fo, aoff, ymargin + bsize + .5 * syoff[0] * sy - fsize / 2, 0, names);
       names += strlen(names) + 1;
       for (i = 1; i < nyseq; i++)
-        { eps_Mstr(fo, .5 * (syoff[i-1] + syoff[i]) * sy, 0, names);
+        { if ((syoff[i] - syoff[i-1]) * sy >= fsize)
+            eps_Rstr(fo, aoff, ymargin + bsize + .5 * (syoff[i-1] + syoff[i]) * sy - fsize / 2, 0, names);
           names += strlen(names) + 1;
         }
-      fprintf(fo, "grestore\n");
-      eps_stroke(fo);
     }
 
   // write grid lines
+  eps_gray(fo, .6);
+  eps_linewidth(fo, gsize);
+  for (i = 0; i < nyseq-1; i++)
+    eps_linex(fo, xmargin, xmargin+bsize*2+width,  ymargin+bsize+syoff[i]*sy-gsize/2);
+  for (i = 0; i < nxseq-1; i++)
+    eps_liney(fo, ymargin, ymargin+bsize*2+height, xmargin+bsize+sxoff[i]*sx-gsize/2);
+  eps_stroke(fo);
+  eps_gray(fo, 0);
 
-  eps_linewidth(fo, lsize/2);
-  eps_linex(fo, 1, width,  1);
-  for (i = 0; i < nyseq; i++)
-    eps_linex(fo, 1, width,  syoff[i] * sy);
-  eps_liney(fo, 1, height, 1);
-  for (i = 0; i < nxseq; i++)
-    eps_liney(fo, 1, height, sxoff[i] * sx);
+  // write border lines
+  eps_linewidth(fo, bsize);
+  eps_linex(fo, xmargin, xmargin+bsize*2+width,  ymargin+bsize/2);
+  eps_linex(fo, xmargin, xmargin+bsize*2+width,  ymargin+height+bsize*3/2);
+  eps_liney(fo, ymargin, ymargin+bsize*2+height, xmargin+bsize/2);
+  eps_liney(fo, ymargin, ymargin+bsize*2+height, xmargin+width+bsize*3/2);
   eps_stroke(fo);
 
   // write segments
-
   { int      aread, bread, iflag;
-    double   x0, y0, x1, y1, xo, yo;
+    double   x0, y0, x1, y1, xo, yo, xoff, yoff;
     Segment *seg;
 
+    xoff = xmargin + bsize;
+    yoff = ymargin + bsize;
+
     eps_linewidth(fo, lsize);
-    for (c = 0; c < 2; c++)
+    for (c = 0; c < 3; c++)
       { eps_color(fo, SEG_COLOR[c]);
-        iflag = (COL_RED << c);
+        iflag = (1 << (c+1));
         for (i = 0; i < nSegment; i++)
           { seg = segments + i;
             if (seg->flag != iflag)
@@ -1352,10 +1522,10 @@ void make_plot(FILE *fo)
             y0 = seg->abpos;
             y1 = seg->aepos;
 
-            x0 = (x0 + xo) * sx;
-            x1 = (x1 + xo) * sx;
-            y0 = (y0 + yo) * sy;
-            y1 = (y1 + yo) * sy;
+            x0 = xoff + (x0 + xo) * sx;
+            x1 = xoff + (x1 + xo) * sx;
+            y0 = yoff + (y0 + yo) * sy;
+            y1 = yoff + (y1 + yo) * sy;
 
             eps_line(fo, x0, y0, x1, y1);
           }
@@ -1391,7 +1561,8 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
           { default:
-              ARG_FLAGS("vdSL")
+              ARG_FLAGS("vSL")
+              // ARG_FLAGS("vhdSL")
               break;
             case 'f':
               ARG_POSITIVE(FONTSIZE,"Label font size")
@@ -1434,10 +1605,11 @@ int main(int argc, char *argv[])
           argv[j++] = argv[i];
     argc = j;
   
-    VERBOSE  = flags['v'];
-    TRYADIAG = flags['d'];
-    PRINTSID = flags['S'];
-    LABELS   = 1-flags['L'];
+    VERBOSE   = flags['v'];
+    // HIGHLIGHT = flags['h'];
+    // TRYADIAG  = flags['d'];
+    PRINTSID  = flags['S'];
+    LABELS    = 1-flags['L'];
   
     if (argc < 2 || argc > 4)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
@@ -1454,7 +1626,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"        <scaffold> =  <int>|<string>|#\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"      -d: try to put alignments along the diagonal line\n");
+        // fprintf(stderr,"      -d: try to put alignments along the diagonal line\n");
         fprintf(stderr,"      -S: print sequence IDs as labels instead of names\n");
         fprintf(stderr,"      -L: do not print labels\n");
         fprintf(stderr,"      -T: use -T threads\n");
@@ -1468,6 +1640,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -W: image width\n");
         fprintf(stderr,"      -f: label font size\n");
         fprintf(stderr,"      -t: line thickness\n");
+        // fprintf(stderr,"      -h: highlight sequences in groups\n");
         fprintf(stderr,"\n");
       }
   
@@ -1486,10 +1659,10 @@ int main(int argc, char *argv[])
         exit (1);
       }
   
-    if (TRYADIAG)
-      { fprintf(stderr,"%s: diagonalisation (-d) is not supported yet\n",Prog_Name);
-        exit (1);
-      }
+    // if (TRYADIAG)
+    //   { fprintf(stderr,"%s: diagonalisation (-d) is not supported yet\n",Prog_Name);
+    //     exit (1);
+    //   }
   
     if (IMGWIDTH && IMGHEIGH)
       fprintf(stderr,"%s: setting both image width and height is not recommended\n",Prog_Name);

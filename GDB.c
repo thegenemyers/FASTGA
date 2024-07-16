@@ -41,7 +41,7 @@ static char *gdbSchemaText =
   ".\n"
   "P 3 gdb                     GDB\n"
   "D f 4 4 REAL 4 REAL 4 REAL 4 REAL   global: base frequency vector\n"
-  "O S 2 3 INT 6 STRING        count and id for a scaffold\n"
+  "O S 1 6 STRING              id for a scaffold\n"
   "D G 1 3 INT                 gap of given length\n"
   "D C 1 3 INT                 contig of given length\n"
 ;
@@ -53,7 +53,8 @@ static char *seqSchemaText =
   "1 3 def 1 0                 schema for aln and FastGA\n"
   ".\n"
   "P 3 seq                     SEQUENCE\n"
-  "G s 3 3 INT 3 INT 6 STRING  count, length, and id for group of sequences = a scaffold\n"
+  "O s 2 3 INT 6 STRING        length, and id for group of sequences = a scaffold\n"
+  "G S                         scaffolds (s) group sequence objects (S)\n"
   "D n 2 4 CHAR 3 INT          non-acgt chars outside (between) sequences within scaffold\n"
   "O S 1 3 DNA                 sequence\n"
   "D I 1 6 STRING              identifier of sequence\n"
@@ -1373,8 +1374,7 @@ int Write_GDB(GDB *gdb, char *tpath)
   oneWriteLine(of,'f',0,0);
 
   for (s = 0; s < gdb->nscaff; s++)
-    { oneInt(of,0) = 0;
-      head = gdb->headers + gdb->scaffolds[s].hoff;
+    { head = gdb->headers + gdb->scaffolds[s].hoff;
       oneWriteLine(of,'S',strlen(head),head);
 
       spos = 0;

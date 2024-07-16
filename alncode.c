@@ -5,7 +5,7 @@
  * Description: IO for ONEcode .1aln files for Myers FASTGA package
  * Exported functions:
  * HISTORY:
- * Last edited: Mar 18 22:22 2024 (rd)
+ * Last edited: Jul 15 13:10 2024 (rd109)
  * Created: Sat Feb 24 12:19:16 2024 (rd109)
  *-------------------------------------------------------------------
  */
@@ -16,17 +16,19 @@
 #include "alncode.h"
 
 static char *alnSchemaText =
-  "1 3 def 1 0                 schema for aln and FastGA\n"
+  "1 3 def 2 1                 schema for aln and FastGA\n"
   ".\n"
   "P 3 seq                     SEQUENCE\n"
-  "G s 3 3 INT 3 INT 6 STRING  count, length, and id for group of sequences = a scaffold\n"
+  "O s 2 3 INT 6 STRING        length, and id for group of sequences = a scaffold\n"
+  "G S                         scaffolds (s) group sequence objects (S)\n"
   "D n 2 4 CHAR 3 INT          non-acgt chars outside (between) sequences within scaffold\n"
   "O S 1 3 DNA                 sequence\n"
   "D I 1 6 STRING              identifier of sequence\n"
   ".\n"
   "P 3 aln                     ALIGNMENTS\n"
   "D t 1 3 INT                 trace point spacing in a - global\n"
-  "G a 1 3 INT                 a colinear group of alignments (chain)\n"
+  "O a 1 3 INT                 number of alignments for colinear groups = a chain\n"
+  "G A                         chains (a) group alignment objects (A)\n"
   "D p 2 3 INT 3 INT           spacing in a,b between end of previous alignment and start of next\n"
   ".                           alignment: a_read[beg..end] b_read[beg..end], 0-indexing\n"
   "O A 6 3 INT 3 INT 3 INT 3 INT 3 INT 3 INT\n"
@@ -137,7 +139,7 @@ void Read_Aln_Overlap(OneFile *of, Overlap *ovl)
 
   if (of->lineType != 'T')
     { fprintf(stderr,"%s: Failed to find trace record in .1aln object %lld\n",
-                     Prog_Name,of->object);
+                     Prog_Name,of->info['A']->accum.count);
       exit (1);
     }
 }

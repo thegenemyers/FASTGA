@@ -38,13 +38,14 @@ void *threadCopy(void *args)
 { Copy_Args *copy = (Copy_Args *) args;
   OneFile   *in  = copy->in;
   OneFile   *out = copy->out;
-  int64      i, end;
+  int64      i, n;
 
-  oneGotoObject(in,copy->beg);
+  oneGoto(in,'A',copy->beg+1); // RD 240514: object indexed from 1 now
 
-  end = copy->end;
-  for (i = copy->beg; i < end; i++)
-    { oneReadLine(in);
+  n = copy->end - copy->beg;
+  i = 0;
+  while (oneReadLine(in))
+    { if (in->lineType == 'A' && ++i > n) break;
       memcpy(out->field,in->field,fieldSize[(int) in->lineType]);
       oneWriteLine(out,in->lineType,oneLen(in),oneString(in));
     }
@@ -71,7 +72,7 @@ int main(int argc, char *argv[])
       exit (1);
 
     c = command;
-    if (argc >= 1)
+    if (argc >= 2)
       { c += sprintf(c,"%s",argv[1]);
         for (i = 2; i < argc; i++)
           c += sprintf(c," %s",argv[i]);
@@ -172,10 +173,16 @@ int main(int argc, char *argv[])
       { int64      novl = ofIn->info['A']->given.count;
         Copy_Args  args[NTHREADS];
         pthread_t  threads[NTHREADS];
-        
+
         for (i = 0; i < 128;++i)
           if (ofIn->info[i] != NULL)
             fieldSize[i] = ofIn->info[i]->nField*sizeof(OneField);
+
+        //  Write global lines before 'A'
+        while (oneReadLine(ofIn) && ofIn->lineType != 'A')
+          { memcpy(ofOut->field,ofIn->field,fieldSize[(int) ofIn->lineType]);
+            oneWriteLine(ofOut,ofIn->lineType,oneLen(ofIn),oneString(ofIn));
+          }
 
         for (i = 0; i < NTHREADS; i++)
           { args[i].in  = ofIn + i;
@@ -202,7 +209,7 @@ int main(int argc, char *argv[])
         unlink(tmpFileName);
         exit (1);
       }
-    if (rename(tmpFileName,Catenate(APATH,"/",AROOT,".las")) < 0)
+    if (rename(tmpFileName,Catenate(APATH,"/",AROOT,".1aln")) < 0)
       { fprintf(stderr,"%s: Could mv the temp file %s to the source name\n",Prog_Name,tmpFileName);
         exit (1);
       }

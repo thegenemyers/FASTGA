@@ -93,8 +93,8 @@ void *gen_psl(void *args)
 
   //  For each alignment do
 
-  if (!oneGotoObject(parm->in,beg))
-    { fprintf(stderr,"%s: Can't locate to object %lld in aln file\n",Prog_Name,beg);
+  if (!oneGoto(parm->in,'A',beg+1)) // RD 240514: object indexed from 1 now
+    { fprintf(stderr,"%s: Can't locate to object %lld in aln file\n",Prog_Name,beg+1);
       exit (1);
     }
   oneReadLine(parm->in);

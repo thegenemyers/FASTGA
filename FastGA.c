@@ -3640,6 +3640,26 @@ int main(int argc, char *argv[])
     else
       { TYPE1 = Get_GDB_Paths(argv[1],NULL,&SPATH1,&tpath1,0);
         ROOT1 = Root(tpath1,NULL);
+
+        input = fopen(Catenate(PATH1,"/",ROOT1,".gix"),"r");
+        if (input != NULL)
+          { TYPE1 = IS_GDB+1;
+            fclose(input);
+          }
+        else
+          { input = fopen(Catenate(PATH1,"/",ROOT1,".1gdb"),"r");
+            if (input != NULL)
+              { fclose(input);
+                TYPE1 = IS_GDB;
+              }
+            else
+              { input = fopen(Catenate(PATH1,"/",ROOT1,".gdb"),"r");
+                if (input != NULL)
+                  { fclose(input);
+                    TYPE1 = IS_GDB;
+                  }
+              }
+          }
       }
 
     TYPE2 = IS_GDB+1;
@@ -3667,6 +3687,26 @@ int main(int argc, char *argv[])
         else
           { TYPE2 = Get_GDB_Paths(argv[2],NULL,&SPATH2,&tpath2,0);
             ROOT2 = Root(tpath2,NULL);
+
+            input = fopen(Catenate(PATH2,"/",ROOT2,".gix"),"r");
+            if (input != NULL)
+              { TYPE2 = IS_GDB+1;
+                fclose(input);
+              }
+            else
+              { input = fopen(Catenate(PATH2,"/",ROOT2,".1gdb"),"r");
+                if (input != NULL)
+                  { fclose(input);
+                    TYPE2 = IS_GDB;
+                  }
+                else
+                  { input = fopen(Catenate(PATH2,"/",ROOT2,".gdb"),"r");
+                    if (input != NULL)
+                      { fclose(input);
+                        TYPE2 = IS_GDB;
+                      }
+                  }
+              }
           }
       }
 
@@ -3676,6 +3716,7 @@ int main(int argc, char *argv[])
         command = Malloc(strlen(SPATH1)+100,"Allocating command string");
         if (command == NULL)
           exit (1);
+
         if (TYPE1 < IS_GDB)
           { sprintf(command,"FAtoGDB%s %s",VERBOSE?" -v":"",SPATH1);
             if (system(command) != 0)
@@ -3683,11 +3724,13 @@ int main(int argc, char *argv[])
                 exit (1);
               }
           }
+
 	sprintf(command,"GIXmake%s -f%d %s",VERBOSE?" -v":"",FREQ,tpath1);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
           }
+
         free(command);
         free(tpath1);
       }
@@ -3698,6 +3741,7 @@ int main(int argc, char *argv[])
         command = Malloc(strlen(SPATH2)+100,"Allocating command string");
         if (command == NULL)
           exit (1);
+
         if (TYPE2 < IS_GDB)
           { sprintf(command,"FAtoGDB%s %s",VERBOSE?" -v":"",SPATH2);
             if (system(command) != 0)

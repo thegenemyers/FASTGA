@@ -38,13 +38,15 @@ void *threadCopy(void *args)
 { Copy_Args *copy = (Copy_Args *) args;
   OneFile   *in  = copy->in;
   OneFile   *out = copy->out;
-  int64      i, end;
+  int64      i, n;
 
-  oneGotoObject(in,copy->beg);
+  oneGoto(in,'A',copy->beg+1);
 
-  end = copy->end;
-  for (i = copy->beg; i < end; i++)
-    { oneReadLine(in);
+  n = copy->end - copy->beg;
+  i = 0;
+  for (i = 1; oneReadLine(in); i++)
+    { if (in->lineType == 'A' && i > n)
+        break;
       memcpy(out->field,in->field,fieldSize[(int) in->lineType]);
       oneWriteLine(out,in->lineType,oneLen(in),oneString(in));
     }
@@ -57,28 +59,7 @@ int main(int argc, char *argv[])
   char *SPATH2;
   char *APATH, *AROOT;
   int   NTHREADS;
-  char *command;
 
-  { int   n, i;
-    char *c;
-
-    n = 0;
-    for (i = 1; i < argc; i++)
-      n += strlen(argv[i])+1;
-
-    command = Malloc(n+1,"Allocating command string");
-    if (command == NULL)
-      exit (1);
-
-    c = command;
-    if (argc >= 1)
-      { c += sprintf(c,"%s",argv[1]);
-        for (i = 2; i < argc; i++)
-          c += sprintf(c," %s",argv[i]);
-      }
-    *c = '\0';
-  }
-  
   //  Process options
 
   { int    i, j, k;
@@ -159,7 +140,7 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"%s: Failed to open .1aln file %s\n",Prog_Name,tmpFileName);
         exit (1);
       }
-    oneAddProvenance(ofOut,Prog_Name,"0.1",command);
+    oneAddProvenance(ofOut,Prog_Name,"0.1",Command_Line);
 
     oneAddReference (ofOut,SPATH1, 1);
     if (argc == 4)
@@ -168,11 +149,18 @@ int main(int argc, char *argv[])
     oneAddReference(ofOut,cpath,3);
     free(cpath);
 
+    while (oneReadLine(ofIn))         // Transfer any pre-object lines
+      { if (ofIn->lineType == 'A')
+          break;
+        memcpy(ofOut->field,ofIn->field,fieldSize[(int) ofIn->lineType]);
+        oneWriteLine(ofOut,ofIn->lineType,oneLen(ofIn),oneString(ofIn));
+      }
+
     if (ofIn->info['A'])  //  file not empty
       { int64      novl = ofIn->info['A']->given.count;
         Copy_Args  args[NTHREADS];
         pthread_t  threads[NTHREADS];
-        
+
         for (i = 0; i < 128;++i)
           if (ofIn->info[i] != NULL)
             fieldSize[i] = ofIn->info[i]->nField*sizeof(OneField);
@@ -202,7 +190,7 @@ int main(int argc, char *argv[])
         unlink(tmpFileName);
         exit (1);
       }
-    if (rename(tmpFileName,Catenate(APATH,"/",AROOT,".las")) < 0)
+    if (rename(tmpFileName,Catenate(APATH,"/",AROOT,".1aln")) < 0)
       { fprintf(stderr,"%s: Could mv the temp file %s to the source name\n",Prog_Name,tmpFileName);
         exit (1);
       }

@@ -215,6 +215,7 @@ int main(int argc, char *argv[])
             int64 scfcnt, scfmax, scftot;
             int64 seqgrpcnt, gapgrpcnt, scnt, gcnt;
             int64 seqgrptot, gapgrptot, stot, gtot;
+            OneStat *s;
 
             seqcnt = seqmax = seqtot = 0;
             gapcnt = gapmax = gaptot = 0;
@@ -247,10 +248,6 @@ int main(int argc, char *argv[])
                       seqmax = len;
                     stot += len;
                     scnt += 1;
-    
-                    if (Get_Contig(gdb,k,UPPER,contig))
-                      goto clean_up2;
-                    oneWriteLine(outone,'S',len,contig);
                     spos += len;
                   }
                 if (spos < scf[i].slen)
@@ -278,26 +275,28 @@ int main(int argc, char *argv[])
             outone->info['S']->given.count = seqcnt;
             outone->info['S']->given.max   = seqmax;
             outone->info['S']->given.total = seqtot;
-            outone->info['S']->given.groupCount = seqgrpcnt;
-            outone->info['S']->given.groupTotal = seqgrptot;
-            outone->info['N']->given.count = gapcnt;
-            outone->info['N']->given.max   = gapmax;
-            outone->info['N']->given.total = gaptot;
-            outone->info['N']->given.groupCount = gapgrpcnt;
-            outone->info['N']->given.groupTotal = gapgrptot;
+            outone->info['n']->given.count = gapcnt;
+            outone->info['n']->given.max   = gapmax;
+            outone->info['n']->given.total = gaptot;
             outone->info['s']->given.count = scfcnt;
             outone->info['s']->given.max   = scfmax;
             outone->info['s']->given.total = scftot;
+            for (s = outone->info['s']->stats; s->type != '\0'; s++)
+              { if (s->type == 'S')
+                  { s->maxCount = seqgrpcnt;
+                    s->maxTotal = seqgrptot;
+                  }
+                if (s->type == 'n')
+                  { s->maxCount = gapgrpcnt;
+                    s->maxTotal = gapgrptot;
+                  }
+              }
           }
 
         for (i = 0; i < gdb->nscaff; i++)
           { header = gdb->headers + scf[i].hoff;
 
-            if (outone->isBinary)
-              oneInt(outone,0) = 0;
-            else
-              oneInt(outone,0) = scf[i].ectg-scf[i].fctg;
-            oneInt(outone,1) = scf[i].slen;
+            oneInt(outone,0) = scf[i].slen;
             oneWriteLine(outone,'s',strlen(header),header);
 
             spos = 0;
@@ -363,9 +362,9 @@ int main(int argc, char *argv[])
     
             header = gdb->headers + scf[i].hoff;
             if (gzip)
-              z = gzprintf(output,"> %s\n",header);
+              z = gzprintf(output,">%s\n",header);
             else
-              z = fprintf(output,"> %s\n",header);
+              z = fprintf(output,">%s\n",header);
             if (z < 0)
               goto out_error;
 

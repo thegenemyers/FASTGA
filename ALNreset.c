@@ -165,6 +165,12 @@ int main(int argc, char *argv[])
           if (ofIn->info[i] != NULL)
             fieldSize[i] = ofIn->info[i]->nField*sizeof(OneField);
 
+        //  Write global lines before 'A'
+        while (oneReadLine(ofIn) && ofIn->lineType != 'A')
+          { memcpy(ofOut->field,ofIn->field,fieldSize[(int) ofIn->lineType]);
+            oneWriteLine(ofOut,ofIn->lineType,oneLen(ofIn),oneString(ofIn));
+          }
+
         for (i = 0; i < NTHREADS; i++)
           { args[i].in  = ofIn + i;
             args[i].out = ofOut + i;

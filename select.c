@@ -430,25 +430,38 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
           chord[i].beg   = 0;
           chord[i].end   = gdb->contigs[i].clen;
         }
-      if (chord[pend].order)
-        { if (chord[pend].end < plst)
-            chord[pend].end = plst;
-        }
-      else
-        { chord[pend].order = order;
-          chord[pend].end   = plst;
-        }
-      if (chord[pbeg].order)
-        { if (chord[pbeg].beg > pfst)
-            chord[pbeg].beg = pfst;
-        }
-      else
-        { chord[pbeg].order = order;
-          chord[pbeg].beg   = pfst;
-        }
       if (pbeg != pend)
-        { chord[pbeg].end = gdb->contigs[pbeg].clen;
+        { if (chord[pend].order)
+            { if (chord[pend].end < plst)
+                chord[pend].end = plst;
+            }
+          else
+            { chord[pend].order = order;
+              chord[pend].end   = plst;
+            }
           chord[pend].beg = 0;
+          if (chord[pbeg].order)
+            { if (chord[pbeg].beg > pfst)
+                chord[pbeg].beg = pfst;
+            }
+          else
+            { chord[pbeg].order = order;
+              chord[pbeg].beg   = pfst;
+            }
+          chord[pbeg].end = gdb->contigs[pbeg].clen;
+        }
+      else
+        { if (chord[pend].order)
+            { if (chord[pend].end < plst)
+                chord[pend].end = plst;
+              if (chord[pbeg].beg > pfst)
+                chord[pbeg].beg = pfst;
+            }
+          else
+            { chord[pend].order = order;
+              chord[pend].end   = plst;
+              chord[pbeg].beg   = pfst;
+            }
         }
 
       if (ordered)
@@ -510,25 +523,38 @@ Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ord
                   chord[i].beg   = 0;
                   chord[i].end   = gdb->contigs[i].clen;
                 }
-              if (chord[pend].order)
-                { if (chord[pend].end < plst)
-                    chord[pend].end = plst;
-                }
-              else
-                { chord[pend].order = order;
-                  chord[pend].end   = plst;
-                }
-              if (chord[pbeg].order)
-                { if (chord[pbeg].beg > pfst)
-                    chord[pbeg].beg = pfst;
-                }
-              else
-                { chord[pbeg].order = order;
-                  chord[pbeg].beg   = pfst;
-                }
               if (pbeg != pend)
-                { chord[pbeg].end = gdb->contigs[pbeg].clen;
+                { if (chord[pend].order)
+                    { if (chord[pend].end < plst)
+                        chord[pend].end = plst;
+                    }
+                  else
+                    { chord[pend].order = order;
+                      chord[pend].end   = plst;
+                    }
                   chord[pend].beg = 0;
+                  if (chord[pbeg].order)
+                    { if (chord[pbeg].beg > pfst)
+                        chord[pbeg].beg = pfst;
+                    }
+                  else
+                    { chord[pbeg].order = order;
+                      chord[pbeg].beg   = pfst;
+                    }
+                  chord[pbeg].end = gdb->contigs[pbeg].clen;
+                }
+              else
+                { if (chord[pend].order)
+                    { if (chord[pend].end < plst)
+                        chord[pend].end = plst;
+                      if (chord[pbeg].beg > pfst)
+                        chord[pbeg].beg = pfst;
+                    }
+                  else
+                    { chord[pend].order = order;
+                      chord[pend].end   = plst;
+                      chord[pbeg].beg   = pfst;
+                    }
                 }
 
               if (ordered)

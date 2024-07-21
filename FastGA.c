@@ -4121,11 +4121,11 @@ int main(int argc, char *argv[])
 
         switch (OUT_TYPE)
         { case 0: // PAF
-            sprintf(command,"ALNtoPAF%s %s/%s",
-                            OUT_OPT==2?" -x":(OUT_OPT==1?" -m":""),ONE_PATH,ONE_ROOT);
+            sprintf(command,"ALNtoPAF%s -T%d %s/%s",
+                            OUT_OPT==2?" -x":(OUT_OPT==1?" -m":""),NTHREADS,ONE_PATH,ONE_ROOT);
             break;
           case 1: // PSL
-            sprintf(command,"ALNtoPSL %s/%s",ONE_PATH,ONE_ROOT);
+            sprintf(command,"ALNtoPSL -T%d %s/%s",NTHREADS,ONE_PATH,ONE_ROOT);
             break;
         }
 

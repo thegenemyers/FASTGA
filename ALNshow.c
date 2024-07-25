@@ -176,12 +176,16 @@ int main(int argc, char *argv[])
     ISTWO = 0;
     type  = Get_GDB_Paths(src1_name,NULL,&spath,&tpath,0);
     if (type != IS_GDB)
-      Create_GDB(gdb1,spath,type,1,tpath);
+      if (ALIGN || REFERENCE)
+        Create_GDB(gdb1,spath,type,1,NULL);
+      else
+        Create_GDB(gdb1,spath,type,0,NULL);
     else
-      Read_GDB(gdb1,tpath);
-    if ((ALIGN || REFERENCE) && gdb1->seqs == NULL)
-      { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
-        exit (1);
+      { Read_GDB(gdb1,tpath);
+        if ((ALIGN || REFERENCE) && gdb1->seqs == NULL)
+          { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
+            exit (1);
+          }
       }
     free(spath);
     free(tpath);
@@ -189,12 +193,16 @@ int main(int argc, char *argv[])
     if (src2_name != NULL)
       { type = Get_GDB_Paths(src2_name,NULL,&spath,&tpath,0);
         if (type != IS_GDB)
-          Create_GDB(gdb2,spath,type,1,tpath);
+          if (ALIGN || REFERENCE)
+            Create_GDB(gdb2,spath,type,1,NULL);
+          else
+            Create_GDB(gdb2,spath,type,0,NULL);
         else
-          Read_GDB(gdb2,tpath);
-        if ((ALIGN || REFERENCE) && gdb2->seqs == NULL)
-          { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
-            exit (1);
+          { Read_GDB(gdb2,tpath);
+            if ((ALIGN || REFERENCE) && gdb2->seqs == NULL)
+              { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
+                exit (1);
+              }
           }
         free(spath);
         free(tpath);
@@ -531,8 +539,7 @@ int main(int argc, char *argv[])
 
             Compute_Trace_PTS(aln,work,tspace,GREEDIEST);
 
-            if (Gap_Improver(aln,work))
-              exit (1);
+            Gap_Improver(aln,work);
 
             { int *trace = aln->path->trace;
               int  tlen  = aln->path->tlen;

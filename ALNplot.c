@@ -444,7 +444,7 @@ void read_1aln(char *oneAlnFile)
     ISTWO = 0;
     type  = Get_GDB_Paths(src1_name,NULL,&spath,&tpath,0);
     if (type != IS_GDB)
-      Create_GDB(AGDB,spath,type,0,tpath);
+      Create_GDB(AGDB,spath,type,0,NULL);
     else
       Read_GDB(AGDB,tpath);
     free(spath);
@@ -453,7 +453,7 @@ void read_1aln(char *oneAlnFile)
     if (src2_name != NULL)
       { type = Get_GDB_Paths(src2_name,NULL,&spath,&tpath,0);
         if (type != IS_GDB)
-          Create_GDB(BGDB,spath,type,0,tpath);
+          Create_GDB(BGDB,spath,type,0,NULL);
         else
           Read_GDB(BGDB,tpath);
         free(spath);

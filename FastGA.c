@@ -110,7 +110,7 @@ static int    NPARTS;    //  # of panels A-contigs divided into
 static int    ESHIFT;    //  shift to extract P1-contig # from a post
 
 static int   *Select;    //  Select[bucket] = thread file for bucket
-static int   *IDBsplit;  //  DB split: contigs [DBsplit[p],DBsplit[p+1])
+static int   *IDBsplit;  //  GDB split: contigs [DBsplit[p],DBsplit[p+1])
 static int   *Perm1;     //  Sorted contig permutation of gdb1
 static int   *Perm2;     //  Sorted contig permutation of gdb2
 
@@ -3246,12 +3246,12 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
       if (p > 0)
         { tarm[p].gdb1.seqs = fopen(gdb1->seqpath,"r");
           if (tarm[p].gdb1.seqs == NULL)
-            { fprintf(stderr,"%s: Cannot open another copy of DB\n",Prog_Name);
+            { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
               Clean_Exit(1);
             }
           tarm[p].gdb2.seqs = fopen(gdb2->seqpath,"r");
           if (tarm[p].gdb2.seqs == NULL)
-            { fprintf(stderr,"%s: Cannot open another copy of DB\n",Prog_Name);
+            { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
               Clean_Exit(1);
             }
         }
@@ -3393,17 +3393,17 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
         }
       if (nliv == 0)
         fprintf(stderr,
-           "\n  Total hits over %d = %lld, %lld la's, 0 non-redundant la's of ave len 0\n",
+           "\n  Total hits over %dbp = %lld, %lld aln's, 0 non-redundant aln's of ave len 0\n",
                        CHAIN_MIN/2,nhit,nlas);
       else
         fprintf(stderr,
-           "\n  Total hits over %d = %lld, %lld la's, %lld non-redundant la's of ave len %lld\n",
+          "\n  Total hits over %dbp = %lld, %lld aln's, %lld non-redundant aln's of ave len %lld\n",
                        CHAIN_MIN/2,nhit,nlas,nliv,ncov/nliv);
       fflush(stderr);
     }
 
   if (VERBOSE)
-    { fprintf(stderr,"\n  Sorting and merging local alignments\n");
+    { fprintf(stderr,"\n  Sorting and merging alignments\n");
       fflush(stderr);
     }
 
@@ -3431,7 +3431,7 @@ static void short_GDB_fix(GDB *gdb)
   //  Add additional conitgs of length KMER that are the first bit of the 0th read/contig
   //    Mark as "fake" with -1 in origin field.
 
-  gdb->contigs = Realloc(gdb->contigs,sizeof(GDB_CONTIG)*NTHREADS,"Reallocating DB read vector");
+  gdb->contigs = Realloc(gdb->contigs,sizeof(GDB_CONTIG)*NTHREADS,"Reallocating GDB contig vector");
   for (i = gdb->ncontig; i < NTHREADS; i++)
     { gdb->contigs[i] = gdb->contigs[0];
       gdb->contigs[i].clen = KMER;
@@ -3610,6 +3610,9 @@ int main(int argc, char *argv[])
       }
   }
 
+  if (VERBOSE)
+    StartTime();
+
   //  Parse source names and make precursors if necessary
 
   { char *p;
@@ -3733,6 +3736,9 @@ int main(int argc, char *argv[])
 
         free(command);
         free(tpath1);
+
+        if (VERBOSE)
+          TimeTo(stderr,0);
       }
 
     if (TYPE2 <= IS_GDB)
@@ -3756,11 +3762,11 @@ int main(int argc, char *argv[])
           }
         free(command);
         free(tpath2);
+
+        if (VERBOSE)
+          TimeTo(stderr,0);
       }
   }
-
-  if (VERBOSE)
-    StartTime();
 
   //  Get full path string for sorting subdirectory (in variable SORT_PATH)
 
@@ -3924,7 +3930,7 @@ int main(int argc, char *argv[])
 
   ESHIFT = 8*IPOST;
 
-  { int64 cum;      // DBYTE accommodates the sum of the largest contig positions in each DB !
+  { int64 cum;      // DBYTE accommodates the sum of the largest contig positions in each GDB !
     int   r, len;
 
     AMXPOS = 0;
@@ -3959,7 +3965,7 @@ int main(int argc, char *argv[])
       fflush(stderr);
     }
 
-  { int64 npost, cum, t;   //  Compute DB split into NTHREADS parts
+  { int64 npost, cum, t;   //  Compute GDB split into NTHREADS parts
     int   p, r, x;
 
     NCONTS = gdb1->ncontig;
@@ -4113,6 +4119,11 @@ int main(int argc, char *argv[])
     if (OUT_TYPE != 2)
       { char *command;
 
+        if (VERBOSE)
+          { fprintf(stderr,"\n  Converting aln's to %s-format\n",OUT_TYPE==0?"PAF":"PSL");
+            fflush(stderr);
+          }
+
         command = Malloc(strlen(ONE_ROOT)+strlen(ONE_PATH)+100,"Allocating command buffer");
         if (command == NULL)
           { unlink(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"));
@@ -4144,6 +4155,9 @@ int main(int argc, char *argv[])
 
         free(command);
         unlink(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"));
+
+        if (VERBOSE)
+          TimeTo(stderr,0);
       }
   }
 

@@ -33,7 +33,7 @@ static int  CIGAR;     // -m or -x
 static int  NTHREADS;  // -T
 static int  ISTWO;     // one gdb or two?
 
-static int TSPACE;   // Trace spacing
+static int  TSPACE;   // Trace spacing
 
 //  THREAD ROUTINE TO GENERATE A SECTION OF THE DESIRED .PAF FILE
 
@@ -97,11 +97,11 @@ void *gen_paf(void *args)
 
   //  For each alignment do
 
-  if (!oneGoto(parm->in,'A',beg+1))
+  if (!oneGoto(in,'A',beg+1))
     { fprintf(stderr,"%s: Can't locate to object %lld in aln file\n",Prog_Name,beg+1);
       exit (1);
     }
-  oneReadLine(parm->in);
+  oneReadLine(in);
 
   for (alast = -1; beg < end; beg++)
     { Read_Aln_Overlap(in,ovl);
@@ -184,8 +184,7 @@ void *gen_paf(void *args)
 
           Compute_Trace_PTS(aln,work,TSPACE,GREEDIEST);
 
-          if (Gap_Improver(aln,work))
-            exit (1);
+          Gap_Improver(aln,work);
 
           if (CIGAR_M)
             { int    k, h, p, x, blen;
@@ -364,7 +363,8 @@ int main(int argc, char *argv[])
 { Packet    *parm;
   GDB       _gdb1, *gdb1 = &_gdb1;
   GDB       _gdb2, *gdb2 = &_gdb2;
-  char      *gdb1_name, *gdb2_name;
+  FILE     **units1;
+  FILE     **units2;
   OneFile   *input;
   int64      novl;
 
@@ -419,8 +419,9 @@ int main(int argc, char *argv[])
 
   //  Initiate .1aln file reading and read header information
 
-  { char       *pwd, *root, *cpath, *spath;
+  { char       *pwd, *root, *cpath;
     char       *src1_name, *src2_name;
+    char       *spath, *tpath;
     int         type;
     FILE       *test;
 
@@ -467,35 +468,48 @@ int main(int argc, char *argv[])
 
     //  Prepare GDBs from sources if necessary
 
+    units1 = NULL;
+    units2 = NULL;
     ISTWO = 0;
-    type  = Get_GDB_Paths(src1_name,src1_name,&spath,&gdb1_name,0);
+    type  = Get_GDB_Paths(src1_name,NULL,&spath,&tpath,0);
     if (type != IS_GDB)
-      Create_GDB(gdb1,spath,type,CIGAR,gdb1_name);
+      if (CIGAR)
+        units1 = Create_GDB(gdb1,spath,type,NTHREADS,NULL);
+      else
+        Create_GDB(gdb1,spath,type,0,NULL);
     else
-      { Read_GDB(gdb1,gdb1_name);
+      { Read_GDB(gdb1,tpath);
         if (CIGAR && gdb1->seqs == NULL)
-          { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,gdb1_name);
+          { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
             exit (1);
           }
       }
     free(spath);
+    free(tpath);
 
     if (src2_name != NULL)
-      { type = Get_GDB_Paths(src2_name,src2_name,&spath,&gdb2_name,0);
+      { type = Get_GDB_Paths(src2_name,NULL,&spath,&tpath,0);
         if (type != IS_GDB)
-          Create_GDB(gdb2,spath,type,CIGAR,gdb2_name);
+          if (CIGAR)
+            units2 = Create_GDB(gdb2,spath,type,NTHREADS,NULL);
+          else
+            Create_GDB(gdb2,spath,type,0,NULL);
         else
-          { Read_GDB(gdb2,gdb2_name);
+          { Read_GDB(gdb2,tpath);
             if (CIGAR && gdb2->seqs == NULL)
-              { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,gdb2_name);
+              { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
                 exit (1);
               }
           }
         free(spath);
+        free(tpath);
         ISTWO = 1;
       }
     else
       gdb2 = gdb1;
+
+    free(src1_name);
+    free(src2_name);
   }
 
   //  Divide .1aln into NTHREADS parts
@@ -526,19 +540,37 @@ int main(int argc, char *argv[])
     for (p = 0; p < NTHREADS; p++)
       { parm[p].gdb1 = *gdb1;
         parm[p].gdb2 = *gdb2;
-        if (p > 0)
-          { parm[p].gdb1.seqs = fopen(gdb1->seqpath,"r");
-            if (parm[p].gdb1.seqs == NULL)
-              { fprintf(stderr,"%s: Cannot open another copy of GDB %s\n",Prog_Name,gdb1->seqpath);
-                exit (1);
+        if (p > 0 && CIGAR)
+          { if (units1 != NULL)
+              parm[p].gdb1.seqs = units1[p];
+            else
+              { parm[p].gdb1.seqs = fopen(gdb1->seqpath,"r");
+                if (parm[p].gdb1.seqs == NULL)
+                  { fprintf(stderr,"%s: Cannot open another copy of GDB %s\n",
+                                   Prog_Name,gdb1->seqpath);
+                    exit (1);
+                  }
               }
-            parm[p].gdb2.seqs = fopen(gdb2->seqpath,"r");
-            if (parm[p].gdb2.seqs == NULL)
-              { fprintf(stderr,"%s: Cannot open another copy of GDB %s\n",Prog_Name,gdb2->seqpath);
-                exit (1);
+            if (ISTWO)
+              { if (units2 != NULL)
+                  parm[p].gdb2.seqs = units2[p];
+                else
+                  { parm[p].gdb2.seqs = fopen(gdb2->seqpath,"r");
+                    if (parm[p].gdb2.seqs == NULL)
+                      { fprintf(stderr,"%s: Cannot open another copy of GDB %s\n",
+                                       Prog_Name,gdb2->seqpath);
+                        exit (1);
+                      }
+                  }
+              }
+            else
+              { if (units1 != NULL)
+                  parm[p].gdb2.seqs = units1[p];
+                else
+                  parm[p].gdb2.seqs = parm[p].gdb1.seqs;
               }
           }
-        parm[p].in  = input + p ;
+        parm[p].in  = input + p;
         parm[p].out = fopen(Numbered_Suffix(oprefix,p,".paf"),"w+");
         if (parm[p].out == NULL)
           { fprintf(stderr,"%s: Cannot open %s.%d.paf for reading & writing\n",
@@ -561,11 +593,18 @@ int main(int argc, char *argv[])
       pthread_join(threads[p],NULL);
 #endif
 
-    for (p = 1; p < NTHREADS; p++)
-      { fclose(parm[p].gdb1.seqs);
-        fclose(parm[p].gdb2.seqs);
+    if (CIGAR)
+      { for (p = 1; p < NTHREADS; p++)
+          { fclose(parm[p].gdb1.seqs);
+            if (ISTWO)
+            fclose(parm[p].gdb2.seqs);
+          }
+        if (units1 != NULL)
+          free(units1);
+        if (units2 != NULL)
+          free(units2);
       }
-
+  
     //  Concatenate thread generated paf parts to stdout
 
 #define PUSH_BLOCK 0x100000

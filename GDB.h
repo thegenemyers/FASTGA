@@ -112,15 +112,18 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
   //   Do not create a .bps sequence file
   // bps != 0:
   //   Create a .bps file with its name consistent with a GDB with file name 'tpath'.
-  // In interactive mode a non-zero value is returned if there is an error.
+  //   But if tpath == NULL then create a temporary uniquely named .bps that is
+  //     unlinked (i.e. disappears on program exit).
+  //   Return an array of bps open FILE pointers to the file.
+  // In interactive mode a NULL value is returned if there is an error.
 
-int Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath);
+FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath);
 
   // Open the given database "path" into the supplied GDB record "gdb".
   //   Initially the sequence data, if any, stays in the .bps file with a FILE pointer to it.
-  // Return values:
+  // Interactive return values:
   //     0: Open of GDB proceeded without mishap
-  //     1: The GDB could not be opened, a message why was output to EPLACE (in interactive mode)
+  //     1: The GDB could not be opened, a message why was placed in EPLACE.
 
 int Read_GDB(GDB *gdb, char *spath);
 

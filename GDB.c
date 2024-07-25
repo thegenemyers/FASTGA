@@ -149,7 +149,7 @@ static char *find_1seq(char *path, char *root)
 //    the source and target in spath & tpath.  Returns the type of source.
 //  If target == NULL then tpath has the same path & root as spath
 //  Else If target is a directory then tpath has the same path as target
-//  Else tpath has the same path and root at target.
+//  Else tpath has the same path and root as target.
 //  If no_gdb then the source cannot be a gdb.
 //  In interactive mode returns a negative number if an error occurs.
 //  The user is responsible for freeing both tpath and spath.
@@ -438,7 +438,7 @@ static char *read_line(void *input, int gzipd, int *plen, int nline, char *spath
   return (buffer);
 }
 
-int Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
+FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
 { GDB_SCAFFOLD  *scaffs;
   GDB_CONTIG    *contigs;
   OneProvenance *prov;
@@ -461,22 +461,26 @@ int Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
   //  Establish .bps file if needed
 
   bases = NULL;
-  if (bps)
-    { char *path = PathTo(tpath);
-      char *root = Root(tpath,".1gdb");
-      if (root == NULL || path == NULL)
-        { free(path);
+  if (bps != 0)
+    { if (tpath == NULL)
+        seqpath = Numbered_Suffix("._gdb.",getpid(),".bps");
+      else
+        { char *path = PathTo(tpath);
+          char *root = Root(tpath,".1gdb");
+          if (root == NULL || path == NULL)
+            { free(path);
+              free(root);
+              EXIT (NULL);
+            }
+          seqpath = MyCatenate(path,"/.",root,".bps");
           free(root);
-          EXIT (1);
+          free(path);
         }
-      seqpath = MyCatenate(path,"/.",root,".bps");
-      free(root);
-      free(path);
       if (seqpath == NULL)
-        EXIT (1);
-      bases = Fopen(seqpath,"w");
+        EXIT (NULL);
+      bases = Fopen(seqpath,"w+");
       if (bases == NULL)
-        EXIT(1);
+        EXIT(NULL);
     }
   else
     seqpath = "";
@@ -775,6 +779,8 @@ int Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                       spos += clen;
                       contigs[ncontig].clen = clen;
                       seqtot += clen;
+                      if (clen > maxctg)
+                        maxctg = clen;
                       ncontig += 1;
                       if (ncontig >= ctgtop)
                         { ctgtop = 1.2*ncontig + 1000;
@@ -840,6 +846,8 @@ int Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                             spos += clen;
                             contigs[ncontig].clen = clen;
                             seqtot += clen;
+                            if (clen > maxctg)
+                              maxctg = clen;
                             ncontig += 1;
                             in = 0;
                           }
@@ -874,6 +882,8 @@ int Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                           { spos += clen;
                             contigs[ncontig].clen = clen;
                             seqtot += clen;
+                            if (clen > maxctg)
+                              maxctg = clen;
                             ncontig += 1;
                             in = 0;
                           }
@@ -901,7 +911,8 @@ int Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
         fclose(input);
     }
 
-  rewind(bases);
+  if (bps > 0)
+    rewind(bases);
 
   gdb->nprov = nprov;
   gdb->prov  = prov;
@@ -927,7 +938,24 @@ int Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
   gdb->freq[2] = (1.*count[2])/seqtot;
   gdb->freq[3] = (1.*count[3])/seqtot;
 
-  return (0);
+  if (bps == 0)
+    return ((FILE **) &gdb->seqs);
+  else
+    { FILE **units;
+      int    i;
+
+      units = malloc(sizeof(FILE *)*bps);
+      if (units == NULL)
+        { free(gdb->seqpath);
+          goto error1;
+        }
+      units[0] = bases;
+      for (i = 1; i < bps; i++)
+        units[i] = Fopen(seqpath,"r");
+      if (tpath == NULL)
+        unlink(seqpath);
+      return (units);
+    }
 
 error4:
   oneFileClose(of);
@@ -946,7 +974,9 @@ error1:
   free(contigs);
   if (bases != NULL)
     fclose(bases);
-  EXIT(1);
+  if (tpath == NULL)
+    unlink(seqpath);
+  EXIT (NULL);
 }
 
 /*******************************************************************************************
@@ -957,9 +987,9 @@ error1:
 
 // Open the given database "path" into the supplied GDB record "gdb".
 //   Initially the sequence data, if any, stays in .bps file with a FILE pointer to it.
-// Interactive return values
+// Return values in interactive mode:
 //     0: Open of GDB proceeded without mishap
-//     1: The GDB could not be opened, a message why is in EPLACE (see gene_core.h).
+//     1: The GDB could not be opened, a message why is in EPLACE
 
 int Read_GDB(GDB *gdb, char *path)
 { OneSchema     *schema;

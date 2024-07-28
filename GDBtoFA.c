@@ -7,6 +7,7 @@
  *  Date  :  Jan 2024
  *
  ********************************************************************************************/
+/*  Last edited: Jul 25 19:12 2024 (rd109) */
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -16,6 +17,8 @@
 
 #include "GDB.h"
 #include "ONElib.h"
+
+extern bool addProvenance(OneFile *of, OneProvenance *from, int n) ; // backdoor - clean up some day
 
 static char *Usage =
          "[-vU] [-w<int(80)>] <source:path>[.1gdb] [ @ | <target:path>[<fa_extn>|.1seq] ]";

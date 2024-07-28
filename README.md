@@ -17,6 +17,7 @@
   - [GDBstat](#GDBstat): Display various statistics and histograms of the scaffolds & contigs in a GDB
   - [GIXshow](#GIXshow): Display range of a GIX
   - [ALNshow](#ALNshow): Display selected alignments in a .1aln file in a variety of forms
+  - [ALNplot](#ALNplot): Display alignments in a .1aln or .paf file in a static collinear plot
 
 - [Additional Utilities](#addons)
   - [GDBtoFA](#GDBtoFA): Converts a GDB back to the FASTA or ONEcode sequence file it was derived from
@@ -451,6 +452,51 @@ the start of each line follow this orientation convention and give the coordinat
 interval reaches the beginning or end of a read, and to signal this we use an angle-bracket \<\> instead
 of a square bracket [].
 
+<a name="ALNplot"></a>
+
+```
+5. ALNplot [-vSL] [-T<int(4)>] [-p[:<output:path>[.pdf]]]
+               [-a<int(100)>] [-e<float(0.7)>] [-n<int(100000)>]
+               [-H<int(600)>] [-W<int>] [-f<int>] [-t<float>]
+               <alignment:path>[.1aln|.paf[.gz]]> [<selection>|<FILE> [<selection>|<FILE>]]
+
+       <selection> = <range> [ , <range> ]*
+
+       <range> =     <contig>[-<contig>]    |  <contig>_<int>-(<int>|#)
+               | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)
+
+         <contig>   = (<int>|#)[.(<int>|#)]
+
+         <scaffold> =  <int>|<string>|#
+```
+
+ALNplot produces a static collinear plot of the local alignments contained in the specified ALN file or PAF 
+file in a EPS or PDF format file.  If just the ALN/PAF is given as an argument then every alignment is considered 
+for plotting.  If a single selection is given in addition, then only those alignments whose interval in the 1st 
+genome intersects the selection are considered. If a pair of selections are given then those alignments where 
+its interval in the 1st genome intersects the 1st selection and its interval in the 2nd genome intersects the 2nd 
+selection are considered. A selection can be comma-delimited to include multiple, interspersed ranges. These ranges
+will be placed in order along the axis for plotting. The selection can also be a FILE, with each line representing 
+a range. This is equivalent to concatenating all lines and separating them with commas. See the documentation 
+for [GDBshow](#GDBshow) for a detailed explanation of the format and meaning of selections.
+
+When the alignment input is an ALN file, the command must have access to the one or two source files from which 
+the ALN file was derived. See [ALNshow](#ALNshow) for a detailed explanation.
+When the alignment input is a PAF file, each sequence will be treated as a single contig, even if there are gaps. 
+Consequently, selecting specific contigs is not possible in this case.
+
+The default output is an EPS file sent to standard output. With the -p option, the output will be a PDF file, 
+requiring a software ('[e]ps[to|2]pdf') to convert the EPS to PDF. You can specify the output PDF file name with 
+the -p option; otherwise, the output file name will be determined by the input file name. 
+
+You can use the -l and -i options to filter alignment records based on alignment length and identity. By default, 
+only the longest 100,000 alignment records are used for plotting to maintain a manageable file size. This limit 
+can be adjusted with the -n option, and setting it to 0 will include all alignments.
+
+The program automatically adjusts the display of the output figure based on the input data. If these automatic 
+settings are not suitable, you can use the options -S, -L, -H, -W, -f, and -t to manually configure the display 
+parameters.
+
 <a name="addons"></a>
 
 ## Additional Utilities
@@ -505,6 +551,8 @@ deleted unless the -g flag is explicitly set in which case the GDB will also be 
 this requirement as a safeguard because if you have replaced your FASTAs with the GDBs as we recommend,
 then deleting the GDB is tantamount to deleting your genome source! 
 
+<a name="ALNreset"></a>
+
 ```
 3. ALNreset [-T<int(8)>] <alignments:path>[.1aln]
                  <source1:path>[.1gdb|<fa_extn>|<1_extn>] [<source2:path>[.1gdb|<fa_extn>|<1_extn>]]
@@ -516,6 +564,8 @@ then deleting the GDB is tantamount to deleting your genome source!
 In the unfortunate event that the internal references of a 1-code alignment file (.1aln) to its genome source files have become
 "stale", ALNreset allows you to reset these paths within the given file.  Note carefully, that the references can be not only to a GDB but also the source 1-code or FASTA files from which a GDB can be
 built.
+
+<a name="PAFtoALN"></a>
 
 ```
 4. PAFtoALN [-T<int(8)>] <alignments:path>[.paf]

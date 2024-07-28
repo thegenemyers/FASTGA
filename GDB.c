@@ -8,6 +8,7 @@
  *  Date   :  May 2024
  *
  ********************************************************************************************/
+/*  Last edited: Jul 25 19:12 2024 (rd109) */
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -1326,6 +1327,8 @@ int Load_Sequences(GDB *gdb, int stype)
 
 // Write the given gdb to the file 'tpath'.  The GDB must have seqstate EXTERNAL and tpath
 //   must be consistent with the name of the .bps file.
+
+extern bool addProvenance(OneFile *of, OneProvenance *from, int n) ; // backdoor - clean up some day
 
 int Write_GDB(GDB *gdb, char *tpath)
 { OneSchema *schema;

@@ -127,13 +127,14 @@ void *gen_paf(void *args)
       fprintf(out,"\t%s",bhead + scaff2[bscaff].hoff);
       fprintf(out,"\t%lld",scaff2[bscaff].slen);
 
+/*
       boff = contigs2[bcontig].sbeg;
       if (COMP(aln->flags))
         boff = scaff2[bscaff].slen - (contigs2[bcontig].clen + boff);
       fprintf(out,"\t%lld",boff + path->bbpos);
       fprintf(out,"\t%lld",boff + path->bepos);
+*/
 
-/*                              Previous, is newer correct?
       if (COMP(aln->flags))
         { boff = contigs2[bcontig].sbeg + contigs2[bcontig].clen;
           fprintf(out,"\t%lld",boff - path->bepos);
@@ -144,7 +145,6 @@ void *gen_paf(void *args)
           fprintf(out,"\t%lld",boff + path->bbpos);
           fprintf(out,"\t%lld",boff + path->bepos);
         }
-*/
 
       blocksum = (path->aepos-path->abpos) + (path->bepos-path->bbpos);
       iid      = (blocksum - path->diffs)/2;
@@ -422,7 +422,8 @@ int main(int argc, char *argv[])
   { char       *pwd, *root, *cpath;
     char       *src1_name, *src2_name;
     char       *spath, *tpath;
-    int         type;
+    char       *head, *sptr, *eptr;
+    int         type, s;
     FILE       *test;
 
     pwd   = PathTo(argv[1]);
@@ -484,6 +485,14 @@ int main(int argc, char *argv[])
             exit (1);
           }
       }
+    head  = gdb1->headers;
+    for (s = 0; s < gdb1->nscaff; s++)
+      { sptr = head + gdb1->scaffolds[s].hoff;
+        for (eptr = sptr; *eptr != '\0'; eptr++)
+          if (isspace(*eptr))
+            break;
+        *eptr = '\0';
+      }
     free(spath);
     free(tpath);
 
@@ -500,6 +509,14 @@ int main(int argc, char *argv[])
               { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
                 exit (1);
               }
+          }
+        head  = gdb2->headers;
+        for (s = 0; s < gdb2->nscaff; s++)
+          { sptr = head + gdb2->scaffolds[s].hoff;
+            for (eptr = sptr; *eptr != '\0'; eptr++)
+              if (isspace(*eptr))
+                break;
+            *eptr = '\0';
           }
         free(spath);
         free(tpath);

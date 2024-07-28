@@ -18,7 +18,7 @@ typedef void Hash_Table;
   //    this # of entries is added than the hash table will expand by progressive
   //    doubling to accommodate.  If "keep" is non-zero than the hash table records
   //    an entry's string, otherwise it will simply point at the string supplied by
-  //    the user.
+  //    the user.  NULL is return if there is an error in INTERACTIVE mode.
   //  Clear_Hash_Table:
   //    Empty the contents of the hash table (but do not destroy it)
   //  Free_Hash_Table:
@@ -32,6 +32,7 @@ void        Free_Hash_Table(Hash_Table *table);
   //    Lookup "entry" in the hash table.  If found return its index, otherwise return -1
   //  Hash_Add:
   //    Add "entry" to the hash table and return its assigned index
+  //    If there is an error then -1 is return in INTERACTIVE mode.
 
 int Hash_Lookup(Hash_Table *table, char *entry);
 int Hash_Add(Hash_Table *table, char *entry);

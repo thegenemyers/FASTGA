@@ -30,12 +30,6 @@
  *
  ********************************************************************************************/
 
-#ifdef INTERACTIVE
-
-char Ebuffer[1000];
-
-#endif
-
 static char *gdbSchemaText =
   "1 3 def 1 0                 schema for genome skeleton\n"
   ".\n"

@@ -137,7 +137,7 @@ Hash_Table *New_Hash_Table(int size, int keep)
 
   if (size <= 0)
     { fprintf(stderr,"%s: Table must have > 0 entries (New_Hash_Table)\n",Prog_Name);
-      exit (1);
+      EXIT (NULL);
     }
 
   vlen = next_prime((int) (size/CELL_RATIO));
@@ -149,7 +149,12 @@ Hash_Table *New_Hash_Table(int size, int keep)
   else
     room = Malloc(size*sizeof(Entry)+vlen*sizeof(int),"Allocating hash table");
   if (table == NULL || room == NULL)
-    exit (1);
+    { if (table != NULL)
+        free(table);
+      if (room != NULL)
+        free (room);
+      EXIT (NULL);
+    }
 
   table->cells = (Entry *) room;
   room += size*sizeof(Entry);
@@ -177,7 +182,7 @@ Hash_Table *New_Hash_Table(int size, int keep)
 /* Double the size of a hash table
    while preserving its contents.    */
 
-static Table *double_hash_table(Table *table)
+static int double_hash_table(Table *table)
 { int   size, vlen, smax;
   void *room;
 
@@ -189,6 +194,8 @@ static Table *double_hash_table(Table *table)
     room = Realloc(table->cells,size*sizeof(Entry)+vlen*sizeof(int)+smax,"Expanding hash table");
   else
     room = Realloc(table->cells,size*sizeof(Entry)+vlen*sizeof(int),"Expanding hash table");
+  if (room == NULL)
+    return (1);
 
   table->cells = (Entry *) room;
   room += size*sizeof(Entry);
@@ -217,7 +224,7 @@ static Table *double_hash_table(Table *table)
       }
   }
 
-  return (table);
+  return (0);
 }
 
 /* Lookup string 'entry' in table 'table' and return its
@@ -238,7 +245,7 @@ int Hash_Lookup(Hash_Table *hash_table, char *entry)
 }
 
 /* Add string 'entry' in table 'table' and return its assigned
-   uniqe nonnegative id, or -1 if it is already in the table.  */
+   uniqe nonnegative id.  Return -1 if an error occurs in INTERACTIVE mode. */
 
 int Hash_Add(Hash_Table *hash_table, char *entry)
 { Table *table = T(hash_table);
@@ -250,13 +257,14 @@ int Hash_Add(Hash_Table *hash_table, char *entry)
   chain = table->vector[key];
   while (chain >= 0)
     { if (strcmp(table->cells[chain].text,entry) == 0)
-        return (-1);
+        return (chain);
       chain = table->cells[chain].next;
     }
 
   if (table->count+1 > table->cntmax)
-    { table = double_hash_table(table);
-      key   = hash_key(entry) % table->veclen;
+    { if (double_hash_table(table))
+        EXIT (-1);
+      key = hash_key(entry) % table->veclen;
     }
 
   chain = table->count;
@@ -276,7 +284,7 @@ int Hash_Add(Hash_Table *hash_table, char *entry)
 
       room = Realloc(table->cells,size*sizeof(Entry)+vlen*sizeof(int)+smax,"Expanding hash table");
       if (room == NULL)
-        exit (1);
+        EXIT (-1);
 
       table->cells = (Entry *) room;
       room += size*sizeof(Entry);

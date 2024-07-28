@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Gene Myers, 2019-
  *
  * HISTORY:
- * Last edited: Jun 25 00:15 2024 (rd)
+ * Last edited: Jul 25 19:02 2024 (rd109)
  * * Dec  3 06:01 2022 (rd109): remove oneWriteHeader(), switch to stdarg for oneWriteComment etc.
  *   * Dec 27 09:46 2019 (gene): style edits
  *   * Created: Sat Feb 23 10:12:43 2019 (rd109)
@@ -34,11 +34,11 @@
 #ifndef U8_DEFINED
 #define U8_DEFINED
 
-typedef int8_t        I8;
-typedef int16_t       I16;
-typedef int32_t       I32;
-typedef int64_t       I64;
-typedef unsigned char U8;
+typedef signed char        I8;
+typedef signed short       I16;
+typedef signed int         I32;
+typedef signed long long   I64;
+typedef unsigned char      U8;
 
 #endif // U8_DEFINED
 
@@ -338,7 +338,6 @@ bool oneInheritDeferred   (OneFile *vf, OneFile *source);
   // Add all provenance/reference/deferred entries in source to header of vf.  Must be
   //   called before first call to oneWriteLine.
 
-bool addProvenance    (OneFile *vf, OneProvenance *from, int n); // Gene backdoor - Richard wants a proper fix
 bool oneAddProvenance (OneFile *vf, char *prog, char *version, char *format, ...);
 bool oneAddReference  (OneFile *vf, char *filename, I64 count);
 bool oneAddDeferred   (OneFile *vf, char *filename);
@@ -387,8 +386,8 @@ void oneUserBuffer (OneFile *vf, char lineType, void *buffer);
 
 bool oneGoto (OneFile *vf, char lineType, I64 i);
 
-  // Goto i'th object (group) in the file. This only works on binary files, which have an index.
-  // The first object (group) is numbered 1. Setting i == 0 goes to the first data line of the file
+  // Goto i'th object in the file. This only works on binary files, which have an index.
+  // The first object is numbered 1. Setting i == 0 goes to the first data line of the file
   // after the header.
 
 /***********************************************************************************
@@ -402,15 +401,12 @@ bool oneGoto (OneFile *vf, char lineType, I64 i);
  // '$'-line flags file is binary and gives endian
  // The data block ends with a blank line consisting of '\n'
  //
- // EWM: Removed '-' line, simply write off_t to footer start
- //
  //   <ASCII Prolog> <- <'1'-line> [<'2'-line>] ( <'!'-line> | <'<'-line> | <'>'-line> )*
  //
  // The ASCII prolog contains the type, subtype, provenance, reference, and deferred lines
  //   in the ASCII format.  The ONE count statistic lines for each data line type are found
- //   in the footer along with binary ';' and ':' lines that encode their compressors as
- //   needed.  The footer also contains binary '&' lines that encode the byte index for object
- //   and group types, '*' lines that encode group counts, and ':' lines that encode group totals.
+ //   in the footer along with binary ';' lines that encode their compressors as needed.
+ //   The footer also contains binary '&' lines that encode the byte index for object types.
  //
  //   <Binary line> <- <Binary line code + tags> <fields> [<list data>]
  //

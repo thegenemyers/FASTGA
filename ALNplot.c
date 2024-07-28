@@ -62,7 +62,7 @@
 
 static char *Usage[] =
   { "[-vSL] [-T<int(4)>] [-p[:<output:path>[.pdf]]]",
-    "[-a<int(100)>] [-e<float(0.7)>] [-n<int(100000)>]",
+    "[-l<int(100)>] [-i<float(.7)>] [-n<int(100000)>]",
     "[-H<int(600)>] [-W<int>] [-f<int>] [-t<float>]",
     "<alignment:path>[.1aln|.paf[.gz]]> [<selection>|<FILE> [<selection>|<FILE>]]",
   };
@@ -937,7 +937,7 @@ static double seqNameWidth(char *names, int n)
     if (l > w) w = l;
     names++;
   }
-  return w;
+  return (w);
 }
 
 static double seqNameRenderWidth(char *names, int n, int64 *soff, double unit, double space)
@@ -963,7 +963,19 @@ static double seqNameRenderWidth(char *names, int n, int64 *soff, double unit, d
     if (l > w) w = l;
     names++;
   }
-  return w;
+  return (w);
+}
+
+static double chooseFontSizeByHeight(int64 *soff, int n, double unit, double minf, double maxf)
+{ int i;
+  double s, f;
+  f = maxf;
+  for (i = 0; i < n; i++)
+  { s  = (i == 0 ? soff[0] : soff[i] - soff[i-1]);
+    s *= unit;
+    if (s >= minf && s < f) f = s;
+  }
+  return (f);
 }
 
 int axisConfig(Hash_Table *hash, GDB *gdb, Contig_Range *chord,
@@ -1137,7 +1149,7 @@ int myers_clip(int *nx1, int *ny1, int *nx2, int *ny2,
       inter = 1;
     }
   if (y1 < ymin)
-    { x1 = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1);
+    { x1 = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1);
       y1 = ymin;
       inter = 1;
     }
@@ -1309,7 +1321,23 @@ void aln_filter()
     fprintf(fp,"/%s findfont FS scalefont setfont\n\n",f); \
 } while (0)
 
-#define eps_Rstr(fp,x,y,r,s) do { \
+#define eps_Ralign(fp) do { \
+    fprintf(fp,"/RightAlignedText {\n"); \
+    fprintf(fp,"  /str exch def\n"); \
+    fprintf(fp,"  /y exch def\n"); \
+    fprintf(fp,"  /x exch def\n"); \
+    fprintf(fp,"  str stringwidth pop\n"); \
+    fprintf(fp,"  x exch sub\n"); \
+    fprintf(fp,"  y moveto\n"); \
+    fprintf(fp,"  str show\n"); \
+    fprintf(fp,"} def\n\n"); \
+} while (0)
+
+#define eps_RAlignedStr(fp,x,y,s) do { \
+    fprintf(fp,"%g %g (%s) RightAlignedText\n",(float)(x),(float)(y),s); \
+} while (0)
+
+#define eps_RotatedStr(fp,x,y,r,s) do { \
     fprintf(fp,"/str (%s) def\n",s); \
     fprintf(fp,"gsave\n"); \
     fprintf(fp,"%g %g moveto\n",(float)(x),(float)(y)); \
@@ -1412,9 +1440,6 @@ void make_plot(FILE *fo)
 
   maxis = (width < height ? width : height);
   
-  fsize = FONTSIZE;
-  if (!fsize) fsize = maxis / 50;
-  
   lsize = LINESIZE;
   if (lsize < 1e-6)
     lsize = (double) maxis / 500;
@@ -1427,29 +1452,43 @@ void make_plot(FILE *fo)
   xmargin = bsize*2;
   ymargin = bsize*2;
 
-  if (LABELS)
-    { double xlabw, ylabw; // x/y lab width
-    
-      xlabw   = seqNameWidth(xnames, nxseq);
-      ylabw   = seqNameWidth(ynames, nyseq);
+  fsize = FONTSIZE;
+  if (!fsize)
+    { if (LABELS)
+        { double xlabw, ylabw; // x/y lab width
+          double xfsize, yfsize; // adjusted x/y font size
 
-      // reduce font size if label panel is too big
-      if (xlabw * fsize > height * MAX_LAB_FRC)
-        fsize = height * MAX_LAB_FRC / xlabw;
-      if (ylabw * fsize > width * MAX_LAB_FRC)
-        fsize = width * MAX_LAB_FRC / ylabw;
+          // choose a font size by height
+          // the smallest that is between 1 and 2 percent of axis size
+          xfsize = chooseFontSizeByHeight(sxoff, nxseq, sx, (double) maxis / 100, (double) maxis / 50);
+          yfsize = chooseFontSizeByHeight(syoff, nyseq, sy, (double) maxis / 100, (double) maxis / 50);
+          fsize  = (xfsize < yfsize? xfsize : yfsize);
 
-      // adjust x/y lab width
-      // some labels will be excluded since no enough space
-      xlabw = seqNameRenderWidth(xnames, nxseq, sxoff, sx, fsize);
-      ylabw = seqNameRenderWidth(ynames, nyseq, syoff, sy, fsize);
+          // adjust font size by sequence name width
+          xlabw = seqNameWidth(xnames, nxseq);
+          ylabw = seqNameWidth(ynames, nyseq);
 
-      xmargin += fsize * ylabw;
-      ymargin += fsize * xlabw;
+          // reduce font size if label panel is too big
+          if (xlabw * fsize > height * MAX_LAB_FRC)
+            fsize = height * MAX_LAB_FRC / xlabw;
+          if (ylabw * fsize > width * MAX_LAB_FRC)
+            fsize = width * MAX_LAB_FRC / ylabw;
+
+          // adjust x/y lab width
+          // some labels will be excluded since no enough space
+          xlabw = seqNameRenderWidth(xnames, nxseq, sxoff, sx, fsize);
+          ylabw = seqNameRenderWidth(ynames, nyseq, syoff, sy, fsize);
+
+          xmargin += fsize * ylabw;
+          ymargin += fsize * xlabw;
+        }
+      else
+        fsize = 10; // this has no effect
     }
 
   eps_header(fo, width+xmargin+bsize*3, height+ymargin+bsize*3, lsize);
   eps_font(fo, "Helvetica-Narrow", fsize);
+  eps_Ralign(fo);
 
   if (LABELS)
     { char *names;
@@ -1458,21 +1497,21 @@ void make_plot(FILE *fo)
       // write x labels
       names = xnames;
       if (sxoff[0] * sx >= fsize)
-        eps_Rstr(fo, xmargin + bsize + .5 * sxoff[0] * sx - fsize / 2, ymargin - aoff, 270, names);
+        eps_RotatedStr(fo, xmargin + bsize + .5 * sxoff[0] * sx - fsize / 2, ymargin - aoff, 270, names);
       names += strlen(names) + 1;
       for (i = 1; i < nxseq; i++)
         { if ((sxoff[i] - sxoff[i-1]) * sx >= fsize)
-            eps_Rstr(fo, xmargin + bsize + .5 * (sxoff[i-1] + sxoff[i]) * sx - fsize / 2, ymargin - aoff, 270, names);
+            eps_RotatedStr(fo, xmargin + bsize + .5 * (sxoff[i-1] + sxoff[i]) * sx - fsize / 2, ymargin - aoff, 270, names);
           names += strlen(names) + 1;
         }
       // write y labels
       names = ynames;
       if (syoff[0] * sy >= fsize)
-        eps_Rstr(fo, aoff, ymargin + bsize + .5 * syoff[0] * sy - fsize / 2, 0, names);
+        eps_RAlignedStr(fo, xmargin - aoff, ymargin + bsize + .5 * syoff[0] * sy - fsize / 2, names);
       names += strlen(names) + 1;
       for (i = 1; i < nyseq; i++)
         { if ((syoff[i] - syoff[i-1]) * sy >= fsize)
-            eps_Rstr(fo, aoff, ymargin + bsize + .5 * (syoff[i-1] + syoff[i]) * sy - fsize / 2, 0, names);
+            eps_RAlignedStr(fo, xmargin - aoff, ymargin + bsize + .5 * (syoff[i-1] + syoff[i]) * sy - fsize / 2, names);
           names += strlen(names) + 1;
         }
     }
@@ -1573,10 +1612,10 @@ int main(int argc, char *argv[])
             case 'n':
               ARG_NON_NEGATIVE(MAXALIGN,"Maximium number of lines")
               break;
-            case 'e':
+            case 'i':
               ARG_REAL(MINAIDNT)
               break;
-            case 'a':
+            case 'l':
               ARG_NON_NEGATIVE(MINALEN,"Minimum alignment length")
               break;
             case 'p':
@@ -1584,12 +1623,6 @@ int main(int argc, char *argv[])
                 pdf = argv[i]+3;
               else
                 pdf = "";
-              break;
-            case 'x':
-              xseq = argv[i]+2;
-              break;
-            case 'y':
-              yseq = argv[i]+2;
               break;
             case 'H':
               ARG_POSITIVE(IMGHEIGH,"Image height")
@@ -1632,8 +1665,8 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -T: use -T threads\n");
         fprintf(stderr,"      -p: make PDF output (requires \'[e]ps[to|2]pdf\')\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"      -a: minimum alignment length\n");
-        fprintf(stderr,"      -e: minimum alignment similarity\n");
+        fprintf(stderr,"      -l: minimum alignment length\n");
+        fprintf(stderr,"      -i: minimum alignment identity\n");
         fprintf(stderr,"      -n: maximum number of lines to display (set '0' to force all)\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -H: image height\n");
@@ -1641,7 +1674,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -f: label font size\n");
         fprintf(stderr,"      -t: line thickness\n");
         // fprintf(stderr,"      -h: highlight sequences in groups\n");
-        fprintf(stderr,"\n");
+        exit (1);
       }
   
     xseq = NULL;

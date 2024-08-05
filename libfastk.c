@@ -1279,6 +1279,13 @@ inline void GoTo_Kmer_Index(Kmer_Stream *_S, int64 i)
 
   S->cidx = i;
 
+  if (i >= S->nels)
+    { S->csuf = NULL;
+      S->cpre = S->ixlen;
+      S->part = S->nthr+1;
+      return;
+    }
+
   p = S->inver[i>>S->shift];
   while (index[p] <= i)
     p += 1;

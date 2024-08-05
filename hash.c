@@ -278,7 +278,7 @@ int Hash_Add(Hash_Table *hash_table, char *entry)
 
   len = (int) (strlen(entry) + 1);
   if (table->strtop + len > table->strmax)
-    { smax = ((table->strtop+len)*1.1*table->cntmax) / table->count + 1000;
+    { smax = ((table->strtop+len)*1.1*table->cntmax) / (table->count+1) + 1000;
       vlen = table->veclen;
       size = table->cntmax;
 

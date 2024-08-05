@@ -359,6 +359,12 @@ void distribute(GDB *gdb)
           //  In segments each thread computes processed seq array from neq,ceq
     
           len -= (KMER-4);
+          if (len < 0)
+            { for (i = 0; i < NTHREADS; i++)
+                parm[i].post += len + (KMER-1);
+              continue;
+            }
+
           barm[0].beg = 0;
           for (i = 1; i < NTHREADS; i++)
             barm[i-1].end = barm[i].beg = (((int64) i)*len)/NTHREADS;

@@ -71,8 +71,6 @@ static int    OUT_OPT;     //  -pafm = 1; -pafx = 2; all others = 0
 static char  *ONE_PATH;    //  -one option path
 static char  *ONE_ROOT;    //  -one option path
 
-static char  *CommandLine; //  Command line in toto
-
 static char *PATH1, *PATH2;   //  GDB & GIX are PATHx/ROOTx[GEXTNx|.gix]
 static char *ROOT1, *ROOT2;
 static char *GEXTN1, *GEXTN2;
@@ -3104,7 +3102,7 @@ static int la_merge(TP *parm)
     cpath = getcwd(NULL,0);
 
     of = open_Aln_Write(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"), 1,
-                        Prog_Name, VERSION, CommandLine,
+                        Prog_Name, VERSION, Command_Line,
 			TSPACE, db1_name, db2_name, cpath);
 
     free(cpath);
@@ -3449,26 +3447,6 @@ int main(int argc, char *argv[])
   GDB _gdb1, *gdb1 = &_gdb1;
   GDB _gdb2, *gdb2 = &_gdb2;
 
-  { int   n, i;
-    char *c;
-
-    n = 1; // need to be at least one to accommodate final '\0'
-    for (i = 1; i < argc; i++)
-      n += strlen(argv[i])+1;
-
-    CommandLine = Malloc(n+1,"Allocating command string");
-    if (CommandLine == NULL)
-      exit (1);
-
-    c = CommandLine;
-    if (argc > 1)
-      { c += sprintf(c,"%s",argv[1]);
-        for (i = 2; i < argc; i++)
-          c += sprintf(c," %s",argv[i]);
-      }
-    *c = '\0';
-  }
-  
   //  Process options
 
   { int    i, j, k;
@@ -3641,7 +3619,7 @@ int main(int argc, char *argv[])
         TYPE1 = IS_GDB+1;
       }
     else
-      { TYPE1 = Get_GDB_Paths(argv[1],NULL,&SPATH1,&tpath1,0);
+      { TYPE1 = Get_GDB_Paths(Catenate(PATH1,"/",ROOT1,""),NULL,&SPATH1,&tpath1,0);
         ROOT1 = Root(tpath1,NULL);
 
         input = fopen(Catenate(PATH1,"/",ROOT1,".gix"),"r");
@@ -3688,7 +3666,7 @@ int main(int argc, char *argv[])
             TYPE2 = IS_GDB+1;
           }
         else
-          { TYPE2 = Get_GDB_Paths(argv[2],NULL,&SPATH2,&tpath2,0);
+          { TYPE2 = Get_GDB_Paths(Catenate(PATH2,"/",ROOT2,""),NULL,&SPATH2,&tpath2,0);
             ROOT2 = Root(tpath2,NULL);
 
             input = fopen(Catenate(PATH2,"/",ROOT2,".gix"),"r");

@@ -193,7 +193,7 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
     }
 
   for (i = tmax; i >= 0; i--)
-    { input = fopen(Catenate(SPATH,"/",SROOT,suffix[i]),"r");
+    { input = fopen(MyCatenate(SPATH,"/",SROOT,suffix[i]),"r");
       if (input != NULL)
         break;
     }
@@ -241,7 +241,7 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
       else
         { OneFile *of;
 
-          of = oneFileOpenRead(Catenate(SPATH,"/",SROOT,""),schema,"seq",1);
+          of = oneFileOpenRead(MyCatenate(SPATH,"/",SROOT,""),schema,"seq",1);
           if (of == NULL)
             { EPRINTF(EPLACE,"%s: Could not find valid extension of %s\n",Prog_Name,SROOT);
               oneSchemaDestroy(schema);
@@ -255,7 +255,7 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
 
   oneSchemaDestroy(schema);
 
-  *spath = Strdup(Catenate(SPATH,"/",SROOT,SEXTN),"Allocating source name");
+  *spath = Strdup(MyCatenate(SPATH,"/",SROOT,SEXTN),"Allocating source name");
   if (*spath == NULL)
     goto error;
 
@@ -308,7 +308,7 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
         }
     }
 
-  *tpath = Strdup(Catenate(TPATH,"/",TROOT,TEXTN),"Allocating target name");
+  *tpath = Strdup(MyCatenate(TPATH,"/",TROOT,TEXTN),"Allocating target name");
   if (*tpath == NULL)
     { free(*spath);
       goto error;

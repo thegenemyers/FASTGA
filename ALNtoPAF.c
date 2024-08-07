@@ -127,14 +127,6 @@ void *gen_paf(void *args)
       fprintf(out,"\t%s",bhead + scaff2[bscaff].hoff);
       fprintf(out,"\t%lld",scaff2[bscaff].slen);
 
-/*
-      boff = contigs2[bcontig].sbeg;
-      if (COMP(aln->flags))
-        boff = scaff2[bscaff].slen - (contigs2[bcontig].clen + boff);
-      fprintf(out,"\t%lld",boff + path->bbpos);
-      fprintf(out,"\t%lld",boff + path->bepos);
-*/
-
       if (COMP(aln->flags))
         { boff = contigs2[bcontig].sbeg + contigs2[bcontig].clen;
           fprintf(out,"\t%lld",boff - path->bepos);

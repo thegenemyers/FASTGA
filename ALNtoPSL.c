@@ -115,14 +115,15 @@ void *gen_psl(void *args)
         }
       bcontig = ovl->bread;
       aln->blen  = contig2[bcontig].clen;
-      boff       = contig2[bcontig].sbeg;
       aln->flags = ovl->flags;
 
       ascaff = contig1[acontig].scaf;
       bscaff = contig2[bcontig].scaf;
 
-      if (COMP(ovl->flags))                                                //  Correct ?
-        boff = scaff2[bscaff].slen - (contig2[bcontig].clen + boff);
+      if (COMP(aln->flags))
+        boff = contig2[bcontig].sbeg + contig2[bcontig].clen;
+      else
+        boff = contig2[bcontig].sbeg;
 
       if (COMP(aln->flags))
         { bmin = (aln->blen-path->bepos);
@@ -182,8 +183,12 @@ void *gen_psl(void *args)
         fprintf(out,"%d\t%d\t0\t0\t%d\t%d\t%d\t%d\t%c",X,S,IB,I,DB,D,COMP(ovl->flags)?'-':'+');
         fprintf(out,"\t%s\t%lld\t%lld\t%lld",
                   ahead+scaff1[ascaff].hoff,scaff1[ascaff].slen,aoff+path->abpos,aoff+path->aepos);
-        fprintf(out,"\t%s\t%lld\t%lld\t%lld",
-                  bhead+scaff2[bscaff].hoff,scaff2[bscaff].slen,boff+path->bbpos,boff+path->bepos);
+        if (COMP(aln->flags))
+          fprintf(out,"\t%s\t%lld\t%lld\t%lld",
+                   bhead+scaff2[bscaff].hoff,scaff2[bscaff].slen,boff-path->bepos,boff-path->bbpos);
+        else
+          fprintf(out,"\t%s\t%lld\t%lld\t%lld",
+                   bhead+scaff2[bscaff].hoff,scaff2[bscaff].slen,boff+path->bbpos,boff+path->bepos);
 
         bcnt = 0;
         i = path->abpos+1;

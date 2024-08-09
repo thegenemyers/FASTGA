@@ -741,7 +741,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
     
           if (hdrtot + len + 1 > hdrtop)
             { hdrtop = 1.2*(hdrtot+len+1) + 10000;
-              headers = realloc(headers,hdrtot);
+              headers = realloc(headers,hdrtop);
               if (headers == NULL)
                 { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",Prog_Name,spath);
                   goto error2;

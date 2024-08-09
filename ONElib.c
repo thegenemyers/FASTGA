@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Jul 25 22:21 2024 (rd109)
+ * Last edited: Aug  7 09:35 2024 (rd109)
  * * May  1 00:23 2024 (rd109): moved to OneInfo->index and multiple objects/groups
  * * Apr 16 18:59 2024 (rd109): major change to object and group indexing: 0 is start of data
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
@@ -449,7 +449,6 @@ void oneSchemaDestroy (OneSchema *vs)
 
 static void writeInfoSpec (FILE *f, OneFile *vf, char ci, char *comment) // also used in writeHeader()
 {
-
   if (f == vf->f) fprintf (f, "\n~ ") ; // writing the schema into the file header
   else fprintf (f, "\n") ;              // just writing a schema file
 
@@ -467,7 +466,7 @@ static void writeInfoSpec (FILE *f, OneFile *vf, char ci, char *comment) // also
 		 (int)strlen(oneTypeString[vi->fieldType[i]]), oneTypeString[vi->fieldType[i]]) ;
     }
   if (comment)
-    oneWriteComment (vf, "%s", comment) ;
+    fprintf (f, " %s", comment) ;
 }
 
 void oneFileWriteSchema (OneFile *vf, char *filename)

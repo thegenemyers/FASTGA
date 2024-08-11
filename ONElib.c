@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Aug  7 09:35 2024 (rd109)
+ * Last edited: Aug 11 19:05 2024 (rd109)
  * * May  1 00:23 2024 (rd109): moved to OneInfo->index and multiple objects/groups
  * * Apr 16 18:59 2024 (rd109): major change to object and group indexing: 0 is start of data
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
@@ -335,8 +335,7 @@ OneSchema *oneSchemaCreateFromFile (const char *filename)
   fprintf (vf->f, "D - 1 3 INT                        binary file: offset of start of footer\n") ;
   fprintf (vf->f, "D & 2 4 CHAR 8 INT_LIST            binary file: li->index\n") ;
   fprintf (vf->f, "D ; 2 4 CHAR 6 STRING              binary file: list codec\n") ;
-  fprintf (vf->f, "D | 1 6 STRING                     binary file: comment\n") ;
-  fprintf (vf->f, "D / 1 4 CHAR                       general: end of group, char is type\n") ;
+  fprintf (vf->f, "D / 1 6 STRING                     binary file: comment\n") ;
   if (fseek (vf->f, 0, SEEK_SET)) die ("ONE schema failure: cannot rewind tmp file") ;
   while (oneReadLine (vf))
     schemaLoadRecord (vs, vf) ;
@@ -1167,7 +1166,13 @@ char oneReadLine (OneFile *vf)
                 readStringList (vf, t, listLen);
               else if (x & 0x1)    				  // list is compressed
                 { vf->nBits = ltfRead (vf->f) ;
-                  if (fread (vf->codecBuf, ((vf->nBits+7) >> 3), 1, vf->f) != 1)
+		  size_t bytes = (vf->nBits+7) >> 3 ;
+		  if (bytes > (size_t) vf->codecBufSize)
+		    { if (vf->codecBuf) free (vf->codecBuf) ;
+		      vf->codecBufSize = bytes + 1 ;
+		      vf->codecBuf = new (vf->codecBufSize, void) ;
+		    }
+                  if (fread (vf->codecBuf, bytes, 1, vf->f) != 1)
                     die ("ONE read error: fail to read compressed list");
                 }
               else if (li->fieldType[li->listField] == oneINT_LIST)
@@ -1541,8 +1546,11 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vsArg, const char *fileTy
 	  if (li->listCodec && size < li->given.max * li->listEltSize)
 	    size = li->given.max * li->listEltSize;
 	}
-    vf->codecBufSize = size+1;
-    vf->codecBuf     = new (vf->codecBufSize, void);  // add one for worst case codec usage
+    if (size >= vf->codecBufSize)
+      { if (vf->codecBuf) free (vf->codecBuf) ;
+	vf->codecBufSize = size+1;
+	vf->codecBuf     = new (vf->codecBufSize, void);  // add one for worst case codec usage
+      }
   }
 
   // if parallel, allocate a OneFile array for parallel thread objects, switch vf to head of array
@@ -2463,6 +2471,7 @@ static void oneWriteFooter (OneFile *vf)
 
   //  first the per-linetype information
   codecBuf = new (vcMaxSerialSize()+1, char) ; // +1 for added up unused 0-terminator
+  bool isWrittenIndexCodec = false ;
   for (k = 0; k < vf->nDefn ; ++k)
     { i  = vf->defnOrder[k] ;
       if (i & 0x80) continue ; // skip the 'G' lines
@@ -2473,6 +2482,12 @@ static void oneWriteFooter (OneFile *vf)
 	  if (li->index)
 	    { oneChar(vf,0) = (char) i ;
 	      oneWriteLine (vf, '&', li->accum.count+1, li->index) ;
+	    }
+	  if (vf->info['&']->isUseListCodec && !isWrittenIndexCodec)
+	    { oneChar(vf,0) = '&' ;
+              n = vcSerialize (vf->info['&']->listCodec, codecBuf);
+              oneWriteLine (vf, ';', n, codecBuf);
+	      isWrittenIndexCodec = true ;
 	    }
           if (li->isUseListCodec && li->listCodec != DNAcodec)
             { oneChar(vf,0) = i;
@@ -2488,6 +2503,10 @@ static void oneWriteFooter (OneFile *vf)
       n = vcSerialize (li->listCodec, codecBuf);
       oneWriteLine (vf, ';', n, codecBuf);
     }
+
+  // NB we don't consider here the possibility of writing a codec for codecs.
+  // This should be OK. Each codec is ~300 bytes, and we can have at most 56 of them.
+  // Not enough to trigger codec building.
   
   free (codecBuf) ;
 

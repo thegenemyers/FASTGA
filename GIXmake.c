@@ -1149,7 +1149,7 @@ void k_sort(GDB *gdb)
       fprintf(stderr,"\r    Done                                           \n");
       fprintf(stderr,"\n  Kept:    %11lld kmers, %11lld(%5.1f%%) positions\n",
                      nkmer,npost-nbase,((npost-nbase)*100.)/npost);
-      fprintf(stderr,"  Dropped: %11lld kmers, %11lld(%5.1f%%) positions\n\n",
+      fprintf(stderr,"  Dropped: %11lld kmers, %11lld(%5.1f%%) positions\n",
                      nelim,nbase,(nbase*100.)/npost);
       fflush(stderr);
     }
@@ -1321,6 +1321,9 @@ int main(int argc, char *argv[])
       }
   }
 
+  if (VERBOSE)
+    StartTime();
+
   //  Determine source and target root names, paths, and extensions
 
   if (argc == 3)
@@ -1341,18 +1344,18 @@ int main(int argc, char *argv[])
     { if (ftype != IS_GDB)
         if (strcmp(TPATH,".") == 0)
           { fprintf(stderr,"\n  Creating genome data base and index (GDB/GIX) %s.1gdb/gix",TROOT);
-            fprintf(stderr," in the current directory\n\n");
+            fprintf(stderr," in the current directory\n");
           }
         else
           { fprintf(stderr,"\n  Creating genome data base and index (GDB/GIX)");
-            fprintf(stderr," %s.1gdb/gix in directory %s\n\n",TROOT,TPATH);
+            fprintf(stderr," %s.1gdb/gix in directory %s\n",TROOT,TPATH);
           }
       else
         if (strcmp(TPATH,".") == 0)
-          fprintf(stderr,"\n  Creating genome index (GIX) %s.gix in the current directory\n\n",
+          fprintf(stderr,"\n  Creating genome index (GIX) %s.gix in the current directory\n",
                          TROOT);
         else
-          fprintf(stderr,"\n  Creating genome genome index (GIX) %s.gix in directory %s\n\n",
+          fprintf(stderr,"\n  Creating genome genome index (GIX) %s.gix in directory %s\n",
                          TROOT,TPATH);
       fflush(stdout);
     }
@@ -1361,7 +1364,7 @@ int main(int argc, char *argv[])
     { char *command;
 
       command = Malloc(strlen(spath)+strlen(tpath)+100,"Allocating command string");
-      sprintf(command,"FAtoGDB %s %s",spath,tpath);
+      sprintf(command,"FAtoGDB%s %s %s",VERBOSE?" -v":"",spath,tpath);
       if (system(command) != 0)
         { fprintf(stderr,"\n%s: Call to FAtoGDB failed\n",Prog_Name);
           exit (1);
@@ -1527,7 +1530,7 @@ int main(int argc, char *argv[])
   }
 
   if (VERBOSE)
-    { fprintf(stderr,"  Partitioning K-mers via pos-lists into %d parts\n",NTHREADS);
+    { fprintf(stderr,"\n  Partitioning K-mers via pos-lists into %d parts\n",NTHREADS);
       fflush(stderr);
     }
 
@@ -1589,6 +1592,9 @@ int main(int argc, char *argv[])
 
   free(tpath);
   free(spath);
+
+  if (VERBOSE)
+    TimeTo(stderr,0);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

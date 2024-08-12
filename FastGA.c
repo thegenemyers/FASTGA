@@ -3588,9 +3588,6 @@ int main(int argc, char *argv[])
       }
   }
 
-  if (VERBOSE)
-    StartTime();
-
   //  Parse source names and make precursors if necessary
 
   { char *p;
@@ -3714,9 +3711,6 @@ int main(int argc, char *argv[])
 
         free(command);
         free(tpath1);
-
-        if (VERBOSE)
-          TimeTo(stderr,0);
       }
 
     if (TYPE2 <= IS_GDB)
@@ -3740,11 +3734,11 @@ int main(int argc, char *argv[])
           }
         free(command);
         free(tpath2);
-
-        if (VERBOSE)
-          TimeTo(stderr,0);
       }
   }
+
+  if (VERBOSE)
+    StartTime();
 
   //  Get full path string for sorting subdirectory (in variable SORT_PATH)
 

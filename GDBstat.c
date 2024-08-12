@@ -169,7 +169,8 @@ int main(int argc, char *argv[])
       gapsort[c] = c;
 
     qsort(ctgsort,nctg,sizeof(int),CSORT);
-    qsort(gapsort,ngap,sizeof(int),GSORT);
+    if (ngap > 0)
+      qsort(gapsort,ngap,sizeof(int),GSORT);
     qsort(scfsort,nscaff,sizeof(int),SSORT);
   }
 
@@ -223,15 +224,19 @@ int main(int argc, char *argv[])
     int   cwide, swide, gwide;
 
     cwide = Number_Digits(CONTIGS[ctgsort[nctg-1]].clen);
-    swide = Number_Digits(SCAFFS[scfsort[nscaff-1]].slen);
-    gwide = Number_Digits(GAPS[gapsort[ngap-1]]);
     cwide += (cwide-1)/3;
-    swide += (swide-1)/3;
-    gwide += (gwide-1)/3;
     if (cwide < (int) strlen("Contigs"))
       cwide = strlen("Contigs");
+
+    swide = Number_Digits(SCAFFS[scfsort[nscaff-1]].slen);
+    swide += (swide-1)/3;
     if (swide < (int) strlen("Scaffolds"))
       swide = strlen("Scaffolds");
+
+    if (ngap > 0)
+      { gwide = Number_Digits(GAPS[gapsort[ngap-1]]);
+        gwide += (gwide-1)/3;
+      }
 
     sf = nscaff-1;
     ss = 0;
@@ -239,41 +244,53 @@ int main(int argc, char *argv[])
     cs = 0;
     gf = ngap-1;
     gs = 0;
-    printf("\n             Contigs%*sScaffolds%*sGaps\n",cwide-4,"",swide-6,"");
+    if (ngap > 0)
+      printf("\n             Contigs%*sScaffolds%*sGaps\n",cwide-4,"",swide-6,"");
+    else
+      printf("\n             Contigs%*sScaffolds\n",cwide-4,"");
     printf("       MAX:  ");
     Print_Number(CONTIGS[ctgsort[cf]].clen,cwide,stdout);
     printf("   ");
     Print_Number(SCAFFS[scfsort[sf]].slen,swide,stdout);
-    printf("   ");
-    Print_Number(GAPS[gapsort[gf]],gwide,stdout);
+    if (ngap > 0)
+      { printf("   ");
+        Print_Number(GAPS[gapsort[gf]],gwide,stdout);
+      }
     printf("\n");
     for (n = 10; n < 100; n += 10)
       { while (cf >= 0 && cs < totbps*(n/100.))
           { cs += CONTIGS[ctgsort[cf]].clen;
             cf -= 1;
           }
+        printf("       N%2d:  ",n);
+        Print_Number(CONTIGS[ctgsort[cf+1]].clen,cwide,stdout);
+
         while (sf >= 0 && ss < totspan*(n/100.))
           { ss += SCAFFS[scfsort[sf]].slen;
             sf -= 1;
           }
-        while (gf >= 0 && gs < totgap*(n/100.))
-          { gs += GAPS[gapsort[gf]];
-            gf -= 1;
-          }
-        printf("       N%2d:  ",n);
-        Print_Number(CONTIGS[ctgsort[cf+1]].clen,cwide,stdout);
         printf("   ");
         Print_Number(SCAFFS[scfsort[sf+1]].slen,swide,stdout);
-        printf("   ");
-        Print_Number(GAPS[gapsort[gf+1]],gwide,stdout);
+
+        if (ngap > 0)
+          { while (gf >= 0 && gs < totgap*(n/100.))
+              { gs += GAPS[gapsort[gf]];
+                gf -= 1;
+              }
+            printf("   ");
+            Print_Number(GAPS[gapsort[gf+1]],gwide,stdout);
+          }
+
         printf("\n");
       }
     printf("       MIN:  ");
     Print_Number(CONTIGS[ctgsort[0]].clen,cwide,stdout);
     printf("   ");
     Print_Number(SCAFFS[scfsort[0]].slen,swide,stdout);
-    printf("   ");
-    Print_Number(GAPS[gapsort[0]],gwide,stdout);
+    if (ngap > 0)
+      { printf("   ");
+        Print_Number(GAPS[gapsort[0]],gwide,stdout);
+      }
     printf("\n");
   }
 

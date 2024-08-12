@@ -62,6 +62,9 @@ int main(int argc, char *argv[])
       }
   }
 
+  if (VERBOSE)
+    StartTime();
+
   //  Determine source and target root names, paths, and extensions
 
   if (argc == 2)
@@ -89,6 +92,9 @@ int main(int argc, char *argv[])
 
   free(tpath);
   free(spath);
+
+  if (VERBOSE)
+    TimeTo(stderr,0);
 
   exit (0);
 }

@@ -38,19 +38,18 @@ void *threadCopy(void *args)
 { Copy_Args *copy = (Copy_Args *) args;
   OneFile   *in  = copy->in;
   OneFile   *out = copy->out;
-  int64      i, n;
+  int64      n;
 
   oneGoto(in,'A',copy->beg+1);
 
   n = copy->end - copy->beg;
-  i = 0;
-  for (i = 1; oneReadLine(in); i++)
-    { if (in->lineType == 'A' && i > n)
+  while (oneReadLine(in))
+    { if (in->lineType == 'A' && (--n < 0))
         break;
       memcpy(out->field,in->field,fieldSize[(int) in->lineType]);
       oneWriteLine(out,in->lineType,oneLen(in),oneString(in));
     }
-  
+
   return (NULL);
 }
 
@@ -149,10 +148,12 @@ int main(int argc, char *argv[])
     oneAddReference(ofOut,cpath,3);
     free(cpath);
 
-    while (oneReadLine(ofIn))         // Transfer any pre-object lines
-      { if (ofIn->lineType == 'A')
-          break;
-        memcpy(ofOut->field,ofIn->field,fieldSize[(int) ofIn->lineType]);
+    for (i = 0; i < 128; ++i)
+      if (ofIn->info[i] != NULL)
+        fieldSize[i] = ofIn->info[i]->nField*sizeof(OneField);
+
+    while (oneReadLine(ofIn) && ofIn->lineType != 'A')         // Transfer any pre-object lines
+      { memcpy(ofOut->field,ofIn->field,fieldSize[(int) ofIn->lineType]);
         oneWriteLine(ofOut,ofIn->lineType,oneLen(ofIn),oneString(ofIn));
       }
 
@@ -160,16 +161,6 @@ int main(int argc, char *argv[])
       { int64      novl = ofIn->info['A']->given.count;
         Copy_Args  args[NTHREADS];
         pthread_t  threads[NTHREADS];
-
-        for (i = 0; i < 128;++i)
-          if (ofIn->info[i] != NULL)
-            fieldSize[i] = ofIn->info[i]->nField*sizeof(OneField);
-
-        //  Write global lines before 'A'
-        while (oneReadLine(ofIn) && ofIn->lineType != 'A')
-          { memcpy(ofOut->field,ofIn->field,fieldSize[(int) ofIn->lineType]);
-            oneWriteLine(ofOut,ofIn->lineType,oneLen(ofIn),oneString(ofIn));
-          }
 
         for (i = 0; i < NTHREADS; i++)
           { args[i].in  = ofIn + i;

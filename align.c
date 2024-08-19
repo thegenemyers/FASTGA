@@ -5572,6 +5572,7 @@ static int   NumBx;
 static int   BxHist[101];
 static int   BxExtend;
 static int   BxGaps;
+static int64 BxTotGaps;
 
 void BeginBoxStats()
 { int i;
@@ -5585,6 +5586,7 @@ void BeginBoxStats()
     BxHist[i] = 0;
   BxExtend = 0;
   BxGaps   = 0;
+  BxTotGaps = 0;
 }
 
 void EndBoxStats()
@@ -5595,6 +5597,7 @@ void EndBoxStats()
   printf("Max Diags = %d\n",MaxBxWidth);
   printf("Max Waves = %d\n",MaxBxHeight);
   printf("\nBox extended = %d\n",BxExtend);
+  printf("Number of gaps initially = %lld\n",BxTotGaps);
   printf("Gaps removed = %d\n",BxGaps);
   printf("\nHistogram of box work:\n");
   for (i = 0; i <= 100; i++)
@@ -5622,6 +5625,13 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
   t = (int *) aln->path->trace;
   T = aln->path->tlen;
   F = (int *) work->vector;
+#ifdef BOX_STATS
+  if (T > 0)
+    BxTotGaps += 1;
+  for (x = 1; x < T; x++)
+    if (t[x] != t[x-1])
+      BxTotGaps += 1;
+#endif
 
   d = aln->path->abpos - aln->path->bbpos;
   q = t[0];

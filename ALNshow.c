@@ -581,7 +581,6 @@ int main(int argc, char *argv[])
   free(BCHORD);
   free(ACHORD);
 
-
   if (ISTWO)
     Free_Hash_Table(bhash);
   Free_Hash_Table(ahash);

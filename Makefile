@@ -73,3 +73,6 @@ install:
 package:
 	make clean
 	tar -zcf FastGA.tar.gz LICENSE README.md Makefile *.h *.c
+
+deploy:
+	macdeployqt ALNview.app -dmg

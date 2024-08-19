@@ -473,12 +473,18 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
         }
       if (seqpath == NULL)
         EXIT (NULL);
+      seqpath = strdup(seqpath);
+      if (seqpath == NULL)
+        EXIT(NULL);
       bases = Fopen(seqpath,"w+");
       if (bases == NULL)
-        EXIT(NULL);
+        { free(seqpath);
+          EXIT(NULL);
+        }
     }
   else
-    seqpath = "";
+    seqpath = NULL;
+
 
   //  Setup expanding arrays for headers, scaffolds, & contigs
 
@@ -500,7 +506,10 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
   contigs = malloc(ctgtop*sizeof(GDB_CONTIG));
   scaffs  = malloc(scftop*sizeof(GDB_CONTIG));
   headers = malloc(hdrtop);
-  gdb->srcpath = strdup(spath);
+  if (*spath != '/')
+    gdb->srcpath = strdup(MyCatenate(getcwd(NULL,0),"/",spath,""));
+  else
+    gdb->srcpath = strdup(spath);
   if (contigs == NULL || scaffs == NULL || headers == NULL || gdb->srcpath == NULL)
     { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",Prog_Name,spath);
       goto error1;
@@ -923,9 +932,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
   gdb->headers   = headers;
   gdb->seqstate  = EXTERNAL;
   gdb->seqsrc    = ftype;
-  gdb->seqpath   = Strdup(seqpath,"Allocating GDB sequence file name (Create_GDB)");
-  if (gdb->seqpath == NULL)
-    goto error1; 
+  gdb->seqpath   = seqpath;
   gdb->seqs = bases;
 
   gdb->freq[0] = (1.*count[0])/seqtot;

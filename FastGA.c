@@ -40,7 +40,9 @@
 
 #define   MAX_INT64    0x7fffffffffffffffll
 
-#define    TSPACE       100
+#define   TSPACE       100
+
+#define   ALIGN_TRIM   .75
 
 static int PTR_SIZE = sizeof(void *);
 static int OVL_SIZE = sizeof(Overlap);
@@ -52,7 +54,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BOX_FUZZ      10
 
 static char *Usage[] = { "[-vk] [-T<int(8)>] [-P<dir(/tmp)>] [<format(-paf)>]",
-                         "[-f<int(10)>] [-c<int(100)> [-s<int(500)>] [-l<int(100)>] [-i<float(.7)]",
+                         "[-f<int(10)>] [-c<int(60)> [-s<int(500)>] [-l<int(100)>] [-i<float(.7)]",
                          "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
                        };
 
@@ -61,7 +63,7 @@ static int    VERBOSE;     //  -v: Verbose output
 static int    CHAIN_BREAK; //  -s
 static int    CHAIN_MIN;   //  -c
 static int    ALIGN_MIN;   //  -a
-static double ALIGN_RATE;  //  -e
+static double ALIGN_RATE;  //  1.-e
 static int    NTHREADS;    //  -T
 static char  *SORT_PATH;   //  -P
 static int    KEEP;        //  -k
@@ -2273,7 +2275,9 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
 #endif
 
                       if (ahgh > alast)
-                        { if (alow < alast)
+                        { int rlen;
+
+                          if (alow < alast)
                             alow = alast;
                           ahgh -= BUCK_ANTI;
 #ifdef CALL_ALIGNER
@@ -2307,7 +2311,8 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                                   Clean_Exit(1);
                               }
 
-                            if (path->aepos - path->abpos >= ALIGN_MIN)
+                            rlen = path->aepos - path->abpos;
+                            if (rlen >= ALIGN_MIN && ALIGN_RATE*rlen >= path->diffs)
                               { Compress_TraceTo8(ovl,0);
                                 if (fwrite(ovl,OVL_SIZE,1,tfile) != 1)
                                   { fprintf(stderr,
@@ -2326,7 +2331,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                               }
 
 #ifdef DEBUG_ALIGN
-                            if (path->aepos - path->abpos >= ALIGN_MIN)
+                            if (rlen >= ALIGN_MIN && ALIGN_RATE*rlen >= path->diffs)
                               { Decompress_TraceTo16(ovl);
                                 printf("\nLocal %lld: %d-%d vs %d %d (%d)\n",nlas+1,
                                        path->abpos,path->aepos,path->bbpos,path->bepos,path->diffs);
@@ -2801,7 +2806,7 @@ static void *search_seeds(void *args)
   pair->ovl.aread = -1;
   pair->ovl.bread = -1;
   pair->work = New_Work_Data();
-  pair->spec = New_Align_Spec(ALIGN_RATE,100,gdb1->freq,0);
+  pair->spec = New_Align_Spec(ALIGN_TRIM,100,gdb1->freq,0);
   if (pair->work == NULL || pair->spec == NULL)
     Clean_Exit(1);
   pair->ofile = ofile;
@@ -3458,9 +3463,9 @@ int main(int argc, char *argv[])
 
     FREQ = 10;
     CHAIN_BREAK = 1000;   //  2x in anti-diagonal space
-    CHAIN_MIN   =  200;
+    CHAIN_MIN   =  120;
     ALIGN_MIN   =  100;
-    ALIGN_RATE  = .7;
+    ALIGN_RATE  = .3;
     SORT_PATH   = "/tmp";
     NTHREADS    = 8;
 
@@ -3506,6 +3511,7 @@ int main(int argc, char *argv[])
                                Prog_Name);
                 exit (1);
               }
+            ALIGN_RATE = 1.-ALIGN_RATE;
             break;
           case 'l':
             ARG_NON_NEGATIVE(ALIGN_MIN,"minimum alignment length");

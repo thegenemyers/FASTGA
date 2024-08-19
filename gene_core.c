@@ -138,9 +138,11 @@ char *Catenate(char *path, char *sep, char *root, char *suffix)
 
   if (path == NULL || root == NULL || sep == NULL || suffix == NULL)
     { free(cat);
-      max = -1;
+      cat = NULL;
       return (NULL);
     }
+  if (cat == NULL)
+    max = -1;
   len =  strlen(path);
   len += strlen(sep);
   len += strlen(root);

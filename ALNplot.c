@@ -53,7 +53,7 @@
 #undef DEBUG_AXIS_CONF
 
 #define MAX_XY_LEN 10000   // Max/Min plotting width/height
-#define MIN_XY_LEN 50
+#define MIN_XY_LEN 100
 
 #define MAX_LAB_LEN 20     // Max number characters for sequence names
 #define MAX_LAB_FRC .2     // Max ratio of label to line plot panel
@@ -352,7 +352,7 @@ void *read_1aln_block(void *args)
             break; // stop at next A-line
           else
             continue; // skip trace lines
-      
+
         if (aepos - abpos < MINALEN || bepos - bbpos < MINALEN)
           continue; // filter by segment size
 
@@ -571,7 +571,7 @@ void read_1aln(char *oneAlnFile)
     nSegment = parm[0].nseg;
     for (p = 1; p < NTHREADS; p++)
       { if (nSegment < parm[p].beg)
-          memmove(segments+nSegment,parm[p].segs,parm[p].nseg);
+          memmove(segments+nSegment,parm[p].segs,sizeof(Segment)*parm[p].nseg);
         nSegment += parm[p].nseg;
       }
     if (nSegment < novl)
@@ -1408,7 +1408,7 @@ void make_plot(FILE *fo)
         }
       if (height < MIN_XY_LEN)
         { fprintf(stderr,"%s: Image height too small [%d]\n",Prog_Name,height);
-          fprintf(stderr,"%*s  Reseting image height to [%d]\n",plen,"",MAX_XY_LEN);
+          fprintf(stderr,"%*s  Reseting image height to [%d]\n",plen,"",MIN_XY_LEN);
           fprintf(stderr,"%*s  Axes are no longer at same scale\n",plen,"");
           height = MIN_XY_LEN;
         }

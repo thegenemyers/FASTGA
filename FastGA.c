@@ -38,11 +38,13 @@
 #undef    DEBUG_ENTWINE
 #define   BOX_ELIM
 
+#undef    LOAD_SEQS
+
 #define   MAX_INT64    0x7fffffffffffffffll
 
 #define   TSPACE       100
 
-#define   ALIGN_TRIM   .75
+#define   ALIGN_TRIM   .70
 
 static int PTR_SIZE = sizeof(void *);
 static int OVL_SIZE = sizeof(Overlap);
@@ -54,7 +56,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BOX_FUZZ      10
 
 static char *Usage[] = { "[-vk] [-T<int(8)>] [-P<dir(/tmp)>] [<format(-paf)>]",
-                         "[-f<int(10)>] [-c<int(60)> [-s<int(500)>] [-l<int(100)>] [-i<float(.7)]",
+                         "[-f<int(10)>] [-c<int(100)> [-s<int(500)>] [-l<int(100)>] [-i<float(.7)]",
                          "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
                        };
 
@@ -3230,6 +3232,10 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
       Clean_Exit(1);
   }
 
+#ifdef LOAD_SEQS
+  Load_Sequences(gdb2,COMPRESSED);
+#endif
+
   for (p = 0; p < NTHREADS; p++)
     { rarm[p].swide  = swide;
       rarm[p].sarr   = sarray;
@@ -3252,11 +3258,13 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
             { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
               Clean_Exit(1);
             }
+#ifndef LOAD_SEQS
           tarm[p].gdb2.seqs = fopen(gdb2->seqpath,"r");
           if (tarm[p].gdb2.seqs == NULL)
             { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
               Clean_Exit(1);
             }
+#endif
         }
 
       tarm[p].nhits = 0;
@@ -3378,7 +3386,10 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
   for (p = 0; p < NTHREADS; p++)
     fclose(tarm[p].tfile);
   for (p = 1; p < NTHREADS; p++)
-    { fclose(tarm[p].gdb2.seqs);
+    {
+#ifndef LOAD_SEQS
+      fclose(tarm[p].gdb2.seqs);
+#endif
       fclose(tarm[p].gdb1.seqs);
     }
 
@@ -3463,7 +3474,7 @@ int main(int argc, char *argv[])
 
     FREQ = 10;
     CHAIN_BREAK = 1000;   //  2x in anti-diagonal space
-    CHAIN_MIN   =  120;
+    CHAIN_MIN   =  200;
     ALIGN_MIN   =  100;
     ALIGN_RATE  = .3;
     SORT_PATH   = "/tmp";

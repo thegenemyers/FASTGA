@@ -280,7 +280,7 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
     }
   else // argc == 3
     { TPATH = target;
-      if (stat(TPATH,&status) >= 0 && (status.st_mode & S_IFMT) != S_IFDIR)
+      if (stat(TPATH,&status) >= 0 && (status.st_mode & S_IFMT) == S_IFDIR)
         TROOT = SROOT;
       else
         { p = rindex(TPATH,'/');

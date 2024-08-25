@@ -5497,10 +5497,10 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
   return (0);
 }
 
-#undef DEBUG_BOX
-#undef DEBUG_DP
-#undef DEBUG_BACK
-#undef BOX_STATS
+#undef  DEBUG_BOX
+#undef  DEBUG_DP
+#undef  DEBUG_BACK
+#undef  BOX_STATS
 
 #define LONG_SNAKE 50
 
@@ -5573,6 +5573,7 @@ static int   BxHist[101];
 static int   BxExtend;
 static int   BxGaps;
 static int64 BxTotGaps;
+static int64 GapsInBoxs;
 
 void BeginBoxStats()
 { int i;
@@ -5587,17 +5588,19 @@ void BeginBoxStats()
   BxExtend = 0;
   BxGaps   = 0;
   BxTotGaps = 0;
+  GapsInBoxs = 0;
 }
 
 void EndBoxStats()
 { int i;
 
-  printf("\n# of Boxes = %d with average work %lld\n",NumBx,SumBx/NumBx);
+  printf("\nNumber of gaps initially = %lld\n",BxTotGaps);
+  printf("# of gaps in Boxes = %lld\n",GapsInBoxs);
+  printf("# of Boxes = %d with average work %lld\n",NumBx,SumBx/NumBx);
   printf("\nMax Work  = %d\n",MaxBxArea);
   printf("Max Diags = %d\n",MaxBxWidth);
   printf("Max Waves = %d\n",MaxBxHeight);
   printf("\nBox extended = %d\n",BxExtend);
-  printf("Number of gaps initially = %lld\n",BxTotGaps);
   printf("Gaps removed = %d\n",BxGaps);
   printf("\nHistogram of box work:\n");
   for (i = 0; i <= 100; i++)
@@ -5609,8 +5612,8 @@ void EndBoxStats()
 
 int Gap_Improver(Alignment *aln, Work_Data *ework)
 { _Work_Data *work = (_Work_Data *) ework;
-  int        *F, *H;
-  int        *f, *h;
+  int        *F, *H, *G;
+  int        *f, *h, *g;
 
   char  *A, *B;
   int    x;
@@ -5676,17 +5679,19 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
 
       // Process box
 
-      p = Diag*(Gaps+Hamm+1)*sizeof(int);
+      p = Diag*(Gaps+Hamm+2)*sizeof(int);
       if (p > work->vecmax)
         { if (enlarge_vector(work,p))
             return  (1);
           F = (int *) work->vector;
         }
-      H = F + Diag;
+      G = F + Diag;
+      H = G + Diag;
 
 #ifdef BOX_STATS
       { int hgt  = Gaps+Hamm+1;
         int area = Diag*hgt;
+        GapsInBoxs += Gaps;
         if (area > MaxBxArea)
           MaxBxArea = area;
         if (Diag > MaxBxWidth)
@@ -5752,7 +5757,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
           f = F;
           *f++ = p = Fpos + snake(A+Fpos,B+(Fpos-Fdag));
           for (m = Fdag-1; m >= d; m--)
-            *f++ = Fpos-1;
+            *f++ = Fpos-2;
           passes = 0;
 
 #ifdef DEBUG_DP
@@ -5767,20 +5772,49 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
           p = Fpos;
           while (p < Lpos)
             { int b, c;
+              int u, n;
 
               b = Fpos;
               c = 0;
+              u = 0x7fffffff;
               f = F;
+              g = G;
               for (m = Fdag; m >= d; m--)
-                { p = b;
-                  if (*f >= b)
-                    { b = *f;
-                      c = 0;
-                      p = b+1;
+                { n = *f;
+                  if (n >= b)
+                    { p = n+1;
+                      *h++ = 0;
+                      if (n > b)
+                        { c = 0;
+                          u = *g+1;
+                          b = n;
+                        }
+                      else
+                        { if (*g+1 < u)
+                            { c = 0;
+                              u = *g+1;
+                            }
+                          else
+                            c += 1;
+                        }
                     }
-                  else
-                    c += 1;
-                  *h++ = c;
+                  else   // n < b
+                    { n += 1;
+                      p = b;
+                      c += 1;
+                      if (n == b)
+                        { if (*g < u)
+                            *h++ = 0;
+                          else
+                            { *h++ = c;
+                              *g = u;
+                            }
+                        }
+                      else // n < b
+                        { *h++ = c;
+                          *g = u;
+                        }
+                    }
                   *f++ = p += snake(A+p,B+(p-m));
                 }
               passes += 1;
@@ -5788,7 +5822,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
 #ifdef DEBUG_DP
               printf(" %2d:",passes);
               for (m = Fdag; m >= d; m--)
-                printf(" %d(%2d)",F[Fdag-m],h[(d-m)-1]);
+                printf(" %d(%2d/%2d)",F[Fdag-m],h[(d-m)-1],G[Fdag-m]);
               printf("\n");
               fflush(stdout);
 #endif
@@ -5871,7 +5905,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
           f = F;
           *f++ = p = Fpos + snake(A+(Fpos+Fdag),B+Fpos);
           for (m = Fdag+1; m <= d; m++)
-            *f++ = Fpos-1;
+            *f++ = Fpos-2;
           passes = 0;
 
 #ifdef DEBUG_DP
@@ -5886,20 +5920,49 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
           p = Fpos;
           while (p < Lpos)
             { int b, c;
+              int u, n;
 
               b = Fpos;
               c = 0;
+              u = 0x7fffffff;
               f = F;
+              g = G;
               for (m = Fdag; m <= d; m++) 
-                { p = b;
-                  if (*f >= b)
-                    { b = *f;
-                      c = 0;
-                      p = b+1;
+                { n = *f;
+                  if (n >= b)
+                    { p = n+1;
+                      *h++ = 0;
+                      if (n > b)
+                        { c = 0;
+                          u = *g+1;
+                          b = n;
+                        }
+                      else
+                        { if (*g+1 < u)
+                            { c = 0;
+                              u = *g+1;
+                            }
+                          else
+                            c += 1;
+                        }
                     }
-                  else
-                    c += 1;
-                  *h++ = c; 
+                  else   // n < b
+                    { n += 1;
+                      p = b;
+                      c += 1;
+                      if (n == b)
+                        { if (*g < u)
+                            *h++ = 0;
+                          else
+                            { *h++ = c;
+                              *g = u;
+                            }
+                        }
+                      else // n < b
+                        { *h++ = c;
+                          *g = u;
+                        }
+                    }
                   *f++ = p += snake(A+(m+p),B+p);
                 }
               passes += 1;
@@ -5907,7 +5970,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
 #ifdef DEBUG_DP
               printf(" %2d:",passes);
               for (m = Fdag; m <= d; m++) 
-                printf(" %d(%2d)",F[m-Fdag],h[(m-d)-1]);
+                printf(" %d(%2d/%2d)",F[m-Fdag],h[(m-d)-1],G[m-Fdag]);
               printf("\n");
               fflush(stdout);
 #endif

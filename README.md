@@ -24,6 +24,7 @@
   - [GIXrm](#GIXrm): Remove GDBs and GIXs including their hidden parts
   - [GIXcp](#GIXcp): Copy GDBs and GIXs including their hidden parts as an ensemble
   - [GIXmv](#GIXmv): Move GDBs and GIXs including their hidden parts as an ensemble
+  - [ALNchain](#ALNchain): Alignment filtering by construction of local chains
   - [ALNreset](#ALNreset): Reset a .1aln file's internal references to the GDB(s) it was computed from
 
 
@@ -551,10 +552,32 @@ deleted unless the -g flag is explicitly set in which case the GDB will also be 
 this requirement as a safeguard because if you have replaced your FASTAs with the GDBs as we recommend,
 then deleting the GDB is tantamount to deleting your genome source! 
 
+<a name="ALNchain"></a>
+
+```
+3. ALNchain [-v] [-g<int(10000)>] [-l<int(10000)>] [-p<float(0.1)>] [-q<float(0.1)>]
+                [-z<int(1000)>] [-s<int(10000)>] [-n<int(1)>] [-c<float(0.5)>] [-e<0.0>]
+                [-f<int(1000)>] [-o<output:path>[.1aln]] <alignments:path>[.1aln]
+```
+
+For each pair of sequences, ALNchain generates a subset of alignments to achieve a one-to-one global alignment 
+allowing rearrangements by selecting the best-scored local chains, adhering to user-specified constraints. 
+We use a linear gap penalty for chaining, where the cost of a gap or overlap between consecutive alignments in 
+the chain is defined by -p or -q. The maximum sizes of gaps and overlaps allowed in the chain can be adjusted 
+using the -g and -l options. Chains are scored as *C-G\*p-O\*q*, where *C* represents the total number of unique 
+sequence positions covered by the alignments. A chain is terminated if its score drops by more than -z.
+
+Chains are selected based on their scores, from highest to lowest. The -s and -n options specify the minimum 
+requirements for a chain to be considered. We track the sequence positions covered by all selected chains. For 
+any new chain, the number of additional positions it covers on the sequences is calculated. If this number is 
+below certain thresholds, determined by -c as a fraction of the chain size and -e as a fraction of the sequence 
+size, the chain is not selected. When calculating the sequence positions covered by chains, the -f option is used 
+as the upper limit for closing gaps.
+
 <a name="ALNreset"></a>
 
 ```
-3. ALNreset [-T<int(8)>] <alignments:path>[.1aln]
+4. ALNreset [-T<int(8)>] <alignments:path>[.1aln]
                  <source1:path>[.1gdb|<fa_extn>|<1_extn>] [<source2:path>[.1gdb|<fa_extn>|<1_extn>]]
                                      
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
@@ -568,7 +591,7 @@ built.
 <a name="PAFtoALN"></a>
 
 ```
-4. PAFtoALN [-T<int(8)>] <alignments:path>[.paf]
+5. PAFtoALN [-T<int(8)>] <alignments:path>[.paf]
                          <source1:path>[.gdb|<fa_extn>|<1_extn>] [<source2:path>[.gdb|<fa_extn>|<1_extn>]]
                                      
        <fa_extn> = (.fa|.fna|.fasta)[.gz]

@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Aug 11 19:05 2024 (rd109)
+ * Last edited: Sep  3 19:49 2024 (rd109)
  * * May  1 00:23 2024 (rd109): moved to OneInfo->index and multiple objects/groups
  * * Apr 16 18:59 2024 (rd109): major change to object and group indexing: 0 is start of data
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
@@ -3689,7 +3689,11 @@ static inline I64 ltfRead (FILE *f)
 
   u[0] = getc (f) ;
   if (u[0] & 0x40)
-    val = (I64) (u[0] & 0x3f) ;
+    { if (u[0] & 0x80)
+	val = (char) u[0] ; // top two bits are set so negative 0 > x >= -64
+      else
+	val = (I64) (u[0] & 0x3f) ;
+    }
     // { intGet (u, &val) ;
     //   printf ("read %d n 1 u %02x\n", (int)val, u[0]) ;
     // }

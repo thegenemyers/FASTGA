@@ -3253,18 +3253,20 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
       tarm[p].gdb1   = *gdb1;
       tarm[p].gdb2   = *gdb2;
       if (p > 0)
-        { tarm[p].gdb1.seqs = fopen(gdb1->seqpath,"r");
-          if (tarm[p].gdb1.seqs == NULL)
-            { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
-              Clean_Exit(1);
+        { if (gdb1->seqstate == EXTERNAL)
+            { tarm[p].gdb1.seqs = fopen(gdb1->seqpath,"r");
+              if (tarm[p].gdb1.seqs == NULL)
+                { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
+                  Clean_Exit(1);
+                }
             }
-#ifndef LOAD_SEQS
-          tarm[p].gdb2.seqs = fopen(gdb2->seqpath,"r");
-          if (tarm[p].gdb2.seqs == NULL)
-            { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
-              Clean_Exit(1);
+          if (gdb2->seqstate == EXTERNAL)
+            { tarm[p].gdb2.seqs = fopen(gdb2->seqpath,"r");
+              if (tarm[p].gdb2.seqs == NULL)
+                { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
+                  Clean_Exit(1);
+                }
             }
-#endif
         }
 
       tarm[p].nhits = 0;
@@ -3386,11 +3388,10 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
   for (p = 0; p < NTHREADS; p++)
     fclose(tarm[p].tfile);
   for (p = 1; p < NTHREADS; p++)
-    {
-#ifndef LOAD_SEQS
-      fclose(tarm[p].gdb2.seqs);
-#endif
-      fclose(tarm[p].gdb1.seqs);
+    { if (gdb2->seqstate == EXTERNAL)
+        fclose(tarm[p].gdb2.seqs);
+      if (gdb1->seqstate == EXTERNAL)
+        fclose(tarm[p].gdb1.seqs);
     }
 
   if (VERBOSE)
@@ -3517,8 +3518,8 @@ int main(int argc, char *argv[])
             break;
           case 'i':
             ARG_REAL(ALIGN_RATE);
-            if (ALIGN_RATE < .6 || ALIGN_RATE >= 1.)
-              { fprintf(stderr,"%s: '-e' minimum alignment similarity must be in [0.6,1.0)\n",
+            if (ALIGN_RATE < .55 || ALIGN_RATE >= 1.)
+              { fprintf(stderr,"%s: '-i' minimum alignment similarity must be in [0.55,1.0)\n",
                                Prog_Name);
                 exit (1);
               }

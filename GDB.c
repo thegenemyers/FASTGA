@@ -610,7 +610,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
             spos = 0;
     
             len = oneLen(of);
-            memmove(headers+hdrtot,oneString(of),len);
+            memcpy(headers+hdrtot,oneString(of),len);
             hdrtot += len;
             headers[hdrtot++] = '\0';
             break;
@@ -668,7 +668,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
             spos = 0;
     
             len = oneLen(of);
-            memmove(headers+hdrtot,oneString(of),len);
+            memcpy(headers+hdrtot,oneString(of),len);
             hdrtot += len;
             headers[hdrtot++] = '\0';
             break;
@@ -1143,7 +1143,7 @@ int Read_GDB(GDB *gdb, char *path)
         scf[nscaff].hoff = hdrtot;
         scf[nscaff].fctg = ncontig;
         len = oneLen(of);
-        memmove(hdr+hdrtot,oneString(of),len);
+        memcpy(hdr+hdrtot,oneString(of),len);
         hdrtot += len;
         hdr[hdrtot++] = '\0';
         break;

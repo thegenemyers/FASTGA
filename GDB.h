@@ -54,14 +54,14 @@ typedef struct
     GDB_CONTIG   *contigs;    //  array [0..ncontig) of contig records
 
     int           hdrtot;     //  total bytes in header block
-    char         *headers;    //  memory block of all headers, '\n'-terminated.
+    char         *headers;    //  memory block of all headers, '\0'-terminated.
 
     char         *srcpath;    //  Absolute path to origin of GDB (a FASTA or 1-file)
     char         *seqpath;    //  filename of .bps file
 
     int64         seqtot;     //  total # of bases
-    int           seqstate;   //  One of the five format constants below
-    int           seqsrc;     //  One of the 3 file types below
+    int           seqstate;   //  One of the 5 format constants below
+    int           seqsrc;     //  One of the 4 file types below
     void         *seqs;       //  file pointer if EXTERNAL, mem pointer if not
                               //     NULL => not present
 

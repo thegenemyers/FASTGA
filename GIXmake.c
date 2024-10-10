@@ -26,6 +26,19 @@
 #include "libfastk.h"
 #include "GDB.h"
 
+#undef  DEBUG_MAP
+#undef  DEBUG_THREADS
+#undef  DEBUG_SORT
+
+  //  These constants determine the syncmer (TMER,SMER) and whether to add a spaced seed
+
+#define TMER 12        //  Syncmer len
+#define SMER  8        //  S-mer len (4-8 only)
+#define SRES  4        //  SMER-4
+#define SOFF  4        //  TMER-SMER
+
+#undef  SPACER         //  Single spaced-seed?
+
 static char *Usage[] =
     { "[-v] [-T<int(8)>] [-P<dir(/tmp)>] [-k<int(40)] [-f<int(10)>]",
       "( <source:path>[.1gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )"
@@ -41,10 +54,6 @@ static char *POST_NAME;
 static int NTHREADS;   //  by default 8
 static int KMER;       //  by default 40, must be >= 12 and divisible by 4
 static int KBYTES;     //  Bytes for 2-bit compress k-mer (KMER/4)
-
-#undef  DEBUG_MAP
-#undef  DEBUG_THREADS
-#undef  DEBUG_SORT
 
 #define BUFFER_LEN  1000000
 
@@ -88,90 +97,252 @@ extern void msd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
  *
  **********************************************************************************************/
 
-typedef struct
-  { int     beg;
-    int     end;
-    uint8  *seq;
-    uint8  *neq;
-    uint8  *ceq;
-    int64   buck[256];
-  } BP;
+#ifdef GEN_HASH     //  Code to generate hash map
 
-// Thread computes neq[beg..end-1] and ceq[beg..end-1] given seq
+#include <stdio.h>
+#include <stdlib.h>
 
-static void *pack_thread(void *args)
-{ BP *parm = (BP *) args;
-  int     beg    = parm->beg;
-  int     end    = parm->end;
-  uint8  *seq    = parm->seq;
-  uint8  *neq    = parm->neq;
-  uint8  *ceq    = parm->ceq;
+int main(int argc, char *argv[])
+{ int i1, i2, i3, i4;
+  int i;
+  int hash[256];
 
-  int    i, k;
-  uint8 *s1, *s2, *s3, *n1;
-  
-  s1 = seq+1;
-  s2 = seq+2;
-  s3 = seq+3;
-  for (i = beg; i < end; i += 4)
-    { neq[i] = (seq[i] << 6) | (s1[i] << 4) | (s2[i] << 2) | s3[i];
-      ceq[i] = Comp[neq[i]];
-    }
-  n1 = neq-1;
-  for (k = 1; k < 4; k++)
-    for (i = beg+k; i < end; i += 4)
-      { neq[i] = (n1[i] << 2) | s3[i];
-        ceq[i] = Comp[neq[i]];
-      }
+  for (i1 = 0; i1 < 4; i1++)
+  for (i2 = 0; i2 < 4; i2++)
+  for (i3 = 0; i3 < 4; i3++)
+  for (i4 = 0; i4 < 4; i4++)
+    hash[(i1<<6)|(i2<<4)|(i3<<2)|i4] = (i1<<6)|(((i2+1)&0x3)<<4)|(((i3+2)&0x3)<<2)|((i4+3)&0x3);
 
-  return (NULL);
+  printf("static int hash[256] =\n  { %02x",hash[0]);
+  for (i = 1; i < 256; i++)
+    if (i%8 == 0)
+      printf(",\n    %02x",hash[i]);
+    else
+      printf(", %02x",hash[i]);
+  printf("\n  };\n");
+
+  exit (0);
 }
 
-// Given neq & ceq, upon completion, for i in [beg,end), seq[i] = file k-mer starting at i should
-//   go to and whether it should be complemented or not (0x80 flag) in order to be canonical.
-//   Also accumulates # of these k-mers with a given 1st byte in buck.
+#endif
 
-static void *map_thread(void *args)
-{ BP *parm = (BP *) args;
-  int     beg    = parm->beg;
-  int     end    = parm->end;
-  uint8  *seq    = parm->seq;
-  uint8  *neq    = parm->neq;
-  uint8  *ceq    = parm->ceq;
-  int64  *buck   = parm->buck;
+static int hash[256] =
+  { 0x1b, 0x18, 0x19, 0x1a, 0x1f, 0x1c, 0x1d, 0x1e, 0x13, 0x10, 0x11, 0x12, 0x17, 0x14, 0x15, 0x16,
+    0x2b, 0x28, 0x29, 0x2a, 0x2f, 0x2c, 0x2d, 0x2e, 0x23, 0x20, 0x21, 0x22, 0x27, 0x24, 0x25, 0x26,
+    0x3b, 0x38, 0x39, 0x3a, 0x3f, 0x3c, 0x3d, 0x3e, 0x33, 0x30, 0x31, 0x32, 0x37, 0x34, 0x35, 0x36,
+    0x0b, 0x08, 0x09, 0x0a, 0x0f, 0x0c, 0x0d, 0x0e, 0x03, 0x00, 0x01, 0x02, 0x07, 0x04, 0x05, 0x06,
+    0x5b, 0x58, 0x59, 0x5a, 0x5f, 0x5c, 0x5d, 0x5e, 0x53, 0x50, 0x51, 0x52, 0x57, 0x54, 0x55, 0x56,
+    0x6b, 0x68, 0x69, 0x6a, 0x6f, 0x6c, 0x6d, 0x6e, 0x63, 0x60, 0x61, 0x62, 0x67, 0x64, 0x65, 0x66,
+    0x7b, 0x78, 0x79, 0x7a, 0x7f, 0x7c, 0x7d, 0x7e, 0x73, 0x70, 0x71, 0x72, 0x77, 0x74, 0x75, 0x76,
+    0x4b, 0x48, 0x49, 0x4a, 0x4f, 0x4c, 0x4d, 0x4e, 0x43, 0x40, 0x41, 0x42, 0x47, 0x44, 0x45, 0x46,
+    0x9b, 0x98, 0x99, 0x9a, 0x9f, 0x9c, 0x9d, 0x9e, 0x93, 0x90, 0x91, 0x92, 0x97, 0x94, 0x95, 0x96,
+    0xab, 0xa8, 0xa9, 0xaa, 0xaf, 0xac, 0xad, 0xae, 0xa3, 0xa0, 0xa1, 0xa2, 0xa7, 0xa4, 0xa5, 0xa6,
+    0xbb, 0xb8, 0xb9, 0xba, 0xbf, 0xbc, 0xbd, 0xbe, 0xb3, 0xb0, 0xb1, 0xb2, 0xb7, 0xb4, 0xb5, 0xb6,
+    0x8b, 0x88, 0x89, 0x8a, 0x8f, 0x8c, 0x8d, 0x8e, 0x83, 0x80, 0x81, 0x82, 0x87, 0x84, 0x85, 0x86,
+    0xdb, 0xd8, 0xd9, 0xda, 0xdf, 0xdc, 0xdd, 0xde, 0xd3, 0xd0, 0xd1, 0xd2, 0xd7, 0xd4, 0xd5, 0xd6,
+    0xeb, 0xe8, 0xe9, 0xea, 0xef, 0xec, 0xed, 0xee, 0xe3, 0xe0, 0xe1, 0xe2, 0xe7, 0xe4, 0xe5, 0xe6,
+    0xfb, 0xf8, 0xf9, 0xfa, 0xff, 0xfc, 0xfd, 0xfe, 0xf3, 0xf0, 0xf1, 0xf2, 0xf7, 0xf4, 0xf5, 0xf6,
+    0xcb, 0xc8, 0xc9, 0xca, 0xcf, 0xcc, 0xcd, 0xce, 0xc3, 0xc0, 0xc1, 0xc2, 0xc7, 0xc4, 0xc5, 0xc6
+  };
 
-  int    kspn = KMER-4;
-  int    i, u, v;
+#ifdef DEBUG_SYNCMERS
 
-  for (i = beg; i < end; i++)
-    { for (u = i, v = i+kspn; neq[u] == ceq[v]; u += 4, v -= 4)
-        if (u >= v)
-          break;
-      if (ceq[v] < neq[u])
-        { u = ceq[i+kspn];
-          seq[i] = Select[u] | 0x80;
-        }
+static int is_syncmer(int x)
+{ int y, z, m, b;
+  int q, s;
+ 
+  b = 256;
+  q = 16;
+  for (s = 16; s >= 0; s -= 2)
+    { y = (x>>s) & 0xff;
+      z = Comp[y];
+      if (hash[y] < hash[z])
+        m = hash[y];
       else
-        { u = neq[i];
-          seq[i] = Select[u];
+        m = hash[z];
+      if (m < b)
+        { q = s;
+          b = m;
         }
-      buck[u] += 1;
     }
+  return (q == 16 || m <= b);
+}
 
-  return (NULL);
+#endif
+
+static void split_4bits(GDB *gdb, int64 *buck)
+{ int KM4 = KMER-(4+SRES);
+
+  int     counter;
+  uint8  *seq;
+  int     len;
+  uint8  *neq, *ceq;
+  uint8  *npl, *cpl;
+  uint16 *mzr;
+  int     r, i;
+
+  seq = (uint8 *) New_Contig_Buffer(gdb);
+  neq = (uint8 *) New_Contig_Buffer(gdb);
+  ceq = (uint8 *) New_Contig_Buffer(gdb);
+  mzr = (uint16 *) Malloc(sizeof(uint16)*(gdb->maxctg+4),"Allocating minimizer array") + 1;
+  if (seq == NULL || neq == NULL || ceq == NULL || mzr == NULL)
+    exit (1);
+  npl = neq + SRES;
+  cpl = ceq + SRES;
+
+  counter = 0;
+  for (r = 0; r < gdb->ncontig; r++)
+    { if (gdb->contigs[r].boff < 0)
+        continue;
+
+      len = gdb->contigs[r].clen;
+      if (len < TMER)
+        continue;
+
+      Get_Contig(gdb,r,NUMERIC,(char *) seq);   //  Load the contig
+
+      //  compute neq, ceq, and mzr from seq for contig
+
+      len -= 3;
+
+      { uint8 *s1, *s2, *s3, *n1;
+        int    n, c, k;
+
+        s1 = seq+1;
+        s2 = seq+2;
+        s3 = seq+3;
+        for (i = 0; i < len; i += 4)
+          { neq[i] = (seq[i] << 6) | (s1[i] << 4) | (s2[i] << 2) | s3[i];
+            ceq[i] = Comp[neq[i]];
+          }
+        n1 = neq-1;
+        for (k = 1; k < 4; k++)
+          for (i = k; i < len; i += 4)
+            { neq[i] = (n1[i] << 2) | s3[i];
+              ceq[i] = Comp[neq[i]];
+            }
+
+        len -= SRES;
+  
+        for (i = 0; i < len; i++)
+#if SRES == 0
+          { n = hash[neq[i]];
+            c = hash[ceq[i]];
+#else
+          { n = hash[neq[i]] * 251 + hash[npl[i]];
+            c = hash[ceq[i]] * 251 + hash[cpl[i]];
+#endif
+            if (n < c)
+              mzr[i] = n;
+            else
+              mzr[i] = c;
+          }
+      }
+
+      //  Compute processed seq array from neq,ceq
+    
+      { int    min4, pos4;
+        int    w, j;
+
+        min4 = mzr[0];
+        pos4 = 0;
+        for (i = 1; i < SOFF; i++)
+          if (mzr[i] < min4)
+            { min4 = mzr[i];
+              pos4 = i;
+            }
+        for (i = SOFF; i < len; i++)
+          { if (mzr[i] < min4)              //  right-end of 12-syncmer
+              { min4 = mzr[i];
+                pos4 = i;
+              }
+            else if (pos4 == i-SOFF)          //   left-end of 12-syncmer
+              { min4 = mzr[++pos4];
+                for (j = pos4+1; j <= i; j++)
+                  if (mzr[j] < min4)
+                    { min4 = mzr[j];
+                      pos4 = j;
+                    }
+              }
+            else if (mzr[i] > min4)
+              continue;
+
+            j = i-SOFF;
+            if (j+KM4 < len)
+              { w = neq[j];
+                buck[w] += 1;
+                counter += 1;
+              }
+            if (i >= KM4)
+              { w = cpl[i];
+                buck[w] += 1;
+                counter += 1;
+              }
+            if (counter >= 1000000)
+              goto enough;
+          }
+      }
+    }
+enough:
+
+  { int64 t;
+    int   r;
+
+    for (i = 1; i < 256; i++)
+      buck[i] = buck[i-1] + buck[i];
+
+    Ksplit[0] = 0;
+    r = 1;
+    t = buck[255]/NTHREADS;
+    for (i = 0; i < 256; i++)
+      { if (buck[i] >= t)
+          { if (buck[i]-t > t-buck[i-1])
+              { Select[i] = r;
+                Ksplit[r] = i;
+              }
+            else
+              { Select[i] = r-1;
+                Ksplit[r] = i+1;
+              }
+            r += 1;
+            t = (r*buck[255])/NTHREADS;
+          }
+        else
+          Select[i] = r-1;
+      }
+    Ksplit[NTHREADS] = 256;
+  }
+    
+#ifdef EXAMINE_TRIAL
+  printf("Prepatory %lld %d\n",buck[255],counter);
+
+  for (i = 0; i <= NTHREADS; i++)
+    printf(" %3d: %3d\n",i,Ksplit[i]);
+  for (i = 0; i < 256; i++)
+    printf(" %3d: %8lld  %d\n",i,buck[i],Select[i]);
+  fflush(stdout);
+#endif
+
+  free(seq-1);
+  free(neq-1);
+  free(ceq-1);
+  free(mzr-1);
 }
 
 typedef struct
   { int    tid;
-    int    inum;
-    uint8 *seq;
-    int    len;
-    int    out;
-    uint8 *buffer;
-    uint8 *bend;
-    int64  post;
-    int64  last;
+    int64 *buck;
+    GDB    gdb;
   } DP;
+
+typedef struct
+  { uint8 *ptr;
+    uint8 *end;
+    uint8 *buffer;
+    uint64 last;
+    int    out;
+    int    inum;
+  } Packet;
 
 //  The thread scans seq and sends those posts assigned to file tid*Nthreads + ? to their
 //    designated file relative to the last emission in compressed form:
@@ -180,267 +351,341 @@ typedef struct
 //       x110 -> short, 28-bit ...
 //       x111 -> 0x10000000 spacer
 
-static void *distribute_thread(void *args)
-{ DP *parm = (DP *) args;
-  int    tid    = parm->tid;
-  uint8 *seq    = parm->seq;
-  int    len    = parm->len;
-  int    out    = parm->out;
-  uint8 *buffer = parm->buffer;
-  uint8 *bend   = parm->bend;
+void push(Packet *pack, int64 post, int comp)
+{ uint8 *b = pack->ptr;
+  uint8 *p;
+  uint32 x;
+  uint8 *xbyte = (uint8 *) &x;
 
-  int64  post, last;
-  uint8 *lust = (uint8 *) (&last);
-  uint8 *b;
-  int    i, u;
-
-  b = buffer;
-  last = parm->last;
-  post = parm->post;
-  for (i = 0; i < len; i++, post++)
-    { u = seq[i];
-      if ((u & 0x7f) == tid)
-        { last = post-last;
-          if (last < 0x3f)
-            { if (u & 0x80)
-                *b++ = 0x80 | last;
-              else
-                *b++ = last;
-            }
-          else if (last < 0x1fff)
-            { if (u & 0x80)
-                last |= 0xc000;
-              else
-                last |= 0x4000;
-              *b++ = lust[1];
-              *b++ = lust[0];
-            }
-          else
-            { while (last >= 0x10000000)
-                { if (u & 0x80)
-                    *b++ = 0xf0;
-                  else
-                    *b++ = 0x70;
-                  if (b >= bend)
-                    { if (write(out,buffer,b-buffer) < 0)
-                        { fprintf(stderr,"%s: IO write to file %s%d.idx failed\n",
-                                          Prog_Name,POST_NAME,parm->inum);
-                           exit (1);
-                         }
-                      b = buffer;
-                    }
-                  last -= 0x10000000;
-                }
-              if (u & 0x80)
-                last |= 0xe0000000;
-              else
-                last |= 0x60000000;
-              *b++ = lust[3];
-              *b++ = lust[2];
-              *b++ = lust[1];
-              *b++ = lust[0];
-            }
-          if (b >= bend)
-            { if (write(out,buffer,b-buffer) < 0)
-                { fprintf(stderr,"%s: IO write to file %s%d.idx failed\n",
-                                 Prog_Name,POST_NAME,parm->inum);
-                  exit (1);
-                }
-              b = buffer;
-            }
-          last = post;
-        }
+  x = post - pack->last;
+  if (x < 0x3f)
+    { if (comp)
+        *b++ = 0x80 | x;
+      else
+        *b++ = x;
     }
-  if (b > buffer)
-    if (write(out,buffer,b-buffer) < 0)
-      { fprintf(stderr,"%s: IO write to file %s%d.idx failed\n",
-                       Prog_Name,POST_NAME,parm->inum);
-        exit (1);
+  else if (x < 0x1fff)
+    { if (comp)
+        x |= 0xc000;
+      else
+        x |= 0x4000;
+      *b++ = xbyte[1];
+      *b++ = xbyte[0];
+    }
+  else
+    { while (x >= 0x10000000)
+        { if (comp)
+            *b++ = 0xf0;
+          else
+            *b++ = 0x70;
+          if (b >= pack->end)
+            { p = pack->buffer;
+              if (write(pack->out,p,b-p) < 0)
+                { fprintf(stderr,"%s: IO write to file %s%d.idx failed\n",
+                                  Prog_Name,POST_NAME,pack->inum);
+                   exit (1);
+                 }
+              b = p;
+            }
+          x -= 0x10000000;
+        }
+      if (comp)
+        x |= 0xe0000000;
+      else
+        x |= 0x60000000;
+      *b++ = xbyte[3];
+      *b++ = xbyte[2];
+      *b++ = xbyte[1];
+      *b++ = xbyte[0];
+    }
+  if (b >= pack->end)
+    { p = pack->buffer;
+      if (write(pack->out,p,b-p) < 0)
+        { fprintf(stderr,"%s: IO write to file %s%d.idx failed\n",
+                         Prog_Name,POST_NAME,pack->inum);
+          exit (1);
+        }
+      b = p;
+    }
+  pack->ptr  = b;
+  pack->last = post;
+}
+
+static void *scan_thread(void *args)
+{ DP   *parm  = (DP *) args;
+  int    tid  = parm->tid;
+  int64 *buck = parm->buck;
+  GDB   *gdb  = &parm->gdb;
+  int    KM4  = KMER-(4+SRES);
+
+  Packet packs[NTHREADS];
+
+  uint8  *seq, *buffer;
+  int     len, ren;
+  uint8  *neq, *ceq;
+  uint8  *npl, *cpl;
+  uint16 *mzr;
+  int     r, i;
+  int64   post;
+
+  buffer = malloc(NTHREADS*BUFFER_LEN);
+  for (i = 0; i < NTHREADS; i++)
+    { packs[i].buffer = buffer+i*BUFFER_LEN;
+      packs[i].ptr    = packs[i].buffer;
+      packs[i].end    = packs[i].buffer + (BUFFER_LEN-4);
+      packs[i].out    = Units[i*NTHREADS+tid];
+      packs[i].inum   = NTHREADS*tid+i;
+      packs[i].last   = DBpost[tid];
+    }
+
+  seq = (uint8 *) New_Contig_Buffer(gdb);
+  neq = (uint8 *) New_Contig_Buffer(gdb);
+  ceq = (uint8 *) New_Contig_Buffer(gdb);
+  mzr = (uint16 *) Malloc(sizeof(uint16)*(gdb->maxctg+4),"Allocating minimizer array") + 1;
+  if (seq == NULL || neq == NULL || ceq == NULL || mzr == NULL)
+    exit (1);
+  npl = neq + SRES;
+  cpl = ceq + SRES;
+
+  post = DBpost[tid];
+  ren  = DBsplit[tid+1];
+  for (r = DBsplit[tid]; r < ren; r++)
+    { if (gdb->contigs[r].boff < 0)
+        continue;
+
+      len = gdb->contigs[r].clen;
+      if (len < TMER)
+        { post += len;
+          continue;
+        }
+
+      Get_Contig(gdb,r,NUMERIC,(char *) seq);   //  Load the contig
+    
+#ifdef DEBUG_MAP
+      printf("Src:");
+      for (i = 0; i < 50; i++)
+        printf(" %2d",seq[i]);
+      printf("\n");
+      fflush(stdout);
+#endif
+
+      //  compute neq, ceq, and mzr from seq for contig
+
+      len -= 3;
+
+      { uint8 *s1, *s2, *s3, *n1;
+        int    n, c, k;
+
+        s1 = seq+1;
+        s2 = seq+2;
+        s3 = seq+3;
+        for (i = 0; i < len; i += 4)
+          { neq[i] = (seq[i] << 6) | (s1[i] << 4) | (s2[i] << 2) | s3[i];
+            ceq[i] = Comp[neq[i]];
+          }
+        n1 = neq-1;
+        for (k = 1; k < 4; k++)
+          for (i = k; i < len; i += 4)
+            { neq[i] = (n1[i] << 2) | s3[i];
+              ceq[i] = Comp[neq[i]];
+            }
+
+        len -= SRES;
+  
+        for (i = 0; i < len; i++)
+#if SRES == 0
+          { n = hash[neq[i]];
+            c = hash[ceq[i]];
+#else
+          { n = hash[neq[i]] * 251 + hash[npl[i]];
+            c = hash[ceq[i]] * 251 + hash[cpl[i]];
+#endif
+            if (n < c)
+              mzr[i] = n;
+            else
+              mzr[i] = c;
+          }
+      }
+    
+#ifdef DEBUG_MAP
+      printf("Neq:");
+      for (i = 0; i < 50; i++)
+        printf(" %02x",neq[i]);
+      printf("\n");
+
+      printf("Ceq:");
+      for (i = 0; i < 50; i++)
+        printf(" %02x",ceq[i]);
+      printf("\n");
+
+      printf("Mzr:");
+      for (i = 0; i < 50; i++)
+        printf(" %02x",mzr[i]);
+      printf("\n");
+
+      printf("    ");
+      for (i = 0; i < 50; i++)
+        printf(" %2d",i);
+      printf("\n");
+      fflush(stdout);
+#endif
+
+      //  Compute processed seq array from neq,ceq
+
+#ifdef LINEAR_TIME_CODE
+        { int min4[16];
+          int pos4[16];
+
+          bot = 0;
+          min4[bot] = mzr[0];
+          pos4[bot] = 0;
+          for (i = 1; i < len; i++)
+            { while (mzr[i] <= min4[top])
+                { if (top == bot)
+                    { min4[top] = mzr[i];
+                      pos4[top] = i;
+                      goto hit;
+                    }
+                  top = ((top-1) & 0xf);
+                }
+              top = ((top+1) & 0xff);
+              min4[top] = mzr[i];
+              pos4[top] = i;
+              if (i-8 == pos4[bot])
+                bot = ((bot+1) & 0xf);
+              else
+                continue;
+  
+            hit:
+              Hit at i-8
+            }
+        }
+#endif
+
+      { int    min4, pos4;
+        int    w, j;
+
+        min4 = mzr[0];
+        pos4 = 0;
+        for (i = 1; i < SOFF; i++)
+          if (mzr[i] < min4)
+            { min4 = mzr[i];
+              pos4 = i;
+            }
+        for (i = SOFF; i < len; i++)
+          {
+#ifdef DEBUG_MAP
+            printf("%3d: %02x %02x %d\n",i,mzr[i],min4,pos4);
+#endif
+            if (mzr[i] < min4)              //  right-end of 12-syncmer
+              { min4 = mzr[i];
+                pos4 = i;
+#ifdef DEBUG_MAP
+                printf("      Hit R");
+#endif
+              }
+            else if (pos4 == i-SOFF)          //   left-end of 12-syncmer
+              { min4 = mzr[++pos4];
+                for (j = pos4+1; j <= i; j++)
+                  if (mzr[j] < min4)
+                    { min4 = mzr[j];
+                      pos4 = j;
+                    }
+#ifdef DEBUG_MAP
+                printf("      Hit L");
+#endif
+              }
+            else if (mzr[i] > min4)
+              continue;
+#ifdef DEBUG_MAP
+            else
+              printf("      Hit RE");
+#endif
+
+	    j = i-SOFF;
+            if (j+KM4 < len)
+              { w = neq[j];
+                buck[w] += 1;
+#ifdef DEBUG_MAP
+                printf(" %02x %d ::",w,Select[w]);
+#endif
+                push(packs+Select[w],post+j,0);
+              }
+            if (i >= KM4)
+              { w = cpl[i];
+                buck[w] += 1;
+#ifdef DEBUG_MAP
+                printf(" %02x %d",w,Select[w]);
+#endif
+                push(packs+Select[w],post+j,1);
+              }
+#ifdef DEBUG_MAP
+             printf("\n");
+#endif
+          }
       }
 
-  parm->last = last;
-  parm->post = post;
+      post += len + SRES + 3;
+    }
+
+  for (i = 0; i < NTHREADS; i++)
+    if (packs[i].ptr > packs[i].buffer)
+      write(packs[i].out,packs[i].buffer,packs[i].ptr-packs[i].buffer);
+
+  free(buffer);
+  free(seq-1);
+  free(neq-1);
+  free(ceq-1);
+  free(mzr-1);
+
   return (NULL);
 }
 
-// Distribute posts to the appropriate NTHREADS^2 files based on section of the DB and 1st byte
-//   of its canonical k-mer
+//  Create a thread for each DB section, and have it distribute syncmer posts to NTHREAD files
+//     according to the 1st byte of its k-mer.
 
 void distribute(GDB *gdb)
-{ uint8 *seq;
-  int    len, ren;
-  uint8 *neq, *ceq;
-  int    p, r, i, j;
-
-  DP        parm[NTHREADS];
-  BP        barm[NTHREADS];
+{ int i;
+  DP  parm[NTHREADS];
 #ifndef DEBUG_THREADS
   pthread_t threads[NTHREADS];
 #endif
 
-  seq = (uint8 *) New_Contig_Buffer(gdb);   //  Allocate work vectorss and set up fixed parts of
-  neq = (uint8 *) New_Contig_Buffer(gdb);   //    of the thread records
-  ceq = (uint8 *) New_Contig_Buffer(gdb);
-  if (seq == NULL || neq == NULL || ceq == NULL)
-    exit (1);
-
-  parm[0].buffer = Malloc(BUFFER_LEN*NTHREADS,"Allocating IO buffer");
-  for (i = 0; i < NTHREADS; i++)
-    { parm[i].tid    = i;
-      parm[i].seq    = seq;
-      parm[i].buffer = parm[0].buffer + BUFFER_LEN*i;
-      parm[i].bend   = parm[i].buffer + (BUFFER_LEN-4);
-      parm[i].post   = 0;
-      parm[i].last   = 0;
-    }
+  Buckets = malloc(NTHREADS*sizeof(int64 *));
+  Buckets[0] = malloc(sizeof(int64)*256*NTHREADS);
 
   for (i = 0; i < NTHREADS; i++)
-    { barm[i].seq  = seq;
-      barm[i].neq  = neq;
-      barm[i].ceq  = ceq;
-      bzero(barm[i].buck,256*sizeof(int64));
-    }
-
-  //  For each segment of the input ...
-
-  for (p = 0; p < NTHREADS; p++)
-                                     //  Open the NTHREAD files to recieve posts from this segment
-    { for (i = 0; i < NTHREADS; i++)
-        { parm[i].out = Units[i*NTHREADS+p];
-          parm[i].inum = i*NTHREADS+p;
-        }
-
-      //  For each contig in the segment ...
-
-      ren = DBsplit[p+1];
-      for (r = DBsplit[p]; r < ren; r++)
-        { if (gdb->contigs[r].boff < 0)
-            continue;
-
-          len = gdb->contigs[r].clen;
-          Get_Contig(gdb,r,NUMERIC,(char *) seq);   //  Load the contig
-    
-#ifdef DEBUG_MAP
-          printf("Src:");
-          for (i = 0; i < len; i++)
-            printf(" %d",seq[i]);
-          printf("\n");
-#endif
-          //  In segments each thread computes neq and ceq from seq
-    
-          len -= 3;
-          barm[0].beg = 0;
-          for (i = 1; i < NTHREADS; i++)
-            barm[i-1].end = barm[i].beg = (((int64) i)*len)/NTHREADS;
-          barm[NTHREADS-1].end = len;
-    
-#ifdef DEBUG_THREADS
-          for (i = 0; i < NTHREADS; i++)
-            pack_thread(barm+i);
-#else
-          for (i = 1; i < NTHREADS; i++)
-            pthread_create(threads+i,NULL,pack_thread,barm+i);
-          pack_thread(barm);
-          for (i = 1; i < NTHREADS; i++)
-            pthread_join(threads[i],NULL);
-#endif
-    
-#ifdef DEBUG_MAP
-          printf("Neq:");
-          for (i = 0; i < len; i++)
-            printf(" %02x",neq[i]);
-          printf("\n");
-
-          printf("Ceq:");
-          for (i = 0; i < len; i++)
-            printf(" %02x",ceq[i]);
-          printf("\n");
-#endif
-          //  In segments each thread computes processed seq array from neq,ceq
-    
-          len -= (KMER-4);
-          if (len < 0)
-            { for (i = 0; i < NTHREADS; i++)
-                parm[i].post += len + (KMER-1);
-              continue;
+    { parm[i].tid  = i;
+      parm[i].buck = Buckets[i] = Buckets[0] + i*256;
+      parm[i].gdb  = *gdb;
+      if (i > 0)
+        { parm[i].gdb.seqs = fopen(gdb->seqpath,"r");
+          if (parm[i].gdb.seqs == NULL)
+            { fprintf(stderr,"%s: Cannot open another copy of GDB\n",Prog_Name);
+              exit (1);
             }
-
-          barm[0].beg = 0;
-          for (i = 1; i < NTHREADS; i++)
-            barm[i-1].end = barm[i].beg = (((int64) i)*len)/NTHREADS;
-          barm[NTHREADS-1].end = len;
-    
-#ifdef DEBUG_THREADS
-          for (i = 0; i < NTHREADS; i++)
-            map_thread(barm+i);
-#else
-          for (i = 1; i < NTHREADS; i++)
-            pthread_create(threads+i,NULL,map_thread,barm+i);
-          map_thread(barm);
-          for (i = 1; i < NTHREADS; i++)
-            pthread_join(threads[i],NULL);
-#endif
-    
-#ifdef DEBUG_MAP
-          printf("Out:");
-          for (i = 0; i < len; i++)
-            printf(" (%d)%d %02x %02x\n",(seq[i]&0x80)!=0,seq[i]&0x7f,neq[i],ceq[i+KMER-4]);
-          printf("\n");
-#endif
-
-          //  Each thread scans *all* of seq, writing the k-mers assigned to "its" file
-
-          for (i = 0; i < NTHREADS; i++)
-            parm[i].len = len;
-    
-#ifdef DEBUG_THREADS
-          for (i = 0; i < NTHREADS; i++)
-            distribute_thread(parm+i);
-#else
-          for (i = 1; i < NTHREADS; i++)
-            pthread_create(threads+i,NULL,distribute_thread,parm+i);
-          distribute_thread(parm);
-          for (i = 1; i < NTHREADS; i++)
-            pthread_join(threads[i],NULL);
-#endif
-    
-          for (i = 0; i < NTHREADS; i++)
-            parm[i].post += (KMER-1);
         }
-
-      //  Accumulate bucket counts into Bucket vector for data panel
-
-      { int64 *buck;
-
-        buck = Buckets[p];
-        for (i = 0; i < NTHREADS; i++)
-          { for (j = 0; j < 256; j++)
-              buck[j] += barm[i].buck[j];
-            parm[i].last = parm[i].post;
-          }
-      }
     }
- 
-  free(parm[0].buffer);
-  free(seq-1);
-  free(neq-1);
-  free(ceq-1);
 
-  //  Complete the bucket array by accumulating counts across k-mer 1st bytes
+  bzero(Buckets[0],sizeof(int64)*256*NTHREADS);
 
-  { int   i, j; 
-    int64 cum;
+  split_4bits(gdb,Buckets[0]);   //  Empirically sets up Ksplit,Select based on 1st 1Mbp
 
-    cum = 0;
-    for (i = 0; i < 256; i++)
-      { for (j = 0; j < NTHREADS; j++)
-          Buckets[j][i] += cum;
-        if (i < 255 && Select[i] == Select[i+1])
-          cum = Buckets[NTHREADS-1][i];
-        else
-          cum = 0;
-      }
-  }
+  bzero(Buckets[0],sizeof(int64)*256);
+
+#ifdef DEBUG_THREADS
+  for (i = 0; i < NTHREADS; i++)
+    scan_thread(parm+i);
+#else
+  for (i = 1; i < NTHREADS; i++)
+    pthread_create(threads+i,NULL,scan_thread,parm+i);
+  scan_thread(parm);
+  for (i = 1; i < NTHREADS; i++)
+    pthread_join(threads[i],NULL);
+#endif
+
+  for (i = 1; i < NTHREADS; i++)
+    fclose(parm[i].gdb.seqs);
 }
 
 
@@ -553,7 +798,7 @@ static void *setup_thread(void *args)
   ceq = (uint8 *) New_Contig_Buffer(gdb);
   if (seq == NULL || neq == NULL || ceq == NULL)
     exit (1);
-  keq = ceq+(KMER-4);
+  keq = ceq+8;
 
   flag = (0x1ll << (8*ContBytes-1));
 
@@ -654,6 +899,7 @@ static void *setup_thread(void *args)
         bost = post-basepost;
         if (inv)
           { n = keq+bost;
+            bost += 12;
             x = sarr + swide * buck[*n]++;
             *x++ = 0;
             for (i = 4; i < KMER; i += 4)
@@ -662,6 +908,18 @@ static void *setup_thread(void *args)
               *x++ = bust[i];
             for (i = 0; i < ContBytes; i++)
               *x++ = nust[i];
+
+#ifdef SPACER
+            buck[*n] += 1;
+            *x++ = 0;
+            *x++ = n[-4];
+            for (i = 9; i < KMER; i += 4)
+              *x++ = n[-i];
+            for (i = 0; i < PostBytes; i++)
+              *x++ = bust[i];
+            for (i = 0; i < ContBytes; i++)
+              *x++ = nust[i];
+#endif
           }
         else
           { n = neq+bost;
@@ -673,6 +931,18 @@ static void *setup_thread(void *args)
               *x++ = bust[i];
             for (i = 0; i < ContBytes; i++)
               *x++ = cust[i];
+
+#ifdef SPACER
+            buck[*n] += 1;
+            *x++ = 0;
+            *x++ = n[4];
+            for (i = 9; i < KMER; i += 4)
+              *x++ = n[i];
+            for (i = 0; i < PostBytes; i++)
+              *x++ = bust[i];
+            for (i = 0; i < ContBytes; i++)
+              *x++ = cust[i];
+#endif
           }
       }
 
@@ -753,7 +1023,6 @@ static void *output_thread(void *args)
 
   nelim = nkmer = nbase = 0;
   o = KMER;
-
   b = buf1;
   c = buf2;
   x = range->off;
@@ -933,21 +1202,47 @@ void k_sort(GDB *gdb)
   SP     sarm[NTHREADS];
   RP     rarm[NTHREADS];
   CP     carm[NTHREADS];
-  int64  nelim, nbase, nkmer;
+  int64  nelim, nbase, nkmer, npost;
   int64 *prefix;
   int64 *posfix;
 #ifndef DEBUG_THREADS
   pthread_t threads[NTHREADS];
 #endif
 
-  { int64 x, nelmax;
+  //  Complete the bucket array by accumulating counts across k-mer 1st bytes
+
+  { int   i, j; 
+    int64 x, cum, nelmax;
+
+#ifdef SPACER
+    for (j = 0; j < NTHREADS; j++)
+      for (i = 0; i < 256; i++)
+        Buckets[j][i] *= 2;
+#endif
 
     nelmax = 0;
-    for (p = 0; p < NTHREADS; p++)
-      { x = Buckets[NTHREADS-1][Ksplit[p+1]-1];
-        if (nelmax < x)
-          nelmax = x;
+    cum = 0;
+    for (i = 0; i < 256; i++)
+      { for (j = 0; j < NTHREADS; j++)
+          { x = Buckets[j][i];
+            Buckets[j][i] = cum;
+            cum += x;
+          }
+        if (i >= 255 || Select[i] != Select[i+1])
+          { if (cum > nelmax)
+              nelmax = cum;
+            cum = 0;
+          }
       }
+
+#ifdef SHOW_FINGERS
+    for (i = 0; i < 256; i++)
+      { printf(" %3d:",i);
+        for (j = 0; j < NTHREADS; j++)
+          printf(" %9lld",Buckets[j][i]);
+        printf("  :: %d\n",Select[i]);
+      }
+#endif
 
     swide  = KBYTES + PostBytes + ContBytes;
     prefix = Malloc(sizeof(int64)*0x1000000,"Allocating prefix array");
@@ -956,18 +1251,6 @@ void k_sort(GDB *gdb)
     buffer = Malloc(NTHREADS*BUFFER_LEN,"Allocating input buffers");
     bzero(prefix,sizeof(int64)*0x1000000);
     bzero(posfix,sizeof(int64)*0x10000);
-  }
-
-  { int i, j;
-
-    for (i = 255; i >= 0; i--)
-      { for (j = NTHREADS-1; j >= 1; j--)
-          Buckets[j][i] = Buckets[j-1][i];
-        if (i == 0 || Select[i] != Select[i-1])
-          Buckets[0][i] = 0;
-        else
-          Buckets[0][i] = Buckets[NTHREADS-1][i-1];
-      }
   }
 
   //  Must open a separate file descriptor to DB bases for each setup thread !!!
@@ -1004,7 +1287,7 @@ void k_sort(GDB *gdb)
       carm[p].npost = 0;
     }
 
-  nelim = nbase = nkmer = 0;
+  nelim = nbase = nkmer = npost = 0;
 
   for (part = 0; part < NTHREADS; part++)
 
@@ -1096,6 +1379,7 @@ void k_sort(GDB *gdb)
         { nelim += rarm[p].nelim;
           nbase += rarm[p].nbase;
           nkmer += rarm[p].nkmer;
+          npost += rarm[p].npost;
           carm[part].nkmer += rarm[p].nkmer;
           carm[part].npost += rarm[p].npost;
         }
@@ -1144,9 +1428,7 @@ void k_sort(GDB *gdb)
       goto remove_parts;
 
   if (VERBOSE)
-    { int64 npost = gdb->seqtot - gdb->ncontig*(KMER-1);
-
-      fprintf(stderr,"\r    Done                                           \n");
+    { fprintf(stderr,"\r    Done                                           \n");
       fprintf(stderr,"\n  Kept:    %11lld kmers, %11lld(%5.1f%%) positions\n",
                      nkmer,npost-nbase,((npost-nbase)*100.)/npost);
       fprintf(stderr,"  Dropped: %11lld kmers, %11lld(%5.1f%%) positions\n",
@@ -1447,27 +1729,11 @@ int main(int argc, char *argv[])
          Comp[i++] = (l3 | l2 | l1 | l0);
   }
 
-  { int    i, n;     //  Compute NTHREADS 1st byte partitions based on bp frequency
-    double p, t;
+  //  Compute NTHREADS 1st byte partitions based on bp frequency
 
-    Ksplit = Malloc((NTHREADS+1)*sizeof(int),"Allocating Kmer split array");
+  //    Now handled empirically by split_4bits called at the start of distribute
 
-    p = 0.;
-    n = 0;
-    t = 1./NTHREADS;
-    Ksplit[0] = 0;
-    for (i = 0; i < 256; i++)
-      { p += gdb->freq[i >> 6] * gdb->freq[(i >> 4) & 0x3] 
-           * gdb->freq[(i >> 2) & 0x3] * gdb->freq[i&0x3];
-        while (p*(2.-p) > t)
-          { n += 1;
-            Ksplit[n] = i;
-            t = (n+1.)/NTHREADS;
-          }
-        Select[i] = n;
-      }
-    Ksplit[NTHREADS] = 256;
-  }
+  Ksplit = Malloc((NTHREADS+1)*sizeof(int),"Allocating split vector");
 
   { int64 npost, range, cum, t;   //  Compute DB split into NTHREADS parts
     int   p, r, len;

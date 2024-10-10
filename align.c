@@ -3334,7 +3334,7 @@ static char ToL[8] = { 'a', 'c', 'g', 't', '.', '[', ']', '-' };
 static char ToU[8] = { 'A', 'C', 'G', 'T', '.', '[', ']', '-' };
 
 int Print_Alignment(FILE *file, Alignment *align, Work_Data *ework,
-                    int indent, int width, int border, int upper, int coord)
+                    int indent, int width, int border, int upper, int coord, int reverse)
 { _Work_Data *work  = (_Work_Data *) ework;
   int        *trace = align->path->trace;
   int         tlen  = align->path->tlen;
@@ -3345,7 +3345,8 @@ int Print_Alignment(FILE *file, Alignment *align, Work_Data *ework,
   char  mtag, dtag;
   int   prefa, prefb;
   int   aend, bend;
-  int   comp, blen;
+  int   bcomp, blen;
+  int   acomp, alen;
   int   sa, sb;
   int   match, diff;
   char *N2A;
@@ -3375,8 +3376,10 @@ int Print_Alignment(FILE *file, Alignment *align, Work_Data *ework,
   aend = align->path->aepos;
   bend = align->path->bepos;
 
-  comp = COMP(align->flags);
-  blen = align->blen;
+  acomp = reverse;
+  bcomp = ((COMP(align->flags) == 0) == reverse);
+  blen  = align->blen;
+  alen  = align->alen;
 
   Abuf[width] = Bbuf[width] = Dbuf[width] = '\0';
 
@@ -3389,14 +3392,17 @@ int Print_Alignment(FILE *file, Alignment *align, Work_Data *ework,
       fprintf(file,"%*s",indent,"");					\
       if (coord > 0)							\
         { if (sa < aend)						\
-            fprintf(file," %*d",coord,sa);				\
+            if (acomp)							\
+              fprintf(file," %*d",coord,alen-sa);			\
+            else							\
+              fprintf(file," %*d",coord,sa);				\
           else								\
             fprintf(file," %*s",coord,"");				\
           fprintf(file," %s\n",Abuf);					\
           fprintf(file,"%*s %*s %s\n",indent,"",coord,"",Dbuf);		\
           fprintf(file,"%*s",indent,"");				\
           if (sb < bend)						\
-            if (comp)							\
+            if (bcomp)							\
               fprintf(file," %*d",coord,blen-sb);			\
             else							\
               fprintf(file," %*d",coord,sb);				\
@@ -3555,14 +3561,17 @@ int Print_Alignment(FILE *file, Alignment *align, Work_Data *ework,
   fprintf(file,"%*s",indent,"");
   if (coord > 0)
     { if (sa < aend)
-        fprintf(file," %*d",coord,sa);
+        if (acomp)
+          fprintf(file," %*d",coord,alen-sa);
+        else
+          fprintf(file," %*d",coord,sa);
       else
         fprintf(file," %*s",coord,"");
       fprintf(file," %.*s\n",o,Abuf);
       fprintf(file,"%*s %*s %.*s\n",indent,"",coord,"",o,Dbuf);
       fprintf(file,"%*s",indent,"");
       if (sb < bend)
-        if (comp)
+        if (bcomp)
           fprintf(file," %*d",coord,blen-sb);
         else
           fprintf(file," %*d",coord,sb);
@@ -3585,7 +3594,7 @@ int Print_Alignment(FILE *file, Alignment *align, Work_Data *ework,
 }
 
 int Print_Reference(FILE *file, Alignment *align, Work_Data *ework,
-                    int indent, int block, int border, int upper, int coord)
+                    int indent, int block, int border, int upper, int coord, int reverse)
 { _Work_Data *work  = (_Work_Data *) ework;
   int        *trace = align->path->trace;
   int         tlen  = align->path->tlen;
@@ -3596,7 +3605,8 @@ int Print_Reference(FILE *file, Alignment *align, Work_Data *ework,
   char  mtag, dtag;
   int   prefa, prefb;
   int   aend, bend;
-  int   comp, blen;
+  int   acomp, alen;
+  int   bcomp, blen;
   int   sa, sb, s0;
   int   match, diff;
   char *N2A;
@@ -3630,8 +3640,10 @@ int Print_Reference(FILE *file, Alignment *align, Work_Data *ework,
   aend = align->path->aepos;
   bend = align->path->bepos;
 
-  comp = COMP(align->flags);
-  blen = align->blen;
+  acomp = reverse;
+  bcomp = ((COMP(align->flags) == 0) == reverse);
+  blen  = align->blen;
+  alen  = align->alen;
 
 #define BLOCK(x,y)							\
 { int u, v;								\
@@ -3640,14 +3652,17 @@ int Print_Reference(FILE *file, Alignment *align, Work_Data *ework,
       fprintf(file,"%*s",indent,"");					\
       if (coord > 0)							\
         { if (sa < aend)						\
-            fprintf(file," %*d",coord,sa);				\
+            if (acomp)							\
+              fprintf(file," %*d",coord,alen-sa);			\
+            else							\
+              fprintf(file," %*d",coord,sa);				\
           else								\
             fprintf(file," %*s",coord,"");				\
           fprintf(file," %.*s\n",o,Abuf);				\
           fprintf(file,"%*s %*s %.*s\n",indent,"",coord,"",o,Dbuf);	\
           fprintf(file,"%*s",indent,"");				\
           if (sb < bend)						\
-            if (comp)							\
+            if (bcomp)							\
               fprintf(file," %*d",coord,blen-sb);			\
             else							\
               fprintf(file," %*d",coord,sb);				\
@@ -3818,14 +3833,17 @@ int Print_Reference(FILE *file, Alignment *align, Work_Data *ework,
   fprintf(file,"%*s",indent,"");
   if (coord > 0)
     { if (sa < aend)
-        fprintf(file," %*d",coord,sa);
+        if (acomp)
+          fprintf(file," %*d",coord,alen-sa);
+        else
+          fprintf(file," %*d",coord,sa);
       else
         fprintf(file," %*s",coord,"");
       fprintf(file," %.*s\n",o,Abuf);
       fprintf(file,"%*s %*s %.*s\n",indent,"",coord,"",o,Dbuf);
       fprintf(file,"%*s",indent,"");
       if (sb < bend)
-        if (comp)
+        if (bcomp)
           fprintf(file," %*d",coord,blen-sb);
         else
           fprintf(file," %*d",coord,sb);
@@ -5621,7 +5639,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
   int    d, m;
   int   *t, T;
   int    Fpos, Lpos, Fdag, Hamm, Gaps, Diag;
-  int    passes;
+  int    passes, cdiff;
  
   A = aln->aseq-1;
   B = aln->bseq-1;
@@ -5636,6 +5654,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
       BxTotGaps += 1;
 #endif
 
+  cdiff = 0;
   d = aln->path->abpos - aln->path->bbpos;
   q = t[0];
   x = 0;
@@ -5830,6 +5849,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
 
           if (passes < Gaps+Hamm)
             { int y, k;
+              int nham;
 
               p = Lpos;
               m = d;
@@ -5841,6 +5861,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
 #ifdef BOX_STATS
               BxGaps += (Gaps+Hamm)-passes;
 #endif
+              nham = 0;
               while (h > H)
                 { p -= rsnake(A+p,B+(p-m));
                   if (p < Fpos)
@@ -5848,7 +5869,9 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
                   h -= Diag;
                   k = h[Fdag-m];
                   if (k == 0)
-                    p -= 1;
+                    { p -= 1;
+                      nham += 1;
+                    }
                   else
                     { m += k;
                       for (; k > 0; k--)
@@ -5858,6 +5881,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
                   printf(" (%d,%d)",p,m);
 #endif
                 }
+              cdiff += (nham-Hamm);
 #ifdef DEBUG_BACK
               printf("\n");
 #endif
@@ -5978,6 +6002,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
 
           if (passes < Gaps+Hamm)
             { int y, k;
+              int nham;
 
               p = Lpos;
               m = d;
@@ -5989,6 +6014,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
 #ifdef BOX_STATS
               BxGaps += (Gaps+Hamm)-passes;
 #endif
+              nham = 0;
               while (h > H)
                 { p -= rsnake(A+(p+m),B+p);
                   if (p < Fpos)
@@ -5997,6 +6023,7 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
                   k = h[m-Fdag];
                   if (k == 0)
                     { p -= 1;
+                      nham += 1;
 #ifdef DEBUG_BACK
                       printf(" (%d,%d,sub)",p,m);
 #endif
@@ -6010,11 +6037,14 @@ int Gap_Improver(Alignment *aln, Work_Data *ework)
                         t[--y] = p;
                     }
                 }
+              cdiff += (nham-Hamm);
 #ifdef DEBUG_BACK
               printf("\n");
 #endif
             }
         }
     }
+
+  aln->path->diffs += cdiff;
   return (0);
 }

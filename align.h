@@ -314,10 +314,10 @@ void Complement_Seq(char *a, int n);
   void Alignment_Cartoon(FILE *file, Alignment *align, int indent, int coord);
 
   int  Print_Alignment(FILE *file, Alignment *align, Work_Data *work,
-                       int indent, int width, int border, int upper, int coord);
+                       int indent, int width, int border, int upper, int coord, int reverse);
 
   int  Print_Reference(FILE *file, Alignment *align, Work_Data *work,
-                       int indent, int block, int border, int upper, int coord);
+                       int indent, int block, int border, int upper, int coord, int reverse);
 
   void Flip_Alignment(Alignment *align, int full);
 

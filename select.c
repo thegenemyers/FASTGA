@@ -119,7 +119,7 @@ static char *read_line(void *input, int gzipd, int nline, char *spath)
 //    type 3
 //          val[0][.val[1]] _ val[2] - val[3]
 //  Return 0 if there is a syntactic error, otherwise return the type.
-//  0 values indicate $, -1 indicates not present, -2 (only in val[1] and possibly val[3])
+//  0 values indicate #, -1 indicates not present, -2 (only in val[1] and possibly val[3])
 //      indicates val[0] and possibly val[2], respectively, are scaffold indices
 
 static inline char *white(char *x)
@@ -143,7 +143,15 @@ static char *address(char *x, int *v, int sep)
   if (a == LAST_SYMBOL)
     v[0] = 0;
   else if (isdigit(a))
-    x = getint(x-1,v);
+    { x = getint(x-1,v);
+      if (v[0] == 0 && sep != '-')
+        { if (sep == ' ')
+            fprintf(stderr,"%s: Scaffold index 0 is out of bounds\n",Prog_Name);
+          else
+            fprintf(stderr,"%s: Absolute contig index 0 is out of bounds\n",Prog_Name);
+          exit (1);
+        }
+    }
   else
     return (NULL);
   x = white(x);
@@ -174,6 +182,20 @@ static int range(char *src, int *v, Hash_Table *hash)
 
   v[2] = -1;
   x = white(src);
+
+  y = x + strlen(x);        //  Clip tailing +/- from string
+  while (isspace(*--y)) ;
+  if (*y == '+')
+    { v[4] = +1;
+      *y = '\0';
+    }
+  else if (*y == '-')
+    { v[4] = -1;
+      *y = '\0';
+    }
+  else
+    v[4] = 0;
+
   if (*x == SCAF_SYMBOL)
     { x += 1;
       sep = ' ';
@@ -292,8 +314,8 @@ static int interpret_address(int s, int c, GDB *gdb)
   //  Interpret argument x as a range and map to contig level ranges
 
 static void interpret_as_contigs(char *x, GDB *gdb, Hash_Table *hash,
-                                 int *pbeg, int *pend, int *pfst, int *plst)
-{ int t, vals[4], len, sunit;
+                                 int *pbeg, int *pend, int *pfst, int *plst, int *ori)
+{ int t, vals[5], len, sunit;
   int beg, end, fst, lst;
 
   t = range(x,vals,hash);
@@ -352,10 +374,11 @@ static void interpret_as_contigs(char *x, GDB *gdb, Hash_Table *hash,
   *pend = end;
   *pfst = fst;
   *plst = lst;
+  *ori  = vals[4];
 }
 
 static void interpret_as_selection(char *x, GDB *gdb, Hash_Table *hash, Selection *s)
-{ int t, vals[4], len;
+{ int t, vals[5], len;
 
   t = range(x,vals,hash);
   if (t == 0)
@@ -372,6 +395,7 @@ static void interpret_as_selection(char *x, GDB *gdb, Hash_Table *hash, Selectio
     { len = gdb->contigs[s->end].clen;
       s->type = CONTG_RANGE;
     }
+  s->orient = vals[4];
   if (t < 3)
     { if (t == 2)
         { s->end = interpret_address(vals[2],vals[3],gdb)-1;
@@ -398,7 +422,7 @@ static void interpret_as_selection(char *x, GDB *gdb, Hash_Table *hash, Selectio
 static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash,
                                             Contig_Range *chord, char *filename, int ordered)
 { char c, *p, *q, *line;
-  int  i, pbeg, pend, pfst, plst;
+  int  i, pbeg, pend, pfst, plst, ori;
   int  nline, order;
 
   order = 1;
@@ -412,23 +436,33 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
 
       c = *q;
       *q = '\0';
-      interpret_as_contigs(p, gdb, hash, &pbeg, &pend, &pfst, &plst);
+      interpret_as_contigs(p, gdb, hash, &pbeg, &pend, &pfst, &plst, &ori);
       *q = c;
 #ifdef DEBUG_PARSE_SEQ
       fprintf(stderr, "%s: CTG_RANGE pbeg = %-12d pend = %-12d pfst = %-12d plst = %-12d\n",
               Prog_Name,pbeg,pend,pfst,plst);
 #endif
       if (ordered)
-        for (i = pbeg; i < pend; i++)
-          if (chord[i].order)
-            { fprintf(stderr,"%s: Overlapping ranges in selection expression\n",Prog_Name);
-              exit (1);
-            }
+        { for (i = pbeg; i <= pend; i++)
+            if (chord[i].order)
+              { fprintf(stderr,"%s: Overlapping contigs in selection ranges\n",Prog_Name);
+                exit (1);
+              }
+        }
+      else if (ori != 0)
+        { for (i = pbeg; i <= pend; i++)
+            if (chord[i].order && ori*chord[i].orient < 0)
+              { fprintf(stderr,"%s: Conflicting sign for contig in selection expression\n",
+                               Prog_Name);
+                exit (1);
+              }
+        }
 
       for (i = pbeg+1; i < pend; i++)
-        { chord[i].order = order;
-          chord[i].beg   = 0;
-          chord[i].end   = gdb->contigs[i].clen;
+        { chord[i].order  = order;
+          chord[i].beg    = 0;
+          chord[i].end    = gdb->contigs[i].clen;
+          chord[i].orient = ori;
         }
       if (pbeg != pend)
         { if (chord[pend].order)
@@ -449,6 +483,8 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
               chord[pbeg].beg   = pfst;
             }
           chord[pbeg].end = gdb->contigs[pbeg].clen;
+          chord[pbeg].orient = ori;
+          chord[pend].orient = ori;
         }
       else
         { if (chord[pend].order)
@@ -462,29 +498,51 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
               chord[pend].end   = plst;
               chord[pbeg].beg   = pfst;
             }
+          chord[pbeg].orient = ori;
         }
 
-      if (ordered)
-        order += 1;
+      order += 1;
     }
 
   fclose(fp);
 }
 
 Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ordered)
-{ char         *e;
-  int           i, pbeg, pend, pfst, plst;
-  int           order;
+{ char         *e, *y;
+  int           i, pbeg, pend, pfst, plst, ori;
+  int           order, special;
   Contig_Range *chord;
   FILE         *fp;
 
   chord = (Contig_Range *) Malloc(sizeof(Contig_Range)*gdb->ncontig,"Allocating sequence array");
 
-  if (x == NULL || strcmp(x,"@") == 0)
+  special = 10;
+  if (x == NULL)
+    special = 0;
+  else
+    { y = white(x);
+      if (*y == '@')
+        { y = white(y+1);
+          if (*y == '\0')
+            special = 0;
+          else
+            { if (*y == '-')
+                special = -1;
+              else if (*y == '+')
+                special = 1;
+              y = white(y+1);
+              if (*y != '\0')
+                special = 10;
+            }
+        }
+    }
+
+  if (special < 10)
     { for (i = 0; i < gdb->ncontig; i++)
-        { chord[i].order = 1;
-          chord[i].beg   = 0;
-          chord[i].end   = gdb->contigs[i].clen;
+        { chord[i].order  = 1;
+          chord[i].beg    = 0;
+          chord[i].end    = gdb->contigs[i].clen;
+          chord[i].orient = special;
         }
     }
   else
@@ -506,22 +564,32 @@ Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ord
               if (e != NULL)
                 *e = '\0';
 
-              interpret_as_contigs(x, gdb, hash, &pbeg, &pend, &pfst, &plst);
+              interpret_as_contigs(x, gdb, hash, &pbeg, &pend, &pfst, &plst, &ori);
 #ifdef DEBUG_PARSE_SEQ
               fprintf(stderr, "%s: CTG_RANGE pbeg = %-12d pend = %-12d pfst = %-12d plst = %-12d\n",
                       Prog_Name,pbeg,pend,pfst,plst);
 #endif
               if (ordered)
-                for (i = pbeg; i < pend; i++)
-                  if (chord[i].order)
-                    { fprintf(stderr,"%s: Overlapping ranges in selection expression\n",Prog_Name);
-                      exit (1);
-                    }
+                { for (i = pbeg; i < pend; i++)
+                    if (chord[i].order)
+                      { fprintf(stderr,"%s: Overlapping contigs in selection ranges\n",Prog_Name);
+                        exit (1);
+                      }
+                }
+              else if (ori != 0)
+                { for (i = pbeg; i <= pend; i++)
+                    if (chord[i].order && ori*chord[i].orient < 0)
+                      { fprintf(stderr,"%s: Conflicting sign for contig in selection expression\n",
+                                       Prog_Name);
+                        exit (1);
+                      }
+                }
 
               for (i = pbeg+1; i < pend; i++)
-                { chord[i].order = order;
-                  chord[i].beg   = 0;
-                  chord[i].end   = gdb->contigs[i].clen;
+                { chord[i].order  = order;
+                  chord[i].beg    = 0;
+                  chord[i].end    = gdb->contigs[i].clen;
+                  chord[i].orient = ori;
                 }
               if (pbeg != pend)
                 { if (chord[pend].order)
@@ -542,6 +610,8 @@ Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ord
                       chord[pbeg].beg   = pfst;
                     }
                   chord[pbeg].end = gdb->contigs[pbeg].clen;
+                  chord[pbeg].orient = ori;
+                  chord[pend].orient = ori;
                 }
               else
                 { if (chord[pend].order)
@@ -555,10 +625,10 @@ Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ord
                       chord[pend].end   = plst;
                       chord[pbeg].beg   = pfst;
                     }
+                  chord[pbeg].orient = ori;
                 }
 
-              if (ordered)
-                order += 1;
+              order += 1;
    
               if (e != NULL)
                 *e++ = DLIM_SYMBOL;
@@ -624,11 +694,32 @@ static Selection *get_selection_list_from_file(FILE *fp, GDB *gdb, Hash_Table *h
 
 Selection *get_selection_list(char *x, GDB *gdb, Hash_Table *hash, int *nlen)
 { char      *e, *y;
-  int        len;
+  int        len, special;
   Selection *list;
   FILE      *fp;
 
-  if (x == NULL || strcmp(x,"@") == 0)
+  special = 10;
+  if (x == NULL)
+    special = 0;
+  else
+    { y = white(x);
+      if (*y == '@')
+        { y = white(y+1);
+          if (*y == '\0')
+            special = 0;
+          else
+            { if (*y == '-')
+                special = -1;
+              else if (*y == '+')
+                special = 1;
+              y = white(y+1);
+              if (*y != '\0')
+                special = 10;
+            }
+        }
+    }
+
+  if (special < 10)
     { list = (Selection *) Malloc(sizeof(Selection),"Allocating sequence array");
       *nlen = 1;
       list[0].beg = 0;
@@ -640,6 +731,7 @@ Selection *get_selection_list(char *x, GDB *gdb, Hash_Table *hash, int *nlen)
         { list[0].type = SCAFF_RANGE;
           list[0].end  = gdb->nscaff-1;
         }
+      list[0].orient = special;
       return (list);
     }
   if (*x == '\0')

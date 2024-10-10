@@ -44,8 +44,6 @@
 
 #define   TSPACE       100
 
-#define   ALIGN_TRIM   .70
-
 static int PTR_SIZE = sizeof(void *);
 static int OVL_SIZE = sizeof(Overlap);
 static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
@@ -56,7 +54,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BOX_FUZZ      10
 
 static char *Usage[] = { "[-vk] [-T<int(8)>] [-P<dir(/tmp)>] [<format(-paf)>]",
-                         "[-f<int(10)>] [-c<int(100)> [-s<int(500)>] [-l<int(100)>] [-i<float(.7)]",
+                         "[-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]",
                          "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
                        };
 
@@ -889,22 +887,24 @@ static void *merge_thread(void *args)
               post[POST_BUF_LEN+m] = post[m];
           }
 
-        nhits += suf1[CBYTE] * freq;
-        g1len += suf1[CBYTE];
-        tseed += suf1[CBYTE] * freq * plen;
-
         for (n = suf1[CBYTE]; n > 0; n--)
           { Current_Post(P1,aptr);
             asign = (aptr[ISIGN] & 0x80);
-            aptr[ISIGN] &= 0x7f;
+            if (asign)
+              { Next_Post_Entry(P1);
+                continue;
+              }
+            nhits += freq;
+            g1len += 1;
+            tseed += freq * plen;
             acont = (apost >> ESHIFT);
             adest = Select[acont];
             jptr  = (uint8 *) (post+b);
             for (k = 0; k < freq; k++)
-              { if (asign == (jptr[JSIGN] & 0x80))
-                  ou = nunit + adest;
-                else
+              { if (jptr[JSIGN] & 0x80)
                   ou = cunit + adest;
+                else
+                  ou = nunit + adest;
                 btop = ou->btop;
                 *btop++ = plen;
                 memcpy(btop,aptr,IBYTE);
@@ -1702,7 +1702,7 @@ static void *reimport_thread(void *args)
 
   int    iamt;
   uint8 *x;
-  int    iolen, iunit, lcp, flip;
+  int    iolen, iunit, lcp;
   int64  diag, flag, mask;
   uint8 *bend, *btop, *b;
 
@@ -1743,28 +1743,16 @@ static void *reimport_thread(void *args)
       b += JPOST;
       memcpy(_jcont,b,JCONT);
       b += JCONT;
-      flip = ((jcont & flag) != 0);
       jcont &= mask;
 
       x = sarr + swide * buck[icont]++;
       *x++ = lcp;
       if (comp)
-        { if (flip)
-            { ipost += lcp;
-              jpost += KMER-lcp;
-            }
-          else
-            ipost += KMER;
-          diag = MAXDAG - (ipost + jpost);
+        { diag = MAXDAG - (ipost + jpost);
           anti = AMXPOS - (ipost - jpost);
         }
       else
-        { if (flip)
-            { lcp   = KMER-lcp;
-              ipost += lcp;
-              jpost += lcp;
-            }
-          diag = BMXPOS + (ipost - jpost);
+        { diag = BMXPOS + (ipost - jpost);
           anti = ipost + jpost;
         }
       band = (diag >> BUCK_SHIFT);
@@ -2045,6 +2033,8 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
 
   uint8 *b, *m, *e;
 
+  int    alnMin;
+  double alnRate;
   int64  nhit, nlas, nmem, nliv, ncov;
   int64  alen, blen, mlen;
   int64  aoffset, doffset;
@@ -2064,6 +2054,9 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
 
   if (pair->gdb1->contigs[ctg1].boff < 0 || pair->gdb2->contigs[ctg2].boff < 0)
     return;
+
+  alnMin  = ALIGN_MIN - 50;
+  alnRate = ALIGN_RATE + .05;
 
   ndiag = 0;
   ipost = 0;
@@ -2314,7 +2307,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                               }
 
                             rlen = path->aepos - path->abpos;
-                            if (rlen >= ALIGN_MIN && ALIGN_RATE*rlen >= path->diffs)
+                            if (rlen >= alnMin && alnRate*rlen >= path->diffs)
                               { Compress_TraceTo8(ovl,0);
                                 if (fwrite(ovl,OVL_SIZE,1,tfile) != 1)
                                   { fprintf(stderr,
@@ -2344,7 +2337,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                                                    path->bepos-path->bbpos);
                                   }
                                 Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);
-                                Print_Alignment(stdout,align,work,4,100,10,0,8);
+                                Print_Alignment(stdout,align,work,4,100,10,0,8,0);
                                 fflush(stdout);
                                 if (comp)
                                   { Complement_Seq(align->aseq+(alen-path->aepos),
@@ -2672,7 +2665,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                   t16[nn] = t8[nn];
               }
               Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);
-              Print_Reference(stdout,align,work,4,100,10,0,8);
+              Print_Reference(stdout,align,work,4,100,10,0,8,0);
               fflush(stdout);
               free(tcopy);
 
@@ -2689,7 +2682,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                   t16[nn] = t8[nn];
               }
               Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);
-              Print_Reference(stdout,align,work,4,100,10,0,8);
+              Print_Reference(stdout,align,work,4,100,10,0,8,0);
               fflush(stdout);
               free(tcopy);
 
@@ -2808,7 +2801,7 @@ static void *search_seeds(void *args)
   pair->ovl.aread = -1;
   pair->ovl.bread = -1;
   pair->work = New_Work_Data();
-  pair->spec = New_Align_Spec(ALIGN_TRIM,100,gdb1->freq,0);
+  pair->spec = New_Align_Spec(1.-ALIGN_RATE,100,gdb1->freq,0);
   if (pair->work == NULL || pair->spec == NULL)
     Clean_Exit(1);
   pair->ofile = ofile;
@@ -3474,8 +3467,8 @@ int main(int argc, char *argv[])
     ARG_INIT("FastGA");
 
     FREQ = 10;
-    CHAIN_BREAK = 1000;   //  2x in anti-diagonal space
-    CHAIN_MIN   =  200;
+    CHAIN_BREAK = 2000;   //  2x in anti-diagonal space
+    CHAIN_MIN   =  170;
     ALIGN_MIN   =  100;
     ALIGN_RATE  = .3;
     SORT_PATH   = "/tmp";

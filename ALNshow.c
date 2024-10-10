@@ -37,6 +37,7 @@ int main(int argc, char *argv[])
   GDB       _gdb2, *gdb2 = &_gdb2; 
   Overlap   _ovl, *ovl = &_ovl;
   Alignment _aln, *aln = &_aln;
+  Path      *path = &(_ovl.path);
 
   OneFile *input;
   int64    novl;
@@ -102,7 +103,7 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"     <selection> = <range> [ , <range> ]*\n");
+        fprintf(stderr,"     <selection> = <range>[+-] [ , <range>[+-] ]*\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"     <range> =     <contig>[-<contig>]    |  <contig>_<int>-(<int>|#)\n");
         fprintf(stderr,"             | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)\n");
@@ -215,7 +216,7 @@ int main(int argc, char *argv[])
     free(src2_name);
   }
 
-  //  Set up scaffold->contig maps & scaffold name dictionary
+  //  Set up scaffold name dictionary
 
   { int   s;
     char *head, *sptr, *eptr;
@@ -311,7 +312,11 @@ int main(int argc, char *argv[])
     int        aread, bread;
     int        ascaf, bscaf;
     int        aoffs, boffs;
-    int        alens, blens, bclen;
+    int        aslen, bslen;
+    int        aclen, bclen;
+    int        ab, ae;
+    int        bb, be;
+    int        reverse;
     char      *abuffer, *bbuffer, *root;
     int        ar_wide, br_wide;
     int        ai_wide, bi_wide;
@@ -381,8 +386,8 @@ int main(int argc, char *argv[])
        //  Read it in
 
       { Read_Aln_Overlap(input,ovl);
-        ovl->path.tlen  = Read_Aln_Trace(input,(uint8 *) trace);
-        ovl->path.trace = trace;
+        path->tlen  = Read_Aln_Trace(input,(uint8 *) trace);
+        path->trace = trace;
 
         //  Determine if it should be displayed
 
@@ -405,11 +410,22 @@ int main(int argc, char *argv[])
         bptr = BCHORD+bread;
         if ( ! bptr->order)
           continue;
-        if (ovl->path.aepos <= aptr->beg || ovl->path.abpos >= aptr->end)
+        if (path->aepos <= aptr->beg || path->abpos >= aptr->end)
           continue;
-        if (ovl->path.bepos <= bptr->beg || ovl->path.bbpos >= bptr->end)
+        if (path->bepos <= bptr->beg || path->bbpos >= bptr->end)
           continue;
 
+        if (bptr->orient != 0)
+          { if ((aptr->orient >= 0 && bptr->orient < 0) || (aptr->orient < 0 && bptr->orient > 0))
+              { if ( ! COMP(ovl->flags))
+                  continue;
+              }
+           else
+              { if (COMP(ovl->flags))
+                  continue;
+              }
+          }
+           
         //  Display it
 
         ascaf = acontigs[aread].scaf;
@@ -418,75 +434,70 @@ int main(int argc, char *argv[])
         aln->alen  = acontigs[aread].clen;
         aln->blen  = bcontigs[bread].clen;
         aoffs      = acontigs[aread].sbeg;
+	aclen      = acontigs[aread].clen;
 	boffs      = bcontigs[bread].sbeg;
 	bclen      = bcontigs[bread].clen;
         aln->flags = ovl->flags;
         tps        = ovl->path.tlen/2;
 
-        alens = ascaffs[ascaf].slen;
-        blens = bscaffs[bscaf].slen;
+        aslen = ascaffs[ascaf].slen;
+        bslen = bscaffs[bscaf].slen;
+
+        reverse = (aptr->orient < 0);
 
         if (ALIGN || REFERENCE)
           printf("\n");
 
         Print_Number((int64) ascaf+1,ar_wide+1,stdout);
-        printf(".%0*d",ac_wide,(aread - ascaffs[ascaf].fctg)+1);
+        printf(".%0*d%c",ac_wide,(aread - ascaffs[ascaf].fctg)+1,reverse?'c':'n');
         printf("  ");
         Print_Number((int64) bscaf+1,br_wide+1,stdout);
-        printf(".%0*d",bc_wide,(bread - bscaffs[bscaf].fctg)+1);
-        if (COMP(ovl->flags))
-          printf(" c");
+        printf(".%0*d%c",bc_wide,(bread - bscaffs[bscaf].fctg)+1,
+                         ((COMP(ovl->flags) == 0) == reverse)?'c':'n');
+
+        if (reverse)
+          { ab = aoffs + path->aepos;
+            ae = aoffs + path->abpos;
+          }
         else
-          printf(" n");
-        if (ovl->path.abpos+aoffs == 0)
+          { ab = aoffs + path->abpos;
+            ae = aoffs + path->aepos;
+          }
+
+        if (ab == 0 || ab == aslen)
           printf("   <");
         else
           printf("   [");
-        Print_Number((int64) ovl->path.abpos+aoffs,ai_wide,stdout);
+        Print_Number((int64) ab,ai_wide,stdout);
         printf("..");
-        Print_Number((int64) ovl->path.aepos+aoffs,ai_wide,stdout);
-        if (ovl->path.aepos+aoffs == alens)
+        Print_Number((int64) ae,ai_wide,stdout);
+        if (ae == 0 || ae == aslen)
           printf("> x ");
         else
           printf("] x ");
+
         if (COMP(ovl->flags))
-          { if ((bclen-ovl->path.bbpos)+boffs == blens)
-              printf("<");
-            else
-              printf("[");
-            Print_Number((int64) boffs+(bclen-ovl->path.bbpos),bi_wide,stdout);
-            printf("..");
-            Print_Number((int64) boffs+(bclen-ovl->path.bepos),bi_wide,stdout);
-            if ((bclen-ovl->path.bepos)+boffs == 0)
-              printf(">");
-            else
-              printf("]");
+          { bb = boffs+(bclen-path->bbpos);
+            be = boffs+(bclen-path->bepos);
           }
         else
-          { if (ovl->path.bbpos+boffs == 0)
-              printf("<");
-            else
-              printf("[");
-            Print_Number((int64) ovl->path.bbpos+boffs,bi_wide,stdout);
-            printf("..");
-            Print_Number((int64) ovl->path.bepos+boffs,bi_wide,stdout);
-            if (ovl->path.bepos+boffs == blens)
-              printf(">");
-            else
-              printf("]");
+          { bb = boffs+path->bbpos;
+            be = boffs+path->bepos;
           }
+        if (reverse)
+          { int x = bb; bb = be; be = x; }
 
-        printf("  ~  %5.2f%% ",(200.*ovl->path.diffs) /
-               ((ovl->path.aepos - ovl->path.abpos) + (ovl->path.bepos - ovl->path.bbpos)) );
-        printf("  (");
-        Print_Number(alens,ai_wide,stdout);
-        printf(" x ");
-        Print_Number(blens,bi_wide,stdout);
-        printf(" bps,");
-        Print_Number((int64) ovl->path.diffs,mn_wide,stdout);
-        printf(" diffs, ");
-        Print_Number(tps,tp_wide,stdout);
-        printf(" trace pts)\n");
+        if (bb == 0 || bb == bslen)
+          printf("<");
+        else
+          printf("[");
+        Print_Number((int64) bb,bi_wide,stdout);
+        printf("..");
+        Print_Number((int64) be,bi_wide,stdout);
+        if (be == 0 || be == bslen)
+          printf(">");
+        else
+          printf("]");
 
         if (ALIGN || REFERENCE)
           { char *aseq, *bseq;
@@ -498,21 +509,21 @@ int main(int argc, char *argv[])
 
             self = (ISTWO == 0) && (aread == bread) && !COMP(ovl->flags);
 
-            amin = ovl->path.abpos - BORDER;
+            amin = path->abpos - BORDER;
             if (amin < 0) amin = 0;
-            amax = ovl->path.aepos + BORDER;
-            if (amax > aln->alen) amax = aln->alen;
+            amax = path->aepos + BORDER;
+            if (amax > aclen) amax = aclen;
             if (COMP(aln->flags))
-              { bmin = (aln->blen-ovl->path.bepos) - BORDER;
+              { bmin = (bclen-path->bepos) - BORDER;
                 if (bmin < 0) bmin = 0;
-                bmax = (aln->blen-ovl->path.bbpos) + BORDER;
-                if (bmax > aln->blen) bmax = aln->blen;
+                bmax = (bclen-path->bbpos) + BORDER;
+                if (bmax > bclen) bmax = bclen;
               }
             else
-              { bmin = ovl->path.bbpos - BORDER;
+              { bmin = path->bbpos - BORDER;
                 if (bmin < 0) bmin = 0;
-                bmax = ovl->path.bepos + BORDER;
-                if (bmax > aln->blen) bmax = aln->blen;
+                bmax = path->bepos + BORDER;
+                if (bmax > bclen) bmax = bclen;
                 if (self)
                   { if (bmin < amin)
                       amin = bmin;
@@ -530,7 +541,7 @@ int main(int argc, char *argv[])
             aln->aseq = aseq - amin;
             if (COMP(aln->flags))
               { Complement_Seq(bseq,bmax-bmin);
-                aln->bseq = bseq - (aln->blen - bmax);
+                aln->bseq = bseq - (bclen - bmax);
               }
             else if (self)
               aln->bseq = aln->aseq;
@@ -541,16 +552,71 @@ int main(int argc, char *argv[])
 
             Gap_Improver(aln,work);
 
-            { int *trace = aln->path->trace;
-              int  tlen  = aln->path->tlen;
+            printf("  ~  %5.2f%% ",(200.*ovl->path.diffs) /
+                   ((path->aepos - path->abpos) + (path->bepos - path->bbpos)) );
+            printf("  (");
+            Print_Number(aslen,ai_wide,stdout);
+            printf(" x ");
+            Print_Number(bslen,bi_wide,stdout);
+            printf(" bps,");
+            Print_Number((int64) path->diffs,mn_wide,stdout);
+            printf(" diffs, ");
+            Print_Number(tps,tp_wide,stdout);
+            printf(" trace pts)\n");
+
+            if (reverse)
+              { int  *trace = path->trace;
+                int   tlen  = path->tlen;
+                int x, j, h;
+
+                Complement_Seq(aseq,amax-amin);
+                if (!self)
+                  Complement_Seq(bseq,bmax-bmin);
+                x = path->abpos;
+                path->abpos = aclen - path->aepos;
+                path->aepos = aclen - x;
+                x = path->bbpos;
+                path->bbpos = bclen - path->bepos;
+                path->bepos = bclen - x;
+                aln->aseq = aseq - (aclen-amax); 
+                if (COMP(aln->flags))
+                  aln->bseq = bseq - bmin;
+                else
+                  aln->bseq = bseq - (bclen-bmax); 
+                aclen += 2;
+                bclen += 2;
+                for (j = 0; j < tlen; j++)
+                  { x = trace[j]; 
+                    if (x < 0)
+                      trace[j] = -(aclen+x);
+                    else
+                      trace[j] = bclen-x;
+                  }
+                aclen -= 2;
+                bclen -= 2;
+                for (j = 0, h = tlen-1; j < h; j++, h--)
+                  { x = trace[j];
+                    trace[j] = trace[h];
+                    trace[h] = x;
+                  }
+              }
+
+            { int *trace = path->trace;
+              int  tlen  = path->tlen;
               int  i;
 
-              aln->path->abpos += aoffs;
-              aln->path->aepos += aoffs;
-              aln->alen = alens;
-              aln->path->bbpos += boffs;
-              aln->path->bepos += boffs;
-              aln->blen = blens;
+              path->abpos += aoffs;
+              path->aepos += aoffs;
+              if (reverse)
+                aln->alen = 2*aoffs + aclen;
+              else
+                aln->alen = 0;
+              path->bbpos += boffs;
+              path->bepos += boffs;
+              if ((COMP(ovl->flags) == 0) == reverse)
+                aln->blen = 2*boffs + bclen;
+              else
+                aln->blen = 0;
 
               aln->aseq -= aoffs;
               aln->bseq -= boffs;
@@ -562,14 +628,27 @@ int main(int argc, char *argv[])
             }
 
             if (REFERENCE)
-              Print_Reference(stdout,aln,work,INDENT,WIDTH,BORDER,UPPERCASE,mx_wide);
+              Print_Reference(stdout,aln,work,INDENT,WIDTH,BORDER,UPPERCASE,mx_wide,reverse);
             if (ALIGN)
-              Print_Alignment(stdout,aln,work,INDENT,WIDTH,BORDER,UPPERCASE,mx_wide);
+              Print_Alignment(stdout,aln,work,INDENT,WIDTH,BORDER,UPPERCASE,mx_wide,reverse);
           }
+        else
+          { printf("  ~  %5.2f%% ",(200.*ovl->path.diffs) /
+                   ((ovl->path.aepos - ovl->path.abpos) + (ovl->path.bepos - ovl->path.bbpos)) );
+            printf("  (");
+            Print_Number(aslen,ai_wide,stdout);
+            printf(" x ");
+            Print_Number(bslen,bi_wide,stdout);
+            printf(" bps,");
+            Print_Number((int64) ovl->path.diffs,mn_wide,stdout);
+            printf(" diffs, ");
+            Print_Number(tps,tp_wide,stdout);
+            printf(" trace pts)\n");
+         }
       }
 
     free(trace);
-    if (ALIGN)
+    if (ALIGN || REFERENCE)
       { free(bbuffer-1);
         free(abuffer-1);
         Free_Work_Data(work);

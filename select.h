@@ -32,6 +32,7 @@ typedef struct
   { int order;     //  0 if out, order in selection expression if > 0
     int beg;       //  if -1 then not in selection, otherwise [beg..end] of contig is in.
     int end;
+    int orient;    //  +1 if forward, -1 if reverse, 0 if none
   } Contig_Range;
 
 Contig_Range *get_selection_contigs(char *selection, GDB *gdb, Hash_Table *hash, int ordered);
@@ -46,6 +47,7 @@ typedef struct
     int src;      //  if SUBSTR then src[beg..end] where src is a CONTG or SCAFF
     int beg;      //  if RANGE then beg-end of CONTG or SCAFF
     int end;
+    int orient;   //  +1 if forward, -1 if reverse, 0 if none
   } Selection;
 
 Selection *get_selection_list(char *selection, GDB *gdb, Hash_Table *hash, int *nlen);

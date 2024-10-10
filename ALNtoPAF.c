@@ -138,16 +138,6 @@ void *gen_paf(void *args)
           fprintf(out,"\t%lld",boff + path->bepos);
         }
 
-      blocksum = (path->aepos-path->abpos) + (path->bepos-path->bbpos);
-      iid      = (blocksum - path->diffs)/2;
-     
-      fprintf(out,"\t%d",iid);
-      fprintf(out,"\t%d",blocksum/2);
-      fprintf(out,"\t255");
-
-      fprintf(out,"\tdv:f:%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
-      fprintf(out,"\tdf:i:%d",path->diffs);
-
       if (CIGAR)
         { int  bmin, bmax;
           char *bact;
@@ -177,6 +167,16 @@ void *gen_paf(void *args)
           Compute_Trace_PTS(aln,work,TSPACE,GREEDIEST);
 
           Gap_Improver(aln,work);
+
+          blocksum = (path->aepos-path->abpos) + (path->bepos-path->bbpos);
+          iid      = (blocksum - path->diffs)/2;
+     
+          fprintf(out,"\t%d",iid);
+          fprintf(out,"\t%d",blocksum/2);
+          fprintf(out,"\t255");
+
+          fprintf(out,"\tdv:f:%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
+          fprintf(out,"\tdf:i:%d",path->diffs);
 
           if (CIGAR_M)
             { int    k, h, p, x, blen;
@@ -337,6 +337,18 @@ void *gen_paf(void *args)
                     fprintf(out,"%d=",elen);
                 }
             }
+        }
+
+      else
+        { blocksum = (path->aepos-path->abpos) + (path->bepos-path->bbpos);
+          iid      = (blocksum - path->diffs)/2;
+     
+          fprintf(out,"\t%d",iid);
+          fprintf(out,"\t%d",blocksum/2);
+          fprintf(out,"\t255");
+
+          fprintf(out,"\tdv:f:%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
+          fprintf(out,"\tdf:i:%d",path->diffs);
         }
 
       fprintf(out,"\n");

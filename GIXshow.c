@@ -420,9 +420,44 @@ static int shiftup[128] =
     0, 0, 0, 0, 0, 0, 0, 0,
   };
 
+static uint8 code[128] =
+  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+static void compress_norm(char *s, int len, uint8 *t)
+{ int    i;
+  char   c, d, e;
+  char  *s0, *s1, *s2, *s3;
+
+  s0 = s;
+  s1 = s0+1;
+  s2 = s1+1;
+  s3 = s2+1;
+
+  c = s0[len];
+  d = s1[len];
+  e = s2[len];
+  s0[len] = s1[len] = s2[len] = 'a';
+
+  for (i = 0; i < len; i += 4)
+    *t++ = ((code[(int) s0[i]] << 6) | (code[(int) s1[i]] << 4)
+         |  (code[(int) s2[i]] << 2) | code[(int) s3[i]] );
+
+  s0[len] = c;
+  s1[len] = d;
+  s2[len] = e;
+}
+
 static int64 Interpret(Kmer_Stream *T, char *x, int beg)
-{ int   d, n;
-  char *u;
+{ int    d, n;
+  char  *u;
+  uint8 *v;
 
   if (sscanf(x,"%d%n",&d,&n) == 1)
     { if (x[n] != 0)
@@ -448,6 +483,7 @@ static int64 Interpret(Kmer_Stream *T, char *x, int beg)
       exit (1);
     }
   u = Current_Kmer(T,NULL);
+  v = (uint8 *) Current_Kmer(T,NULL);
   strcpy(u,x);
   if (!beg)
     { n -= 1;
@@ -461,7 +497,9 @@ static int64 Interpret(Kmer_Stream *T, char *x, int beg)
     }
   while (n < T->kmer)
     u[n++] = 'a';
-  GoTo_Kmer_String(T,u);
+  compress_norm(u,T->kmer,v);
+  GoTo_Kmer_Entry(T,v);
+  free(v);
   free(u);
   return (T->cidx);
 }

@@ -1650,7 +1650,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[3]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"     <selection> = <range> [ , <range> ]*\n");
+        fprintf(stderr,"     <selection> = <range>[+-] [ , <range>[+-] ]*\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"     <range> =     <contig>[-<contig>]    |  <contig>_<int>-(<int>|#)\n");
         fprintf(stderr,"             | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)\n");

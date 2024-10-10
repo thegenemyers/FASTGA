@@ -26,7 +26,7 @@
   - [GIXmv](#GIXmv): Move GDBs and GIXs including their hidden parts as an ensemble
   - [ALNchain](#ALNchain): Alignment filtering by construction of local chains
   - [ALNreset](#ALNreset): Reset a .1aln file's internal references to the GDB(s) it was computed from
-
+  - [PAFtoALN](#PAFtoALN): Convert a PAF formatted file with X-CIGAR strings to a .1aln file
 
 ## Overview
 
@@ -99,7 +99,7 @@ error a running discourse of the command's progress.
 
 ```
 FastGA [-vk] [-T<int(8)>] [-P<dir(/tmp)] [<format(-paf)>]
-          [-f<int(10)>] [-c<int(100)>] [-s<int(500)>] [-l<int(100)>] [-i<float(.7)>]
+          [-f<int(10)>] [-c<int(85)>] [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)>]
           <source1:path>[<precursor] [<source2:path>[<precursor>]]
           
     <format> = -paf[mx] | -psl | -1:<alignment:path>[.1aln] 
@@ -152,8 +152,8 @@ If GIXmake is invoked separately to make the index in advance of calling FastGA,
 then the option -f, if specified,
 must be less than or equal to the value of -f given when GIXmake was run.
 
-FastGA then searches for runs or chains of adaptamer seed hits that (a) all lie within a diagonal band of width 128, (b) the spacing between every pair of consecutive seeds is less than -s(500), and
-(c) the seeds in the chain cover at least -c(100) bases in both genomes.  For these **chain
+FastGA then searches for runs or chains of adaptamer seed hits that (a) all lie within a diagonal band of width 128, (b) the spacing between every pair of consecutive seeds is less than -s(1000), and
+(c) the seeds in the chain cover at least -c(85) bases in both genomes.  For these **chain
 hits**, FastGA then runs a wave-based local alignment routine that searches for a local alignment
 of length at least -l(100)bp with a similarity of -i(70%) or better that contains at least one
 of the seeds in the chain.  All such found alignments are recorded as a trace-point encoding in
@@ -294,7 +294,7 @@ references to the new GDB locations with [ALNreset](#ALNreset).
 ```
 1. GDBshow [-hU] [-w<int(80)>] <source:path[.1gdb] [ <selection> | <FILE> ]
 
-       <selection> = <range> [ , <range> ]*
+       <selection> = <range>[+-] [ , <range>[+-] ]*
        
        <range> =    <contig>[-<contig>]     |  <contig>_<int>-(<int>|#)
                | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)
@@ -316,9 +316,11 @@ besides the source GDB are given, then all the contigs of the GDB are output (in
 
 * The special symbol # which may substitute for an integer denotes "the last", e.g. # adresses the last contig in the genome, #.1 addresses the 1st contig of the last scaffold, and 1_500-# selects the substring from 500 to the end of contig 1.
 
-* A range either begins with an @ sign, in which case all indices are to scaffolds, or it does not
+* A range can either begins with an @ sign, in which case all indices are to scaffolds, or it does not
  in which case all indices are to contigs.  If the range is (1) a single index, then the given contig or scaffold is displayed, (2) a pair of indices separated by a hyphen, then the range of contigs or scaffolds are displayed (inclusively), or (3) a single index followed by an under-bar and then two integers separated by a hyphen, then the substring
 of the contig or scaffold between the indices given by the two integers is displayed.
+A range can optionally end with a + or - sign.  If the range ends wiht a - sign then the complement strand of the requested sequence is displayed, otherwise
+(a + sign or no sign) the sequence is displayed as is.
 
 * A selection on the command line is a list of ranges separated by commas.
 
@@ -371,7 +373,7 @@ the string (or the last if it is the second argument of a range).
 4. ALNshow [-arU] [-i<int(4).] [-w<int(100)>] [-b<int(10)>>
               <alignments:path>[.1aln] [ <selection>|<FILE> [<selection>|<FILE>] ]
 
-       <selection> = <range> [ , <range> ]*
+       <selection> = <range>[+-] [ , <range>[+-] ]*
 
        <range> =    <contig>[-<contig>]     |  <contig>_<int>-(<int>|#)
                | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)
@@ -387,6 +389,11 @@ as an argument then every alignment is displayed.  If a single selection is give
 those alignments whose interval in the 1st genome intersects the selection are displayed.
 If a pair of selections are given then those alignments where its interval in the 1st genome intersects
 the 1st selection and its interval in the 2nd genome intersects the 2nd selection are displayed.
+If a range in the first selection is signed than that determines if the alignment is displayed with
+the substring of the 1st genome in the normal orientation (+, also no sign) or the complement
+orientation (-).  If a range is the second selection, if present, is signed than only alignments
+in which the relative orientation of the first and second substrings agrees with the sign polarity
+of the selection pair.
 See the documentation for [GDBshow](#GDBshow) for a detailed explanation of the format and meaning
 of selections.
 
@@ -461,7 +468,7 @@ of a square bracket [].
                [-H<int(600)>] [-W<int>] [-f<int>] [-t<float>]
                <alignment:path>[.1aln|.paf[.gz]]> [<selection>|<FILE> [<selection>|<FILE>]]
 
-       <selection> = <range> [ , <range> ]*
+       <selection> = <range>[+-] [ , <range>[+-] ]*
 
        <range> =     <contig>[-<contig>]    |  <contig>_<int>-(<int>|#)
                | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)
@@ -598,4 +605,11 @@ built.
        <1_extn>  = any valid 1-code sequence file type
 ```
 
-Under construction.
+PAFtoALN takes a PAF file as its first argument and the two sources that were compared to produce the
+alignment in the PAF file as the second and third arguments.
+The PAF file must have CIGAR strings that use X and = to describe the alignment of ungapped segments
+as opposed to just M.
+The number of threads used is 8 by default, but can be set with the -T option.
+A .1aln file with the name \<alignments\>.1aln is produced.  (*NB*: CIGAR strings with M could be
+accepted but would require the explicit reconstruction of each alignment, a possible to do if
+requested/required.)

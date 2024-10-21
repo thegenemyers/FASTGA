@@ -449,9 +449,13 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
 
   int            gzipd, nline;
   void          *input;
-
   OneSchema     *schema;
   OneFile       *of;
+
+  prov  = NULL;
+  input  = NULL;
+  schema = NULL;
+  of     = NULL;
 
   //  Establish .bps file if needed
 
@@ -485,7 +489,6 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
   else
     seqpath = NULL;
 
-
   //  Setup expanding arrays for headers, scaffolds, & contigs
 
   hdrtot  = 0;
@@ -512,7 +515,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
     gdb->srcpath = strdup(spath);
   if (contigs == NULL || scaffs == NULL || headers == NULL || gdb->srcpath == NULL)
     { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",Prog_Name,spath);
-      goto error1;
+      goto error;
     }
 
   //  Read either 1-file or fasta and accumulate skeleton
@@ -527,14 +530,14 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
       schema = make_Seq_Schema();
       if (schema == NULL)
         { EPRINTF(EPLACE,"%s: Failed to create onecode schema (Create_GDB)\n",Prog_Name);
-          goto error1;
+          goto error;
         }
 
       of = oneFileOpenRead (spath, schema, "seq", 1) ;
       if (of == NULL)
         { EPRINTF(EPLACE,"%s: Cannot open %s as a 1-code sequence file (Create_GDB)\n",
                          Prog_Name,spath);
-          goto error3;
+          goto error;
         }
     
       for (i = 0; i < 256; i++)
@@ -551,7 +554,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
       if (psize > 0)
         { prov = malloc(psize);
           if (prov == NULL)
-            goto error4;
+            goto error;
 
           pstr = (char *) (prov + nprov);
           for (i = 0; i < nprov; i++)
@@ -584,7 +587,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
           EPRINTF(EPLACE,"          I.E. #'s' = %lld  #'I' = %lld  #'n' = %lld\n",
                    of->info['s']->given.count, of->info['I']->given.count,
                    of->info['n']->given.count) ;
-          goto error4;
+          goto error;
         }
     
       spos = 0;
@@ -602,7 +605,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                 scaffs = realloc(scaffs,scftop*sizeof(GDB_SCAFFOLD));
                 if (scaffs == NULL)
                   { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",Prog_Name,spath);
-                    goto error4;
+                    goto error;
                   }
               }
             scaffs[nscaff].hoff = hdrtot;
@@ -627,7 +630,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                 contigs = realloc(contigs,ctgtop*sizeof(GDB_CONTIG));
                 if (contigs == NULL)
                   { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",Prog_Name,spath);
-                    goto error4;
+                    goto error;
                   }
               }
             contigs[ncontig].boff = boff;
@@ -649,7 +652,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
     
             if (bps)
               { if (fwrite (bytes, clen, 1, bases) != 1)
-                  goto error4;
+                  goto error;
               }
             boff += clen;
     
@@ -708,7 +711,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
         input = fopen(spath,"r");
       if (input == NULL)
         { EPRINTF(EPLACE,"%s: Cannot open %s for reading\n",Prog_Name,spath);
-          goto error1;
+          goto error;
         }
 
       nprov = 0;
@@ -719,16 +722,16 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
       nline = 1;
       line  = read_line(input,gzipd,&len,nline,spath);
       if (line == ERROR)
-        goto error2;
+        goto error;
       else if (line == NULL)
         { EPRINTF(EPLACE,"%s: Input %s is empty, terminating!\n",Prog_Name,spath);
-          goto error2;
+          goto error;
         }
     
       if (line[0] != '>')
         { EPRINTF(EPLACE,"%s: First header in fasta file %s is missing\n",
                          Prog_Name,spath);
-          goto error2;
+          goto error;
         }
     
       while (line != NULL)
@@ -742,7 +745,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
               scaffs = realloc(scaffs,scftop*sizeof(GDB_SCAFFOLD));
               if (scaffs == NULL)
                 { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",Prog_Name,spath);
-                  goto error2;
+                  goto error;
                 }
             }
           scaffs[nscaff].fctg = ncontig;
@@ -753,7 +756,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
               headers = realloc(headers,hdrtop);
               if (headers == NULL)
                 { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",Prog_Name,spath);
-                  goto error2;
+                  goto error;
                 }
             }
           memcpy(headers+hdrtot,line+i,len);
@@ -766,7 +769,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
             { nline += 1;
               line   = read_line(input,gzipd,&len,nline,spath);
               if (line == ERROR)
-                goto error2;
+                goto error;
               else if (line == NULL || line[0] == '>')
                 { if (in)
                     { if (bps)
@@ -792,7 +795,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                           if (contigs == NULL)
                             { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",
                                              Prog_Name,spath);
-                              goto error2;
+                              goto error;
                             }
                         }
                     }
@@ -810,7 +813,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                                 if (contigs == NULL)
                                   { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",
                                                    Prog_Name,spath);
-                                    goto error2;
+                                    goto error;
                                   }
                               }
                             contigs[ncontig].sbeg = spos;
@@ -869,7 +872,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                                 if (contigs == NULL)
                                   { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",
                                                    Prog_Name,spath);
-                                    goto error2;
+                                    goto error;
                                   }
                               }
                             contigs[ncontig].sbeg = spos;
@@ -899,7 +902,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
           if (spos == 0)
             { EPRINTF(EPLACE,"%s: Missing sequence entry at line %d in file %s\n",
                              Prog_Name,nline,spath);
-              goto error2;
+              goto error;
             }
           scaffs[nscaff].slen = spos;
           scaffs[nscaff].ectg = ncontig;
@@ -948,9 +951,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
 
       units = malloc(sizeof(FILE *)*bps);
       if (units == NULL)
-        { free(gdb->seqpath);
-          goto error1;
-        }
+        goto error;
       units[0] = bases;
       for (i = 1; i < bps; i++)
         units[i] = Fopen(seqpath,"r");
@@ -959,17 +960,18 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
       return (units);
     }
 
-error4:
-  oneFileClose(of);
-error3:
-  oneSchemaDestroy(schema);
-  goto error1;
-error2:
-  if (gzipd)
-    gzclose(input);
-  else
-    fclose(input);
-error1:
+error:
+  if (of != NULL)
+    oneFileClose(of);
+  if (schema != NULL)
+    oneSchemaDestroy(schema);
+  if (input != NULL)
+    { if (gzipd)
+        gzclose(input);
+      else
+        fclose(input);
+    }
+  free(prov);
   free(gdb->srcpath);
   free(headers);
   free(scaffs);
@@ -978,6 +980,7 @@ error1:
     fclose(bases);
   if (tpath == NULL)
     unlink(seqpath);
+  free(seqpath);
   EXIT (NULL);
 }
 
@@ -1217,7 +1220,7 @@ error:
   EXIT(1);
 }
 
-void Print_Read(char *s, int width)
+static void Print_Contig(char *s, int width)
 { int i;
 
   if (s[0] < 4)
@@ -1488,6 +1491,8 @@ char *Get_Contig(GDB *gdb, int i, int stype, char *buffer)
   GDB_CONTIG *c = gdb->contigs;
   int64       off;
   int         len, clen;
+
+  (void) Print_Contig;
 
   if (m == NULL)
     { EPRINTF(EPLACE,"%s: GDB has no sequence data\n",Prog_Name);

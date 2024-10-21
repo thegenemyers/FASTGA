@@ -29,7 +29,6 @@ static char *Usage =
 
 #define MAX_BUFFER   10001
 
-static int           NCONTIG;   // # of contigs (across all scaffolds)
 static int           NSCAFF;    // # of scaffolds
 static char         *HEADERS;   // All headers
 static GDB_CONTIG   *CONTIGS;   // contig vector of the database
@@ -142,7 +141,6 @@ int main(int argc, char *argv[])
     Read_GDB(gdb,argv[1]);
 
     NSCAFF  = gdb->nscaff;
-    NCONTIG = gdb->ncontig;
     CONTIGS = gdb->contigs;
     SCAFFS  = gdb->scaffolds;
     HEADERS = gdb->headers;

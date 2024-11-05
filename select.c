@@ -2,7 +2,7 @@
  *
  *  Module for parsing & interpreting what part of the genomes to display.
  *    
- *    Contig_Range *interpret_selection(char *selection, GDB *gdb, Hash_Table *hash)
+ *    Contig_Range *interpret_range(char *selection, GDB *gdb, Hash_Table *hash)
  *
  *  Output is array xSEQ, xBEG, xEND (x = A or B) that indicate if a contig
  *    is to be displayed and the range thereof.
@@ -30,8 +30,10 @@
   //  Syntax symbols
 
 #define SCAF_SYMBOL '@'
+#define CONT_SYMBOL '.'
+#define POST_SYMBOL ':'
 #define LAST_SYMBOL '#'
-#define FILE_SYMBOL ':'
+#define RANG_SYMBOL '-'
 #define DLIM_SYMBOL ','
 
 //  Read next line into a buffer and return a pointer to the buffer
@@ -111,16 +113,38 @@ static char *read_line(void *input, int gzipd, int nline, char *spath)
   return (buffer);
 }
 
-//  Parse read range grabbing up to 4 values from it as follows:
-//    type 1
-//          val[0][.val[1]]
-//    type 2
-//          val[0][.val[1]] - val[2][.val[3]]
-//    type 3
-//          val[0][.val[1]] _ val[2] - val[3]
-//  Return 0 if there is a syntactic error, otherwise return the type.
-//  0 values indicate #, -1 indicates not present, -2 (only in val[1] and possibly val[3])
-//      indicates val[0] and possibly val[2], respectively, are scaffold indices
+//  Parse a range expression.
+//    val[0] = val[4] = scaffold
+//    val[1] = val[5] = contig
+//    val[2] = val[6] = position
+//    val[3] = val[7] = position precision
+//    val[8] = sign
+//  val[0-3] is the 1st location of a range, val[4-7] the 2nd location
+//  If any item is -1 then denotes last (#), and if -2 then not present
+
+static char *src;
+
+static int follow[128] =      //  isspace !isprint + - . :
+  { 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1,
+    1, 0, 0, 0, 0, 0, 0, 0,
+
+    0, 0, 0, 1, 0, 1, 1, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 1, 0, 0, 0, 0, 0,
+
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 1
+  };
 
 static inline char *white(char *x)
 { while (isspace(*x))
@@ -128,302 +152,501 @@ static inline char *white(char *x)
   return (x);
 }
 
-static inline char *getint(char *x, int *v)
+static inline char *get_int(char *x, int64 *v, int *n)
 { *v = 0;
+  *n = 1;
   while (isdigit(*x))
-    *v = 10*(*v) + (*x++ - '0');
+    { *v  = 10*(*v) + (*x++ - '0');
+      *n *= 10;
+    }
   return (x);
 }
 
-static char *address(char *x, int *v, int sep)
-{ int a;
+static char *get_bps(char *x, int64 *v)
+{ int   a, n;
+  int64 r, p, m;
 
+  x = get_int(x,&r,&n);
   x = white(x);
-  a = *x++;
-  if (a == LAST_SYMBOL)
-    v[0] = 0;
-  else if (isdigit(a))
-    { x = getint(x-1,v);
-      if (v[0] == 0 && sep != '-')
-        { if (sep == ' ')
-            fprintf(stderr,"%s: Scaffold index 0 is out of bounds\n",Prog_Name);
-          else
-            fprintf(stderr,"%s: Absolute contig index 0 is out of bounds\n",Prog_Name);
-          exit (1);
-        }
-    }
-  else
-    return (NULL);
-  x = white(x);
-  if (*x == sep)
+  if (*x == '.')
     { x = white(x+1);
-      a = *x++;
-      if (a == LAST_SYMBOL)
-        v[1] = 0;
-      else if (isdigit(a))
-        x = getint(x-1,v+1);
+      if (isdigit(*x))
+        x = get_int(x,&p,&n);
       else
-        return (NULL);
+        { EPRINTF(EPLACE,"Location . not followed by integer\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+          EXIT(NULL);
+        }
       x = white(x);
     }
-  else if (sep == ' ')
-    v[1] = -2;
-  else if (sep == '.')
-    v[1] = -1;
-  else  // sep == '-'
-    return (NULL);
+  else
+    { p = 0;
+      n = 1;
+    }
+  a = *x++;
+  if (a == 'G')
+    m = 1000000000;
+  else if (a == 'M')
+    m = 1000000;
+  else if (a == 'k')
+    m = 1000;
+  else
+    { m = 1;
+      x -= 1;
+    }
+  if (p >= m)
+    { EPRINTF(EPLACE,
+        "Location precision has more digits than multiplier %c\n\t%.*s ^ %s\n",
+        (int) a,(int) (x-src),src,x);
+      EXIT(NULL);
+    }
+  m /= n;
+  *v = (r*n + p) * m;
+  v[1] = m;
   return (x);
 }
 
-static int range(char *src, int *v, Hash_Table *hash)
-{ int   t, sep;
-  char *x, *y, *z;
-  int   i, j;
+static char *get_location(char *x, int64 *v, Hash_Table *hash)
+{ int   a, i;
+  char *y;
 
-  v[2] = -1;
-  x = white(src);
-
-  y = x + strlen(x);        //  Clip tailing +/- from string
-  while (isspace(*--y)) ;
-  if (*y == '+')
-    { v[4] = +1;
-      *y = '\0';
-    }
-  else if (*y == '-')
-    { v[4] = -1;
-      *y = '\0';
-    }
-  else
-    v[4] = 0;
+  v[0] = v[1] = v[2] = v[3] = -2;
+  x = white(x);
 
   if (*x == SCAF_SYMBOL)
-    { x += 1;
-      sep = ' ';
+    { x = white(x+1);
+      if (*x == LAST_SYMBOL)
+        { v[0] = -1;
+          x += 1;
+        }
+      else if (isdigit(*x))
+        { x = get_int(x,v,&a);
+          if (v[0] == 0)
+            { EPRINTF(EPLACE,"Scaffold index cannot be 0\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+              EXIT(NULL);
+            }
+        }
+      else
+        { y = x;
+          while ( ! follow[(int) (*x)] )
+            x += 1;
+          a = *x;
+          *x = '\0';
+          i = Hash_Lookup(hash,y);
+          *x = a;
+          if (i < 0)
+            { EPRINTF(EPLACE,"Could not parse scaffold item\n\t%.*s ^ %s\n",(int) (y-src),src,y);
+              EXIT(NULL);
+            }
+          v[0] = i+1;
+        }
+      x = white(x);
     }
+  if (*x == CONT_SYMBOL)
+    { x = white(x+1);
+      if (*x == LAST_SYMBOL)
+        { v[1] = -1;
+          x += 1;
+        }
+      else if (isdigit(*x))
+        { x = get_int(x,v+1,&a);
+          if (v[1] == 0)
+            { EPRINTF(EPLACE,"Contig index cannot be 0\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+              EXIT(NULL);
+            }
+        }
+      else
+        { EPRINTF(EPLACE,"Contig is not an integer or #-sign\n\t%*s ^ %.s\n",(int) (x-src),src,x);
+          EXIT(NULL);
+        }
+      x = white(x);
+    }
+  if (v[0] >= -1 || v[1] >= -1)
+    { if (*x == POST_SYMBOL)
+        { x = white(x+1);
+          if (*x == LAST_SYMBOL)
+            { v[2] = -1;
+              x += 1;
+            }
+          else if (isdigit(*x))
+            x = get_bps(x,v+2);
+          else
+            { EPRINTF(EPLACE,"Position is not an integer or #-sign\n\t%.*s ^ %s\n",
+                              (int) (x-src),src,x);
+              EXIT(NULL);
+            }
+        }
+    }
+  else if (*x == LAST_SYMBOL)
+    { v[2] = -1;
+      x += 1;
+    }
+  else if (isdigit(*x))
+    x = get_bps(x,v+2);
   else
-    sep = '.';
-  y = address(x,v,sep);
-  if (y == NULL)
-    { if (sep == ' ')
-        goto try_string;
-      else
-        return (0);
+    { EPRINTF(EPLACE,"Empty location\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+      EXIT(NULL);
     }
-  t = 1;
-  if (*y == '-')
-    { y = address(y+1,v+2,sep);
-      t = 2;
-    }
-  else if (*y == '_')
-    { y = address(y+1,v+2,'-');
-      t = 3;
-    }
-  if (y == NULL || *y != '\0')
-    { if (sep == ' ')
-        goto try_string;
-      else
-        return (0);
-    }
-  return (t);
 
-try_string:
-  i = Hash_Lookup(hash,x);
-  if (i >= 0)
-    { v[1] = -2;
-      v[0] = i+1;
-      return (1);
+  return (x);
+}
+
+static int get_focus(char *x, int64 *v, Hash_Table *hash1, Hash_Table *hash2)
+{ src = x;
+ 
+  v[8] = 0;
+  x = get_location(x,v,hash1);
+  if (x == NULL)
+    return (1);
+  if (v[2] < -1)
+    { EPRINTF(EPLACE,"Focus location must give a position\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+      EXIT(1);
     }
-  y = rindex(x,'_');
-  if (y != NULL)
-    { *y = '\0';
-      i = Hash_Lookup(hash,x);
-      if (i >= 0)
-        { z = address(y+1,v+2,'-');
-          if (z != NULL && *z == '\0')
-            { v[1] = -2;
-              v[0] = i+1;
-              *y = '_';
-              return (2);
-            }
-        }
-      *y = '_';
+  x = white(x);
+  if (*x != DLIM_SYMBOL)
+    { EPRINTF(EPLACE,"Focus locations must be separatd by a '%c'\n\t%.*s ^ %s\n",
+                     DLIM_SYMBOL,(int) (x-src),src,x);
+      EXIT(1);
     }
-  for (y = index(x,'-'); y != NULL; y = index(y+1,'-'))
-    { *y = '\0';
-      i = Hash_Lookup(hash,x);
-      if (i >= 0)
-        { j = Hash_Lookup(hash,y+1);
-          if (j >= 0)
-            { v[1] = v[3] = -2;
-              v[0] = i+1;
-              v[2] = j+1;
-              *y = '-';
-              return (2);
-            }
-          else if (address(y+1,v+2,sep))
-            { v[1] = -2;
-              v[0] = i+1;
-              *y = '-';
-              return (2);
-            }
-        }
-      else if (address(x,v,sep) == y)
-        { j = Hash_Lookup(hash,y+1);
-          if (j >= 0)
-            { v[3] = -2;
-              v[2] = j+1;
-              *y = '-';
-              return (2);
-            }
-        }
-      *y = '-';
+  x = get_location(white(x+1),v+4,hash2);
+  if (x == NULL)
+    return (1);
+  if (v[6] < -1)
+    { EPRINTF(EPLACE,"Focus location must give a position\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+      EXIT(1);
     }
+  x = white(x);
+  if (*x != '\0')
+    { EPRINTF(EPLACE,"Focus syntax is not complete\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+      EXIT(1);
+    }
+
   return (0);
 }
 
- //  Interpret value pair s.c into a 1-based contig or scaffold index, accordingly
+static int get_range(char *x, int64 *v, Hash_Table *hash)
+{ char *y;
 
-static int interpret_address(int s, int c, GDB *gdb)
-{ if (c == -1)
-    { if (s == 0)
-        return (gdb->ncontig);
-      if (s > gdb->ncontig)
-        { fprintf(stderr,"%s: Absolute contig index '%d' is out of bounds\n",Prog_Name,s);
-          exit (1);
-        }
-      return (s);
+  src = x;
+
+  y = x + strlen(x);        //  Clip tailing +/- from string
+  while (isspace(y[-1]))
+    y -= 1;
+  if (*y == '+')
+    { v[8] = +1;
+      *y = '\0';
     }
-  if (s == 0)
-    s = gdb->nscaff;
-  else if (s > gdb->nscaff)
-    { fprintf(stderr,"%s: Scaffold index '%d' is out of bounds\n",Prog_Name,s);
-      exit (1);
-    }
-  if (c == 0)
-    return (gdb->scaffolds[s-1].ectg);
-  if (c == -2)
-    return (s);
-  s -= 1;
-  if (c > gdb->scaffolds[s].ectg-gdb->scaffolds[s].fctg)
-    { fprintf(stderr,"%s: Relative contig index '%d' is out of bounds\n",Prog_Name,c);
-      exit (1);
-    }
-  return (gdb->scaffolds[s].fctg + c);
-}
-
-  //  Interpret argument x as a range and map to contig level ranges
-
-static void interpret_as_contigs(char *x, GDB *gdb, Hash_Table *hash,
-                                 int *pbeg, int *pend, int *pfst, int *plst, int *ori)
-{ int t, vals[5], len, sunit;
-  int beg, end, fst, lst;
-
-  t = range(x,vals,hash);
-  if (t == 0)
-    { fprintf(stderr,"%s: Expression %s not a valid selection\n",Prog_Name,x);
-      exit (1);
-    }
-
-  sunit = (vals[1] == -2);
-
-  beg = end = interpret_address(vals[0],vals[1],gdb) - 1;
-  fst = 0;
-  if (t == 2)
-    { end = interpret_address(vals[2],vals[3],gdb) - 1;
-      if (beg > end)
-        { fprintf(stderr,"%s: Object range in '%s' is empty\n",Prog_Name,x);
-          exit (1);
-        }
-    }
-
-  if (sunit)
-    { beg = gdb->scaffolds[beg].fctg;
-      end = gdb->scaffolds[end].ectg-1;
-    }
-  if (t <= 2)
-    lst = gdb->contigs[end].clen;
-  else // t == 3
-    { fst = vals[2]; //  Type 3: intepret vals[2] and vals[3] as the substring interval
-      lst = vals[3];
-      if (sunit)
-        len = gdb->scaffolds[gdb->contigs[end].scaf].slen;
-      else
-        len = gdb->contigs[beg].clen;
-      if (lst == 0)
-        lst = len;
-      if (fst >= lst)
-        { fprintf(stderr,"%s: Substring interval in '%s' is empty\n",Prog_Name,x);
-          exit (1);
-        }
-      if (sunit)
-        { for ( ; beg <= end; beg++)
-            if (fst < gdb->contigs[beg].sbeg + gdb->contigs[beg].clen)
-              break;
-          fst -= gdb->contigs[beg].sbeg;
-          if (fst < 0)
-            fst = 0;
-          for (; end >= beg; end--)
-            if (lst > gdb->contigs[end].sbeg)
-              break;
-          lst -= gdb->contigs[end].sbeg;
-          if (lst > gdb->contigs[end].clen)
-            lst = gdb->contigs[end].clen;
-        }
-    }
-  *pbeg = beg;
-  *pend = end;
-  *pfst = fst;
-  *plst = lst;
-  *ori  = vals[4];
-}
-
-static void interpret_as_selection(char *x, GDB *gdb, Hash_Table *hash, Selection *s)
-{ int t, vals[5], len;
-
-  t = range(x,vals,hash);
-  if (t == 0)
-    { fprintf(stderr,"%s: Expression %s not a valid selection\n",Prog_Name,x);
-      exit (1);
-    }
-
-  s->beg = s->end = interpret_address(vals[0],vals[1],gdb) - 1; 
-  if (vals[1] == -2)
-    { len = gdb->scaffolds[s->end].slen;
-      s->type = SCAFF_RANGE;
+  else if (*y == '-')
+    { v[8] = -1;
+      *y = '\0';
     }
   else
-    { len = gdb->contigs[s->end].clen;
-      s->type = CONTG_RANGE;
+    v[8] = 0;
+
+  x = get_location(x,v,hash);
+  if (x == NULL)
+    return (1);
+
+  x = white(x);
+  if (*x == RANG_SYMBOL)
+    { x = get_location(x+1,v+4,hash);
+      if (x == NULL)
+        return (1);
+      x = white(x);
     }
-  s->orient = vals[4];
-  if (t < 3)
-    { if (t == 2)
-        { s->end = interpret_address(vals[2],vals[3],gdb)-1;
-          if (s->beg > s->end)
-             { fprintf(stderr,"%s: Object range in '%s' is empty\n",Prog_Name,x);
-               exit (1);
-             }
+  else
+    v[4] = v[5] = v[6] = -2;
+
+  if (*x != '\0')
+    { EPRINTF(EPLACE,"Range syntax is not complete\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+      EXIT(1);
+    }
+
+  return (0);
+}
+
+  //  Determine any missing fields so that v[0] is the scaffold, v[1] is the absolute
+  //    contig index, and v[2] is the contig relative position.
+
+static int complete_address(int64 *v, GDB *gdb, int first)
+{ int64 s, c, p, q;
+  int   fc, ec;
+  int64 cl;
+
+  int nscaff  = gdb->nscaff;
+  int ncontig = gdb->ncontig;
+
+  GDB_CONTIG *contig = gdb->contigs;
+  GDB_SCAFFOLD *scaff = gdb->scaffolds;
+
+  s = v[0];
+  c = v[1];
+  p = q = v[2];
+
+  if (s < -1)
+    { if (c < -1)
+        { if (p == -1)
+            { s = nscaff-1;
+              c = ncontig-1;
+              p = contig[c].clen;
+            }
+          else
+            { for (s = 0; s < nscaff; s++)
+                if (p > scaff[s].slen)
+                  p -= scaff[s].slen;
+                else
+                  break;
+              if (s >= nscaff && p > v[3])
+                { EPRINTF(EPLACE,"Position %lld is larger than genome",q);
+                  EXIT(1);
+                }
+              fc = scaff[s].fctg;
+              ec = scaff[s].ectg;
+              for (c = fc; c < ec; c++)
+                if (p > contig[c].clen)
+                  p -= contig[c].clen;
+                else
+                  break;
+            }
         }
-      return;
+      else
+        { if (c == -1)
+            { s = nscaff-1;
+              c = ncontig-1;
+            }
+          else
+            { if (c > ncontig)
+                { EPRINTF(EPLACE,"Contig %lld is > %d, the # of contigs",c,ncontig);
+                  EXIT(1);
+                }
+              c = c-1;
+              for (s = 0; s < nscaff; s++)
+                if (c < scaff[s].ectg)
+                  break;
+            }
+          cl = contig[c].clen;
+          if (p < -1)
+            { if (first)
+                p = 0;
+              else
+                p = cl;
+            }
+          else if (p == -1)
+            p = cl;
+          else
+            { if (p > cl+v[3])
+                { EPRINTF(EPLACE,"Position %lld beyond contig %lld of length %lld",p,c,cl);
+                  EXIT(1);
+                }
+            }
+        }
     }
-  s->src   = s->beg;  // == s->end
-  s->beg   = vals[2];
-  s->end   = vals[3];
-  s->type += 1;
-  if (s->end == 0)
-    s->end = len;
-  if (s->beg >= s->end)
-    { fprintf(stderr,"%s: Substring interval in '%s' is empty\n",Prog_Name,x);
-      exit (1);
+  else
+    { if (s == -1)
+        s = gdb->nscaff-1;
+      else
+        s = s-1;
+      fc = scaff[s].fctg;
+      ec = scaff[s].ectg;
+      if (c < -1)
+        { if (p < -1)
+            { if (first)
+                { c = fc;
+                  p = 0;
+                }
+              else
+                { c = ec-1;
+                  p = contig[c].clen;
+                }
+            }
+          else if (p == -1)
+            { c = ec-1;
+              p = contig[c].clen;
+            }
+          else
+            { for (c = fc; c < ec; c++)
+                if (p < contig[c].sbeg)
+                  break;
+              c -= 1;
+              p -= contig[c].sbeg;
+              if (c == ec-1 && p > contig[c].clen + v[3])
+                { EPRINTF(EPLACE,"Position %lld is beyond scaffold %lld of length %lld",
+                                 q,s,scaff[s].slen);
+                  EXIT(1);
+                }
+            }
+        }
+      else
+        { if (c == -1)
+            c = ec-1;
+          else
+            { if (c > ec-fc)
+                { EPRINTF(EPLACE,"Contig %lld is > %d, the # of contigs in scaffold %lld",
+                                 c,ec-fc,s);
+                  EXIT(1);
+                }
+              c += fc - 1;
+            }
+          cl = contig[c].clen;
+          if (p < -1)
+            { if (first)
+                p = 0;
+              else
+                p = cl;
+            }
+          else if (p == -1)
+            p = cl;
+          else
+            { if (p > cl+v[3])
+                { EPRINTF(EPLACE,"Position %lld beyond contig %lld of length %lld",p,c,cl);
+                  EXIT(1);
+                }
+            }
+        }
     }
-  return;
+
+  v[0] = s;
+  v[1] = c;
+  v[2] = p;
+  return (0);
+}
+
+int interpret_point(Selection *s, char *x, GDB *gdb1, Hash_Table *hash1,
+                                           GDB *gdb2, Hash_Table *hash2)
+{ int64 v[9];
+
+
+  if (get_focus(x,v,hash1,hash2))
+    return (1);
+
+#ifdef DEBUG_PARSE_SEQ
+  fprintf(stderr,"RAW: ");
+  for (int i = 0; i < 9; i++)
+    fprintf(stderr," %lld",v[i]);
+  fprintf(stderr,"\n");
+#endif
+
+  if (complete_address(v,gdb1,1))
+    return (1);
+  if (complete_address(v+4,gdb2,1))
+    return (1);
+
+  s->type   = POINT_SELECTION;
+  s->orient = 0;
+  s->s1 = v[0];
+  s->c1 = v[1];
+  s->p1 = v[2];
+  s->s2 = v[4];
+  s->c2 = v[5];
+  s->p2 = v[6];
+
+#ifdef DEBUG_PARSE_SEQ
+  printf("SEL: %d %d,%d,%lld  %d,%d,%lld (%d)\n",
+         s->type,s->s1,s->c1,s->p1,s->s2,s->c2,s->p2,s->orient);
+#endif
+
+  return (0);
+}
+
+
+  //  Convert the raw selection v[0..6] into a selection record of 2 locations
+
+int interpret_range(Selection *s, char *x, GDB *gdb, Hash_Table *hash)
+{ int64 v[9];
+  char *y;
+  int   a, special;
+
+  special = 10;
+  y = white(x);
+  a = *y;
+  if (a == '@' || a == '.')
+    { y = white(y+1);
+      if (*y == '\0')
+        special = 0;
+      else
+        { if (*y == '-')
+            special = -1;
+          else if (*y == '+')
+            special = 1;
+          y = white(y+1);
+          if (*y != '\0')
+            special = 10;
+        }
+    }
+
+  if (special < 10)
+    { if (a == '@')
+        s->type = SCAFF_SELECTION;
+      else
+        s->type = CONTG_SELECTION;
+      s->s1 = 0;
+      s->c1 = 0;
+      s->p1 = 0;
+      s->s2 = gdb->nscaff-1;
+      s->c2 = gdb->ncontig-1;
+      s->p2 = gdb->contigs[s->c2].clen;
+      s->orient = special;
+    }
+
+  else
+    { if (get_range(x,v,hash))
+        return (1);
+
+#ifdef DEBUG_PARSE_SEQ
+      printf("'%s'\n",x);
+      fprintf(stderr,"RAW: ");
+      for (int i = 0; i < 9; i++)
+        fprintf(stderr," %lld",v[i]);
+      fprintf(stderr,"\n");
+#endif
+
+      if (v[0] < -1)
+        s->type = CONTG_SELECTION;
+      else
+        s->type = SCAFF_SELECTION;
+      s->orient = v[8];
+
+      if (v[4] < -1 && v[5] < -1 && v[6] < -1)
+        { if (v[2] >= -1)
+            { EPRINTF(EPLACE,"Must specify a range, not a point");
+              EXIT(1);
+            }
+          v[4] = v[0];
+          v[5] = v[1];
+        }
+
+      else
+        { if (v[4] < -1)
+            { v[4] = v[0];
+              if (v[5] < -1)
+                v[5] = v[1];
+            }
+        }
+
+      if (complete_address(v,gdb,1))
+        return (1);
+      if (complete_address(v+4,gdb,0))
+        return (1);
+
+      s->s1 = v[0];
+      s->c1 = v[1];
+      s->p1 = v[2];
+      s->s2 = v[4];
+      s->c2 = v[5];
+      s->p2 = v[6];
+    }
+#ifdef DEBUG_PARSE_SEQ
+  printf("SEL: %d %d,%d,%lld  %d,%d,%lld (%d)\n",
+         s->type,s->s1,s->c1,s->p1,s->s2,s->c2,s->p2,s->orient);
+#endif
+  return (0);
 }
 
 static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash,
                                             Contig_Range *chord, char *filename, int ordered)
-{ char c, *p, *q, *line;
-  int  i, pbeg, pend, pfst, plst, ori;
-  int  nline, order;
+{ char       c, *p, *q, *line;
+  int        i, pbeg, pend, pfst, plst, ori;
+  int        nline, order;
+  Selection _s, *s = &_s;
 
   order = 1;
   nline = 1;
@@ -436,11 +659,23 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
 
       c = *q;
       *q = '\0';
-      interpret_as_contigs(p, gdb, hash, &pbeg, &pend, &pfst, &plst, &ori);
+#ifdef INTERACTIVE
+      if (interpret_range(s,p,gdb,hash))
+        { fprintf(stderr,"%s: %s\n",Prog_Name,EPLACE);
+          exit (1);
+        }
+#else
+      interpret_range(s,p,gdb,hash);
+#endif
       *q = c;
+      pbeg = s->c1;
+      pend = s->c2;
+      pfst = s->p1;
+      plst = s->p2;
+      ori  = s->orient;
 #ifdef DEBUG_PARSE_SEQ
-      fprintf(stderr, "%s: CTG_RANGE pbeg = %-12d pend = %-12d pfst = %-12d plst = %-12d\n",
-              Prog_Name,pbeg,pend,pfst,plst);
+      fprintf(stderr,"%s: CTG_RANGE pbeg = %-12d pend = %-12d pfst = %-12d plst = %-12d ori = %d\n",
+                     Prog_Name,pbeg,pend,pfst,plst,ori);
 #endif
       if (ordered)
         { for (i = pbeg; i <= pend; i++)
@@ -508,45 +743,26 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
 }
 
 Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ordered)
-{ char         *e, *y;
+{ char         *e;
   int           i, pbeg, pend, pfst, plst, ori;
-  int           order, special;
+  int           order;
   Contig_Range *chord;
   FILE         *fp;
+  Selection    _s, *s = &_s;
 
   chord = (Contig_Range *) Malloc(sizeof(Contig_Range)*gdb->ncontig,"Allocating sequence array");
 
-  special = 10;
   if (x == NULL)
-    special = 0;
-  else
-    { y = white(x);
-      if (*y == '@')
-        { y = white(y+1);
-          if (*y == '\0')
-            special = 0;
-          else
-            { if (*y == '-')
-                special = -1;
-              else if (*y == '+')
-                special = 1;
-              y = white(y+1);
-              if (*y != '\0')
-                special = 10;
-            }
-        }
-    }
-
-  if (special < 10)
     { for (i = 0; i < gdb->ncontig; i++)
         { chord[i].order  = 1;
           chord[i].beg    = 0;
           chord[i].end    = gdb->contigs[i].clen;
-          chord[i].orient = special;
+          chord[i].orient = 0;
         }
     }
   else
-    { if (*x == '\0')
+    { x = white(x);
+      if (*x == '\0')
         { fprintf(stderr,"%s: Empty range\n",Prog_Name);
           exit (1);
         }
@@ -563,11 +779,24 @@ Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ord
             { e = index(x,DLIM_SYMBOL);
               if (e != NULL)
                 *e = '\0';
-
-              interpret_as_contigs(x, gdb, hash, &pbeg, &pend, &pfst, &plst, &ori);
+              
+#ifdef INTERACTIVE
+              if (interpret_range(s,x,gdb,hash))
+                { fprintf(stderr,"%s: %s\n",Prog_Name,EPLACE);
+                  exit (1);
+                }
+#else
+              interpret_range(s,x,gdb,hash);
+#endif
+              pbeg = s->c1;
+              pend = s->c2;
+              pfst = s->p1;
+              plst = s->p2;
+              ori  = s->orient;
 #ifdef DEBUG_PARSE_SEQ
-              fprintf(stderr, "%s: CTG_RANGE pbeg = %-12d pend = %-12d pfst = %-12d plst = %-12d\n",
-                      Prog_Name,pbeg,pend,pfst,plst);
+              fprintf(stderr,
+                     "%s: CTG_RANGE pbeg = %-12d pend = %-12d pfst = %-12d plst = %-12d ori = %d\n",
+                     Prog_Name,pbeg,pend,pfst,plst,ori);
 #endif
               if (ordered)
                 { for (i = pbeg; i < pend; i++)
@@ -674,15 +903,19 @@ static Selection *get_selection_list_from_file(FILE *fp, GDB *gdb, Hash_Table *h
 
       c = *q;
       *q = '\0';
-      interpret_as_selection(line,gdb,hash,list+len);
+#ifdef INTERACTIVE
+      if (interpret_range(list+len,p,gdb,hash))
+        { fprintf(stderr,"%s: %s\n",Prog_Name,EPLACE);
+          exit (1);
+        }
+#else
+      interpret_range(list+len,p,gdb,hash);
+#endif
       *q = c;
 #ifdef DEBUG_PARSE_SEQ
-      if (list[len].type % 2)
-        fprintf(stderr, "%s: %c %d[%d..%d]\n",
-              Prog_Name,list[len].type >= 2 ? '@' : ' ',list[len].src,list[len].beg,list[len].end);
-      else
-        fprintf(stderr, "%s: %c %d - %d\n",
-              Prog_Name,list[len].type >= 2 ? '@' : ' ',list[len].beg,list[len].end);
+      fprintf(stderr, "%s: %c %d,%d,%lld  %d,%d,%lld (%d)\n",
+              Prog_Name,list[len].type ? '@' : '.',list[len].s1,list[len].c1,list[len].p1,
+              list[len].s2,list[len].c2,list[len].p2,list[len].orient);
 #endif
       len += 1;
     }
@@ -694,46 +927,25 @@ static Selection *get_selection_list_from_file(FILE *fp, GDB *gdb, Hash_Table *h
 
 Selection *get_selection_list(char *x, GDB *gdb, Hash_Table *hash, int *nlen)
 { char      *e, *y;
-  int        len, special;
+  int        len;
   Selection *list;
   FILE      *fp;
 
-  special = 10;
   if (x == NULL)
-    special = 0;
-  else
-    { y = white(x);
-      if (*y == '@')
-        { y = white(y+1);
-          if (*y == '\0')
-            special = 0;
-          else
-            { if (*y == '-')
-                special = -1;
-              else if (*y == '+')
-                special = 1;
-              y = white(y+1);
-              if (*y != '\0')
-                special = 10;
-            }
-        }
-    }
-
-  if (special < 10)
     { list = (Selection *) Malloc(sizeof(Selection),"Allocating sequence array");
       *nlen = 1;
-      list[0].beg = 0;
-      if (x == NULL)
-        { list[0].type = CONTG_RANGE;
-          list[0].end  = gdb->ncontig-1;
-        }
-      else
-        { list[0].type = SCAFF_RANGE;
-          list[0].end  = gdb->nscaff-1;
-        }
-      list[0].orient = special;
+      list[0].type = CONTG_SELECTION;
+      list[0].s1 = 0;
+      list[0].c1 = 0;
+      list[0].p1 = 0;
+      list[0].s2 = gdb->nscaff-1;
+      list[0].c2 = gdb->ncontig-1;
+      list[0].p2 = gdb->contigs[gdb->ncontig-1].clen;
+      list[0].orient = 0;
       return (list);
     }
+
+  x = white(x);
   if (*x == '\0')
     { fprintf(stderr,"%s: Empty range\n",Prog_Name);
       exit (1);
@@ -755,15 +967,18 @@ Selection *get_selection_list(char *x, GDB *gdb, Hash_Table *hash, int *nlen)
      { e = index(x,DLIM_SYMBOL);
        if (e != NULL)
          *e = '\0';
-
-       interpret_as_selection(x,gdb,hash,list+len);
+#ifdef INTERACTIVE
+       if (interpret_range(list+len,x,gdb,hash))
+         { fprintf(stderr,"%s: %s\n",Prog_Name,EPLACE);
+           exit (1);
+         }
+#else
+       interpret_range(list+len,x,gdb,hash);
+#endif
 #ifdef DEBUG_PARSE_SEQ
-       if (list[len].type % 2)
-         fprintf(stderr, "%s: %c %d[%d..%d]\n",
-               Prog_Name,list[len].type >= 2 ? '@' : ' ',list[len].src,list[len].beg,list[len].end);
-       else
-         fprintf(stderr, "%s: %c %d - %d\n",
-               Prog_Name,list[len].type >= 2 ? '@' : ' ',list[len].beg,list[len].end);
+      fprintf(stderr, "%s: %c %d,%d,%lld  %d,%d,%lld (%d)\n",
+              Prog_Name,list[len].type ? '@' : '.',list[len].s1,list[len].c1,list[len].p1,
+              list[len].s2,list[len].c2,list[len].p2,list[len].orient);
 #endif
        len += 1;
 

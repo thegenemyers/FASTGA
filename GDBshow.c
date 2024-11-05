@@ -117,14 +117,17 @@ int main(int argc, char *argv[])
     if (argc <= 1)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
-        fprintf(stderr,"     <selection> = <range>[+-] [ , <range>[+-] ]*\n");
+        fprintf(stderr,"  <selection> = <range>[+-] [ , <range>[+-] ]*\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"     <range> =    <contig>[-<contig>]     |  <contig>_<int>-(<int>|#)\n");
-        fprintf(stderr,"             | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)\n");
+        fprintf(stderr,"     <range> = <object/position> [ - <object/position> ]  | @ | .\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"        <contig>   = (<int>|#)[.(<int>|#)]\n");
+        fprintf(stderr,"        <object/position> = @ <scaffold> [ . <contig>] [ : <position> ]\n");
+        fprintf(stderr,"                          |                . <contig>  [ : <position> ]\n");
+        fprintf(stderr,"                          |                                <position>\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"        <scaffold> =  <int>|<string>|#\n");
+        fprintf(stderr,"           <scaffold> = # | <int> | <identifier>\n");
+        fprintf(stderr,"           <contig>   = # | <int>\n");
+        fprintf(stderr,"           <position> = # | <int> [ . <int> ] [kMG]\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -h: Show only the header lines.\n");
         fprintf(stderr,"      -w: Print -w bp per line (default is 80).\n");
@@ -177,8 +180,8 @@ int main(int argc, char *argv[])
     GDB_SCAFFOLD *s;
     char         *contig;
     char         *nstring;
-    int           c, b, e, k, x;
-    int           substr, fst, lst, ori;
+    int           c, k, x;
+    int           fst, lst, ori;
 
     //  Setup 'n' string for printing scaffold gaps and buffer for contigs
 
@@ -195,31 +198,26 @@ int main(int argc, char *argv[])
 
     for (c = 0; c < llen; c++)
       { ori = select[c].orient;
-        if (select[c].type % 2)
-          { b = e = select[c].src;
-            fst = select[c].beg;
-            lst = select[c].end;
-            substr = 1;
-          }
-        else
-          { b = select[c].beg;
-            e = select[c].end;
-            fst = lst = 0;
-            substr = 0;
-          }
 
-        if (select[c].type >= 2)
+        if (select[c].type == SCAFF_SELECTION)
 
-          { for (k = b; k <= e; k++)
+          { for (k = select[c].s1; k <= select[c].s2; k++)
     
               if (ori < 0)
 
                 { int cbeg, cend, wpos;
                   int j, u, w, f, l;
 
-                  r   = CONTIGS + SCAFFS[k].ectg - 1;
-                  if (!substr)
+                  if (k == select[c].s1)
+                    fst = CONTIGS[select[c].c1].sbeg + select[c].p1;
+                  else
+                    fst = 0;
+                  if (k == select[c].s2)
+                    lst = CONTIGS[select[c].c2].sbeg + select[c].p2;
+                  else
                     lst = SCAFFS[k].slen;
+
+                  r   = CONTIGS + SCAFFS[k].ectg - 1;
   
                   printf(">%s ",HEADERS+SCAFFS[k].hoff);
                   printf("%c%lld,%lld%c\n",fst==0?SOEL:SPOS,SCAFFS[k].slen-fst,
@@ -286,10 +284,17 @@ int main(int argc, char *argv[])
 
                 { int cbeg, cend, wpos;
                   int j, u, w, f, l;
-  
-                  r   = CONTIGS + SCAFFS[k].fctg;
-                  if (!substr)
+
+                  if (k == select[c].s1)
+                    fst = CONTIGS[select[c].c1].sbeg + select[c].p1;
+                  else
+                    fst = 0;
+                  if (k == select[c].s2)
+                    lst = CONTIGS[select[c].c2].sbeg + select[c].p2;
+                  else
                     lst = SCAFFS[k].slen;
+  
+                  r = CONTIGS + SCAFFS[k].fctg;
   
                   printf(">%s",HEADERS+SCAFFS[k].hoff);
                   printf("%c%d,%d%c\n",fst==0?SOEL:SPOS,fst,lst,lst==SCAFFS[k].slen?EOEL:EPOS);
@@ -338,12 +343,18 @@ int main(int argc, char *argv[])
                 }
           }
 
-        else
+        else  //  select[c].type == CONTG_SELECTION
 
-          for (k = b; k <= e; k++)
+          for (k = select[c].c1; k <= select[c].c2; k++)
             { r = CONTIGS + k;
               s = SCAFFS + r->scaf;
-              if (!substr)
+              if (k == select[c].c1)
+                fst = select[c].p1;
+              else
+                fst = 0;
+              if (k == select[c].c2)
+                lst = select[c].p2;
+              else
                 lst = r->clen;
 
               if (ori < 0)
@@ -359,7 +370,6 @@ int main(int argc, char *argv[])
 
               if (DOSEQ)
                 { int j;
-
   
                   Get_Contig(gdb,k,UPPER,contig);
 

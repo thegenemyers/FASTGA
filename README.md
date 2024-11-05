@@ -294,48 +294,62 @@ references to the new GDB locations with [ALNreset](#ALNreset).
 ```
 1. GDBshow [-hU] [-w<int(80)>] <source:path[.1gdb] [ <selection> | <FILE> ]
 
-       <selection> = <range>[+-] [ , <range>[+-] ]*
-       
-       <range> =    <contig>[-<contig>]     |  <contig>_<int>-(<int>|#)
-               | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)
+        <selection> = <range>[+-] [ , <range>[+-] ]*
 
-         <contig>   = (<int>|#)[.(<int>|#)]
-         
-         <scaffold> =  <int>|<string>|#
+           <range> = <object/position> [ - <object/position> ]  | @ | .
+
+              <object/position> = @ <scaffold> [ . <contig>] [ : <position> ]
+                                |                . <contig>  [ : <position> ]
+                                |                                <position>
+ 
+                 <scaffold> = # | <int> | <identifier>
+                 <contig>   = # | <int>         
+                 <position> = # | <int> [ . <int> ] [kMG]
 ```
 
 GDBshow allows one to view a given set of scaffolds/contigs or portions thereof for the source GDB.
 If the <nobr>-h</nobr> option is set then only the header lines are shown.  By default DNA sequence is lower-case,
 80bp per row.  You can request upper-case with -U, and set the line width with -w.  If no arguments
-besides the source GDB are given, then all the contigs of the GDB are output (in order).  If a file name follows, then GDB interprets each line of the file as a \<range\> display directive.  Otherwise the argument after the source GDB is interpreted as a display directive where the syntax and meaning is as follows:
+besides the source GDB are given, then all the contigs of the GDB are output (in order).  If a file name follows, then GDB interprets each line of the file as a \<range> selection.  Otherwise the argument is
+directly interpreted as a directive as to which scaffolds or contigs or parts thereof to display.
+We explain the syntax of a \<selection> above in a bottom up fashion coupled with examples:
 
-* A contig (index) is either (1) a single integer, say c, denoting the c'th contig in the genome, or (2) a pair of integers separated by a ., say s.c, denoting the c'th contig of the s'th scaffold in the genome.
+* @s denotes the s'th scaffold in the genome, @# the last scaffold in the genome, and @id the scaffold
+whose fasta header is id.  In this latter case the header is the part of the faster header line excluding
+the '>' in the first column and any white space directly following it, and excluding any tailing white space.
 
-* A scaffold (index) is either a single integer, say s, denoting the s'th scaffold in the genome, or
-   it can be the string name of the scaffold given in the originating fasta header. 
+* .c denotes the c'th scaffold in the genome, and .# the last contig. @s.c denotes the c'th contig of the s'th scaffold, so by extension, @s.# denotes the last contig of the s'th scaffold, @#.1 denotes the 1'st contig of the last scaffold, and so on.
 
-* The special symbol # which may substitute for an integer denotes "the last", e.g. # adresses the last contig in the genome, #.1 addresses the 1st contig of the last scaffold, and 1_500-# selects the substring from 500 to the end of contig 1.
+* An integer p denotes an absolute position within the genome viewing it as the concatenation of its scaffolds -- not very useful generally.  But .c:p denotes the position p in the c'th contig, @s:p the
+position p in the s'th scaffold, .c:# the last position in the c'th contig, @s.c:p the position p in
+the c'th contig of the s'th scaffold, and so on.
 
-* A range can either begins with an @ sign, in which case all indices are to scaffolds, or it does not
- in which case all indices are to contigs.  If the range is (1) a single index, then the given contig or scaffold is displayed, (2) a pair of indices separated by a hyphen, then the range of contigs or scaffolds are displayed (inclusively), or (3) a single index followed by an under-bar and then two integers separated by a hyphen, then the substring
-of the contig or scaffold between the indices given by the two integers is displayed.
-A range can optionally end with a + or - sign.  If the range ends wiht a - sign then the complement strand of the requested sequence is displayed, otherwise
-(a + sign or no sign) the sequence is displayed as is.
+* A position is considered to be a location *between* base pairs, so the first position is 0, and in general position i is the spot between the i'th and i+1'st base pairs.  In this way the number of symbols
+ between position p and q > p is q-p.  Also, the last position is the length of the sequence.
+ 
+* We support a more elaborate syntax for positions where the suffix symbols k, M, and G denote kilobases,
+megabases, and gigabases and a decimal fraction is permited.  So for example, 10.1k is short for
+positions 10,100, and 2.0324M is position 2,032,400.
 
-* A selection on the command line is a list of ranges separated by commas.
+* A range can be a reference to a contig or scaffold in which case the entire contig or scaffold is
+ being selected.  It can also be a pair of contigs or scaffolds separated by a hyphen (-) in which case all the objects from the first to the last are being selected.  For example, @3-@5 would cause GDBshow to display the 3'rd through 5'th scaffolds inclusive and .3-.5 would display the 3'rd through 5'th contigs
+ of the genome.  A range can also be a position or a pair of positions separated by a hyphen.  In the
+ first case the range is empty which is not useful for an app like GDBshow but as you'll see later it is usefule for
+ an app like ALNshow that displays every alignment containing the position.  When a pair of positions is given then all the sequence between the pairs is selected.  For example, @1.3:10k-@1.5:20k selects all but
+ the first 10kbp of the 3'rd contig of the first scaffold, all of it's 4'th contig, and the first 20k of it's 5'th contig.
 
-* If no directives are given then every contig is output in order, i.e. 1-#, and if a single
- @-sign is given then every scaffold is output in order, i.e. @1-#.
+* A range can be @ in which case every scaffold is selected, and it can be . in which case every contig is selected.  A genome can be considered to be a list of its' contig sequences, or a list of its' scaffold sequences each of which is its' contigs concatenated together with intervening runs of N's denoting the gap (and possibly length) between them.  If a range involves an @-sign, that is, a scaffold index, then the selection is over scaffold sequences, otherwise it is over contig sequences.
 
-A request to display a contig, prints the contig's scaffold's header with the relative contig
-number and interval of the scaffold appended followed by the sequence of the contig.  A request to display a scaffold, prints the scaffold's header followed by the sequence of the scaffold which is each of its' individual contigs separated by runs of N's of the same length as they occurred in the originating FASTA file.
+* The second component of a range when present, is assumed to have the same scaffold or contig prefix
+if it is not given.  For example, the expression @1.3:10k-.5:20k is the same as @1.3:10k-@1.5:20k and
+@2:100-200 is the same as @2:100-@2:200.
 
-While contigs and scaffolds are referenced by ordinal numbers starting at 1, sequence positions are
-between characters and so start at 0 (the position immediately to the left of the 1st character).
-The convenience of this 0-based numbering is that the length of an interval [b,e] is e-b.  Further
-note that when the item for a substring is a contig then the interval is with respect to the contig,
-while when the item is a scaffold it is with respect to the scaffold considered as a single string
-with intervening N's between contigs.
+* A range can be followed by an optional sign, + or -.  This indicates the selection of either the 5' or 3' direction of the selected sequence interval and can affects the direction of display.  For example, :3-
+asks GDBshow to display reverse complement of the 3'rd contig of the genome.
+
+* Lastly, on the command line, one can give a list of ranges separated by commas.  Generally this represents the union of the range intervals, but for GDBshow indicates that it should output each
+range in the order given.  When a file is given, then each line of the file is assumed to be a
+range so that the file also specifies a list of ranges.
  
 <a name="GDBstat"></a>
 
@@ -373,27 +387,30 @@ the string (or the last if it is the second argument of a range).
 4. ALNshow [-arU] [-i<int(4).] [-w<int(100)>] [-b<int(10)>>
               <alignments:path>[.1aln] [ <selection>|<FILE> [<selection>|<FILE>] ]
 
-       <selection> = <range>[+-] [ , <range>[+-] ]*
+        <selection> = <range>[+-] [ , <range>[+-] ]*
 
-       <range> =    <contig>[-<contig>]     |  <contig>_<int>-(<int>|#)
-               | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)
+           <range> = <object/position> [ - <object/position> ]  | @ | .
 
-         <contig>   = (<int>|#)[.(<int>|#)]
-         
-         <scaffold> =  <int>|<string>|#
+              <object/position> = @ <scaffold> [ . <contig>] [ : <position> ]
+                                |                . <contig>  [ : <position> ]
+                                |                                <position>
+ 
+                 <scaffold> = # | <int> | <identifier>
+                 <contig>   = # | <int>         
+                 <position> = # | <int> [ . <int> ] [kMG]
 ```
 
 ALNshow produces a printed listing of a subset of the local alignments contained in the specified
-ALN file, where one can optionally view the alignments in a BLAST like format.  If just the ALN is given
+ALN file, where one can optionally view the alignments in a BLAST like format.  If just the ALN file is given
 as an argument then every alignment is displayed.  If a single selection is given in addition, then only
 those alignments whose interval in the 1st genome intersects the selection are displayed.
 If a pair of selections are given then those alignments where its interval in the 1st genome intersects
 the 1st selection and its interval in the 2nd genome intersects the 2nd selection are displayed.
 If a range in the first selection is signed than that determines if the alignment is displayed with
 the substring of the 1st genome in the normal orientation (+, also no sign) or the complement
-orientation (-).  If a range is the second selection, if present, is signed than only alignments
+orientation (-).  If a range in the second selection, if present, is signed than only alignments
 in which the relative orientation of the first and second substrings agrees with the sign polarity
-of the selection pair.
+of the selection pair are displayed.
 See the documentation for [GDBshow](#GDBshow) for a detailed explanation of the format and meaning
 of selections.
 
@@ -468,14 +485,17 @@ of a square bracket [].
                [-H<int(600)>] [-W<int>] [-f<int>] [-t<float>]
                <alignment:path>[.1aln|.paf[.gz]]> [<selection>|<FILE> [<selection>|<FILE>]]
 
-       <selection> = <range>[+-] [ , <range>[+-] ]*
+        <selection> = <range>[+-] [ , <range>[+-] ]*
 
-       <range> =     <contig>[-<contig>]    |  <contig>_<int>-(<int>|#)
-               | @[<scaffold>[-<scaffold>]] | @<scaffold>_<int>-(<int>|#)
-
-         <contig>   = (<int>|#)[.(<int>|#)]
-
-         <scaffold> =  <int>|<string>|#
+           <range> = <object/position> [ - <object/position> ]  | @ | .
+            
+              <object/position> = @ <scaffold> [ . <contig>] [ : <position> ]
+                                |                . <contig>  [ : <position> ]
+                                |                                <position>
+ 
+                 <scaffold> = # | <int> | <identifier>
+                 <contig>   = # | <int>         
+                 <position> = # | <int> [ . <int> ] [kMG]
 ```
 
 ALNplot produces a static collinear plot of the local alignments contained in the specified ALN file or PAF 

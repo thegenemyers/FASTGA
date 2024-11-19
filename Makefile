@@ -4,7 +4,7 @@ CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
 CC = gcc
 
-ALL = FAtoGDB GDBtoFA GDBstat GDBshow GIXmake GIXshow GIXrm GIXmv GIXcp FastGA ALNshow ALNtoPAF ALNtoPSL ALNreset ALNplot ALNchain ONEview
+ALL = FAtoGDB GDBtoFA GDBstat GDBshow GIXmake GIXshow GIXrm GIXmv GIXcp FastGA ALNshow ALNtoPAF ALNtoPSL ALNreset ALNplot ALNchain PAFtoALN ONEview
 
 all: $(ALL)
 
@@ -61,6 +61,9 @@ ALNplot: ALNplot.c hash.c hash.h select.c select.h GDB.c GDB.h ONElib.c ONElib.h
 
 ALNchain: ALNchain.c GDB.c GDB.h ONElib.c ONElib.h alncode.c alncode.h
 	$(CC) $(CFLAGS) -o ALNchain ALNchain.c GDB.c alncode.c gene_core.c ONElib.c -lpthread -lm -lz
+
+PAFtoALN: PAFtoALN.c alncode.c hash.c hash.h GDB.c GDB.h ONElib.c ONElib.h
+	$(CC) $(CFLAGS) -o PAFtoALN PAFtoALN.c GDB.c alncode.c hash.c gene_core.c ONElib.c -lpthread -lm -lz
 
 ONEview: ONEview.c ONElib.c ONElib.h
 	$(CC) $(CFLAGS) -o ONEview ONEview.c ONElib.c -lm -lz

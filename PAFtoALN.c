@@ -469,11 +469,7 @@ void *gen_1aln(void *args)
       Write_Aln_Trace(of,tps->trace,tps->tlen);
     }
 
-printf("C\n"); fflush(stdout);
-
   free(tps->trace);
-
-printf("D\n"); fflush(stdout);
 
   fclose(input);
 

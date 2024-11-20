@@ -315,7 +315,7 @@ static char *read_line(void *input, char *name, Line_Bundle *lb)
           return (NULL);
         }
       fprintf(stderr,"%s: Could not read next line of file %s (offset %lld)\n",
-                     Prog_Name,name,ftello(input));
+                     Prog_Name,name,(int64) ftello(input));
       exit (1);
     }
 
@@ -379,7 +379,8 @@ void *gen_1aln(void *args)
   else
     amnt = 0;
 
-  tps->mlen = 0;
+  tps->mlen  = 0;
+  tps->trace = NULL;
  
   while (amnt <= span)
     { eptr = read_line(input,iname,lb);

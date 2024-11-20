@@ -3714,7 +3714,7 @@ int main(int argc, char *argv[])
               }
           }
 
-	sprintf(command,"GIXmake%s -f%d %s",VERBOSE?" -v":"",FREQ,tpath1);
+	      sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath1);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
@@ -3738,7 +3738,7 @@ int main(int argc, char *argv[])
                 Clean_Exit(1);
               }
           }
-	sprintf(command,"GIXmake%s -f%d %s",VERBOSE?" -v":"",FREQ,tpath2);
+	      sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath2);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);

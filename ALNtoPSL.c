@@ -64,6 +64,8 @@ void *gen_psl(void *args)
   int           acontig, bcontig;
   int           ascaff, bscaff;
   int           bmin, bmax;
+  int           plen;
+  int          *parr, *aarr, *barr;
   char         *aseq, *bseq, *bact;
   int64         aoff, boff;
   Path         *path;
@@ -81,6 +83,13 @@ void *gen_psl(void *args)
   scaff2  = gdb2->scaffolds;
   ahead   = gdb1->headers;
   bhead   = gdb2->headers;
+
+  plen = 10000;
+  parr = (int *) Malloc(sizeof(int)*plen*3,"Allocating block position array");
+  if (parr == NULL)
+    exit (1);
+  aarr = parr + plen;
+  barr = aarr + plen;
 
   aln->path = path = &(ovl->path);
   aln->aseq = aseq;
@@ -159,6 +168,35 @@ void *gen_psl(void *args)
         t = (int *) path->trace;
         T = path->tlen;
 
+        { // trim trailing INDEL
+          // better fix needed
+          int trim;
+          
+          trim = 0;
+          while (t[T-1] == -path->aepos-1)
+            { trim++;
+              T--;
+            }
+          if (trim > 0)
+            { // deletion / target insertion
+              // trim target
+              path->bepos -= trim;
+              path->diffs -= trim;
+            }
+          
+          trim = 0;
+          while (t[T-1] == path->bepos+1)
+            { trim++;
+              T--;
+            }
+          if (trim > 0)
+            { // insertion / target deletion
+              // trim query
+              path->aepos -= trim;
+              path->diffs -= trim;
+            }
+        }
+
         M = path->aepos - path->abpos;
         N = path->bepos - path->bbpos;
         I = D = 0;
@@ -180,16 +218,19 @@ void *gen_psl(void *args)
         S = path->diffs - (I+D);
         X = (M+N - (I+D+2*S))/2;
 
-        fprintf(out,"%d\t%d\t0\t0\t%d\t%d\t%d\t%d\t%c",X,S,IB,I,DB,D,COMP(ovl->flags)?'-':'+');
+        fprintf(out,"%d\t%d\t0\t0\t%d\t%d\t%d\t%d\t%c",X,S,DB,D,IB,I,COMP(ovl->flags)?'-':'+');
         fprintf(out,"\t%s\t%lld\t%lld\t%lld",
                   ahead+scaff1[ascaff].hoff,scaff1[ascaff].slen,aoff+path->abpos,aoff+path->aepos);
         if (COMP(aln->flags))
-          fprintf(out,"\t%s\t%lld\t%lld\t%lld",
-                   bhead+scaff2[bscaff].hoff,scaff2[bscaff].slen,boff-path->bepos,boff-path->bbpos);
+          { boff = contig2[bcontig].sbeg + contig2[bcontig].clen;
+            fprintf(out,"\t%s\t%lld\t%lld\t%lld",
+                    bhead+scaff2[bscaff].hoff,scaff2[bscaff].slen,boff-path->bepos,boff-path->bbpos);
+          }
         else
-          fprintf(out,"\t%s\t%lld\t%lld\t%lld",
-                   bhead+scaff2[bscaff].hoff,scaff2[bscaff].slen,boff+path->bbpos,boff+path->bepos);
-
+          { boff = contig2[bcontig].sbeg;
+            fprintf(out,"\t%s\t%lld\t%lld\t%lld",
+                    bhead+scaff2[bscaff].hoff,scaff2[bscaff].slen,boff+path->bbpos,boff+path->bepos);
+          }
         bcnt = 0;
         i = path->abpos+1;
         j = path->bbpos+1;
@@ -212,75 +253,78 @@ void *gen_psl(void *args)
           bcnt += 1;
         fprintf(out,"\t%d\t",bcnt);
 
+        if (bcnt > plen)
+          { plen = ((int) (1.2*bcnt)) + 1000;
+            parr = (int *) Realloc(parr, sizeof(int)*plen*3, "Reallocating block position array");
+            if (parr == NULL)
+              exit (1);
+            aarr = parr + plen;
+            barr = aarr + plen;
+        }
+
+        bcnt = 0;
         i = path->abpos+1;
         j = path->bbpos+1;
         for (x = 0; x < T; x++)
           { if ((p = t[x]) < 0)
               { bmat = -(p+i);
+                if (bmat > 0)
+                  { aarr[bcnt] = i-1;
+                    barr[bcnt] = j-1;
+                  }
                 i += bmat;
                 j += bmat+1;
               }
             else
               { bmat = p-j;
+                if (bmat > 0)
+                  { aarr[bcnt] = i-1;
+                    barr[bcnt] = j-1;
+                  }
                 i += bmat+1;
                 j += bmat;
               }
             if (bmat > 0)
-              fprintf(out,"%d,",bmat);
+              parr[bcnt++] = bmat;
           }
         bmat = (path->aepos - i)+1;
         if (bmat > 0)
-          fprintf(out,"%d,",bmat);
+          { aarr[bcnt] = i-1;
+            barr[bcnt] = j-1;
+            parr[bcnt++] = bmat;
+          }
+        
+        if (COMP(aln->flags))
+          for (i = bcnt-1; i >= 0; i--)
+            fprintf(out,"%d,", parr[i]);
+        else
+          for (i = 0; i < bcnt; i++)
+            fprintf(out,"%d,",parr[i]);
         fprintf(out,"\t");
 
-        i = path->abpos+1;
-        j = path->bbpos+1;
-        for (x = 0; x < T; x++)
-          { if ((p = t[x]) < 0)
-              { bmat = -(p+i);
-                if (bmat > 0)
-                  fprintf(out,"%d,",i);
-                i += bmat;
-                j += bmat+1;
-              }
-            else
-              { bmat = p-j;
-                if (bmat > 0)
-                  fprintf(out,"%d,",i);
-                i += bmat+1;
-                j += bmat;
-              }
-          }
-        bmat = (path->aepos - i)+1;
-        if (bmat > 0)
-          fprintf(out,"%d,",i);
+        if (COMP(aln->flags))
+          for (i = bcnt-1; i >= 0; i--)
+            fprintf(out,"%lld,", scaff1[ascaff].slen-(aoff+aarr[i]+parr[i]));
+        else
+          for (i = 0; i < bcnt; i++)
+            fprintf(out,"%lld,",aoff+aarr[i]);
         fprintf(out,"\t");
-
-        i = path->abpos+1;
-        j = path->bbpos+1;
-        for (x = 0; x < T; x++)
-          { if ((p = t[x]) < 0)
-              { bmat = -(p+i);
-                if (bmat > 0)
-                  fprintf(out,"%d,",j);
-                i += bmat;
-                j += bmat+1;
-              }
-            else
-              { bmat = p-j;
-                if (bmat > 0)
-                  fprintf(out,"%d,",j);
-                i += bmat+1;
-                j += bmat;
-              }
+        
+        if (COMP(aln->flags))
+          { boff = contig2[bcontig].sbeg + contig2[bcontig].clen;
+            for (i = bcnt-1; i >= 0; i--)
+              fprintf(out,"%lld,", boff-(barr[i]+parr[i]));
           }
-        bmat = (path->aepos - i)+1;
-        if (bmat > 0)
-          fprintf(out,"%d,",j);
+        else
+          { boff = contig2[bcontig].sbeg;
+            for (i = 0; i < bcnt; i++)
+              fprintf(out,"%lld,",boff+barr[i]);
+          }
         fprintf(out,"\n");
       }
     }
 
+  free(parr);
   free(trace);
   free(bseq-1);
   free(aseq-1);
@@ -342,7 +386,8 @@ int main(int argc, char *argv[])
   { char       *pwd, *root, *cpath;
     char       *src1_name, *src2_name;
     char       *spath, *tpath;
-    int         type;
+    char       *head, *sptr, *eptr;
+    int         type, s;
     FILE       *test;
 
     pwd   = PathTo(argv[1]);
@@ -401,6 +446,14 @@ int main(int argc, char *argv[])
             exit (1);
           }
       }
+    head  = gdb1->headers;
+    for (s = 0; s < gdb1->nscaff; s++)
+      { sptr = head + gdb1->scaffolds[s].hoff;
+        for (eptr = sptr; *eptr != '\0'; eptr++)
+          if (isspace(*eptr))
+            break;
+        *eptr = '\0';
+      }
     free(spath);
     free(tpath);
 
@@ -414,6 +467,14 @@ int main(int argc, char *argv[])
               { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
                 exit (1);
               }
+          }
+        head  = gdb2->headers;
+        for (s = 0; s < gdb2->nscaff; s++)
+          { sptr = head + gdb2->scaffolds[s].hoff;
+            for (eptr = sptr; *eptr != '\0'; eptr++)
+              if (isspace(*eptr))
+                break;
+            *eptr = '\0';
           }
         free(spath);
         free(tpath);

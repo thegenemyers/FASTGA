@@ -765,6 +765,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
     
           in   = 0;
           spos = 0;
+          clen = 0;
           while (1)
             { nline += 1;
               line   = read_line(input,gzipd,&len,nline,spath);

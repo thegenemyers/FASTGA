@@ -160,7 +160,7 @@ void *gen_psl(void *args)
 
       { int     i, j, x, p, q;
         int    *t, T;
-        int     M, N;
+        int     M;
         int     I, D, S, X;
         int     IB, DB;
         int     bcnt, bmat;
@@ -198,7 +198,7 @@ void *gen_psl(void *args)
         }
 
         M = path->aepos - path->abpos;
-        N = path->bepos - path->bbpos;
+        //N = path->bepos - path->bbpos;
         I = D = 0;
         IB = DB = 0;
         p = 0; 
@@ -216,7 +216,8 @@ void *gen_psl(void *args)
               }
           }
         S = path->diffs - (I+D);
-        X = (M+N - (I+D+2*S))/2;
+        //X = (M+N - (I+D+2*S))/2;
+        X = M - D - S; // N - I - S
 
         fprintf(out,"%d\t%d\t0\t0\t%d\t%d\t%d\t%d\t%c",X,S,DB,D,IB,I,COMP(ovl->flags)?'-':'+');
         fprintf(out,"\t%s\t%lld\t%lld\t%lld",

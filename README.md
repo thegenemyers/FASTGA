@@ -638,7 +638,7 @@ requested/required.)
 <a name="PAFtoPSL"></a>
 
 ```
-5. PAFtoPSL [-T<int(8)>] [-C<str(cg:Z:)>] <alignments:path>[.paf]
+6. PAFtoPSL [-T<int(8)>] [-C<str(cg:Z:)>] <alignments:path>[.paf]
 ```
 
 PAFtoPSL takes an uncompressed PAF file as input. The input file must include CIGAR strings. Supported CIGAR operators include 'M', '=', 'X', 'I', and 'D'. By default, the CIGAR string tag is 'cg:Z:', but you can 

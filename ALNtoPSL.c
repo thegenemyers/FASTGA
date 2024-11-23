@@ -556,6 +556,9 @@ int main(int argc, char *argv[])
         unlink(Numbered_Suffix(oprefix,p,".psl"));
       }
 
+      Numbered_Suffix(NULL,0,NULL);
+      free(oprefix);
+
     //  Launch and then gather threads
 
 #ifdef DEBUG_THREADS
@@ -606,6 +609,10 @@ int main(int argc, char *argv[])
     Close_GDB(gdb2);
 
   oneFileClose(input);
+  
+  free(Command_Line);
+  free(Prog_Name);
+  Catenate(NULL,NULL,NULL,NULL);
 
   exit (0);
 }

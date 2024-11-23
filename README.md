@@ -27,6 +27,7 @@
   - [ALNchain](#ALNchain): Alignment filtering by construction of local chains
   - [ALNreset](#ALNreset): Reset a .1aln file's internal references to the GDB(s) it was computed from
   - [PAFtoALN](#PAFtoALN): Convert a PAF formatted file with X-CIGAR strings to a .1aln file
+  - [PAFtoPSL](#PAFtoPSL): Convert a PAF formatted file with CIGAR strings to a .psl file
 
 ## Overview
 
@@ -633,3 +634,14 @@ The number of threads used is 8 by default, but can be set with the -T option.
 A .1aln file with the name \<alignments\>.1aln is produced.  (*NB*: CIGAR strings with M could be
 accepted but would require the explicit reconstruction of each alignment, a possible to do if
 requested/required.)
+
+<a name="PAFtoPSL"></a>
+
+```
+5. PAFtoPSL [-T<int(8)>] [-C<str(cg:Z:)>] <alignments:path>[.paf]
+```
+
+PAFtoPSL takes an uncompressed PAF file as input. The input file must include CIGAR strings. Supported CIGAR operators include 'M', '=', 'X', 'I', and 'D'. By default, the CIGAR string tag is 'cg:Z:', but you can 
+specify a different tag using the '-C' option. The custom tag must be a five-character string where the third 
+and fifth characters are ':'. The number of threads used is 8 by default, but can be set with the -T option.
+Output is streamed directly to STDOUT.

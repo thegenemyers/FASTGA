@@ -27,7 +27,7 @@ static char *alnSchemaText =
   ".\n"
   "P 3 aln                     ALIGNMENTS\n"
   "D t 1 3 INT                 trace point spacing in a - global\n"
-  "O a 1 3 INT                 number of alignments for colinear groups = a chain\n"
+  "O a 0                       groups A's into a colinear chain\n"
   "G A                         chains (a) group alignment objects (A)\n"
   "D p 2 3 INT 3 INT           spacing in a,b between end of previous alignment and start of next\n"
   ".                           alignment: a_read[beg..end] b_read[beg..end], 0-indexing\n"

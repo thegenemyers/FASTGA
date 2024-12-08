@@ -184,6 +184,7 @@ Hash_Table *New_Hash_Table(int size, int keep)
 
 static int double_hash_table(Table *table)
 { int   size, vlen, smax;
+  int64 off;
   void *room;
 
   size = 2*table->cntmax;
@@ -197,6 +198,7 @@ static int double_hash_table(Table *table)
   if (room == NULL)
     return (1);
 
+  off = room - (void *) table->cells;
   table->cells = (Entry *) room;
   room += size*sizeof(Entry);
   table->vector = (int *) room;
@@ -206,11 +208,14 @@ static int double_hash_table(Table *table)
 
   if (table->strmax > 0)
     { room += vlen*sizeof(int);
-      memmove(room,table->strings,table->strtop);
+      memmove(room,table->strings+off,table->strtop);
+      off = room - (void *) table->strings;
       table->strings = (char *) room;
       table->strmax  = smax;
     }
- 
+  else
+    off = 0;
+
   { int   *vector = table->vector;
     Entry *cells  = table->cells;
     int    c, key;
@@ -218,8 +223,9 @@ static int double_hash_table(Table *table)
     for (c = 0; c < vlen; c++)
       vector[c] = -1;
     for (c = 0; c < table->count; c++)
-      { key = hash_key(cells[c].text) % size;
-        cells[c].next = vector[key];
+      { cells[c].text += off; 
+        key = hash_key(cells[c].text) % vlen;
+        cells[c].next  = vector[key];
         vector[key] = c;
       }
   }
@@ -251,7 +257,8 @@ int Hash_Add(Hash_Table *hash_table, char *entry)
 { Table *table = T(hash_table);
   void  *room;
   int    smax, vlen, size;
-  int    key, chain, len;
+  int    key, chain, len, c;
+  int64  off;
 
   key   = hash_key(entry) % table->veclen;
   chain = table->vector[key];
@@ -285,12 +292,15 @@ int Hash_Add(Hash_Table *hash_table, char *entry)
       room = Realloc(table->cells,size*sizeof(Entry)+vlen*sizeof(int)+smax,"Expanding hash table");
       if (room == NULL)
         EXIT (-1);
+      off = room - (void *) table->cells;
 
-      table->cells = (Entry *) room;
-      room += size*sizeof(Entry);
-      table->vector = (int *) room;
-      room += vlen*sizeof(int);
-      table->strings = room;
+      if (off != 0)
+        { table->cells    = (Entry *) room;
+          table->vector   = (int *) (off + (void *) table->vector);
+          table->strings += off;
+          for (c = 0; c < table->count; c++)
+            table->cells[c].text += off;
+        }
       table->strmax = smax;
     }
   strcpy(table->strings + table->strtop, entry);

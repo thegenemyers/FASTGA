@@ -763,11 +763,10 @@ int main(int argc, char *argv[])
 
   //  Initiate .1aln file reading and read header information
 
-  { char      *path, *root, *pwd, *cpath, *tmp;
+  { char      *path, *root, *pwd, *cpath;
     FILE      *test;
     char      *src1_name, *src2_name;
-    char      *spath, *tpath;
-    int        type, TSPACE;
+    int        TSPACE;
     
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
@@ -801,59 +800,15 @@ int main(int argc, char *argv[])
     free(pwd);
     free(root);
 
-    test = fopen(src1_name,"r");
-    if (test == NULL)
-      { if (*src1_name != '/')
-          test = fopen(Catenate(cpath,"/",src1_name,""),"r");
-        if (test == NULL)
-          { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src1_name);
-            exit (1);
-          }
-        tmp = Strdup(Catenate(cpath,"/",src1_name,""),"Allocating expanded name");
-        free(src1_name);
-        src1_name = tmp;
-      }
-    fclose(test);
+    ISTWO = (src2_name != NULL);
 
-    if (src2_name != NULL)
-      { test = fopen(src2_name,"r");
-        if (test == NULL)
-          { if (*src2_name != '/')
-              test = fopen(Catenate(cpath,"/",src2_name,""),"r");
-            if (test == NULL)
-              { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src2_name);
-                exit (1);
-              }
-            tmp = Strdup(Catenate(cpath,"/",src2_name,""),"Allocating expanded name");
-            free(src2_name);
-            src2_name = tmp;
-          }
-        fclose(test);
-      }
-
-    free(cpath);
-
-    ISTWO = 0;
-    type  = Get_GDB_Paths(src1_name,NULL,&spath,&tpath,0);
-    if (type != IS_GDB)
-      Create_GDB(AGDB,spath,type,0,tpath);
-    else
-      Read_GDB(AGDB,tpath);
-    free(spath);
-    free(tpath);
-
-    if (src2_name != NULL)
-      { type = Get_GDB_Paths(src2_name,NULL,&spath,&tpath,0);
-        if (type != IS_GDB)
-          Create_GDB(BGDB,spath,type,0,tpath);
-        else
-          Read_GDB(BGDB,tpath);
-        free(spath);
-        free(tpath);
-        ISTWO = 1;
-      }
+    Get_GDB(AGDB,src1_name,cpath,0);
+    if (ISTWO)
+      Get_GDB(BGDB,src1_name,cpath,0);
     else
       BGDB = AGDB;
+
+    free(cpath);
     free(src1_name);
     free(src2_name);
 
@@ -950,7 +905,8 @@ int main(int argc, char *argv[])
             
             { for (j = 0, k = 0, b = nodes->bread; j <= acnt; j++)
                 { if (j == acnt || nodes[j].bread != b)
-                    { localChain(nodes + k, j - k, order, maxGap, maxOvl, penGap, penOvl, maxDrop, minFrag, minScore);
+                    { localChain(nodes + k, j - k, order, maxGap, maxOvl, penGap, penOvl,
+                                 maxDrop, minFrag, minScore);
                       if (j == acnt)
                         break;
                       k = j;
@@ -960,7 +916,8 @@ int main(int argc, char *argv[])
 
               for (j = 0, k = 0, b = nodes->bread >> 1; j <= acnt; j++)
                 { if (j == acnt || (nodes[j].bread >> 1) != b)
-                    { filterChain(nodes + k, j - k, alen, BSCAFFS[b].slen, maxCov, minExt, fzMerge);
+                    { filterChain(nodes + k, j - k, alen, BSCAFFS[b].slen, maxCov, minExt,
+                                  fzMerge);
                       if (j == acnt)
                         break;
                       k = j;
@@ -982,7 +939,8 @@ int main(int argc, char *argv[])
                       node  = node->next;
                     }
                 }
-              fprintf(stderr,"%s: scaffold %6d - %d/%d %.3f\n",Prog_Name,ascaf,acov,alen,(double)acov/alen);
+              fprintf(stderr,"%s: scaffold %6d - %d/%d %.3f\n",Prog_Name,ascaf,acov,alen,
+                             (double)acov/alen);
             }
 #endif
 
@@ -1008,7 +966,8 @@ int main(int argc, char *argv[])
                 { if (!nodes[j].active)
                     continue;
                   if (!oneGoto(input, 'A', nodes[j].which+1))
-                    { fprintf(stderr,"%s: Can't locate to object %d in aln file\n",Prog_Name,nodes[j].which+1);
+                    { fprintf(stderr,"%s: Can't locate to object %d in aln file\n",
+                                     Prog_Name,nodes[j].which+1);
                       exit (1);
                     }
                   //  Copy 'A' line

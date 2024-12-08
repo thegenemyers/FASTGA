@@ -937,15 +937,18 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
   gdb->seqstate  = EXTERNAL;
   gdb->seqsrc    = ftype;
   gdb->seqpath   = seqpath;
-  gdb->seqs = bases;
+  gdb->seqs      = bases;
 
   gdb->freq[0] = (1.*count[0])/seqtot;
   gdb->freq[1] = (1.*count[1])/seqtot;
   gdb->freq[2] = (1.*count[2])/seqtot;
   gdb->freq[3] = (1.*count[3])/seqtot;
 
-  if (bps == 0)
-    return ((FILE **) &gdb->seqs);
+  if (bps <= 1)
+    { if (bps == 1 && tpath == NULL)
+        unlink(seqpath);
+      return ((FILE **) &gdb->seqs);
+    }
   else
     { FILE **units;
       int    i;
@@ -1451,6 +1454,69 @@ void Close_GDB(GDB *gdb)
   free(gdb->seqpath);
   if (gdb->nprov > 0)
     free(gdb->prov);
+}
+
+
+/*******************************************************************************************
+ *
+ *  CREATE OR READ GDB FOR 1-ALN INTERPRETATION
+ *
+ ********************************************************************************************/
+
+FILE **Get_GDB(GDB *gdb, char *source, char *cpath, int num_bps)
+{ int   used_cpath;
+  int   i, type;
+  char *spath, *tpath;
+  FILE *test, **units;
+
+  used_cpath = 0;
+  test = fopen(source,"r");
+  if (test == NULL)
+    { if (*source != '/')
+        test = fopen(MyCatenate(cpath,"/",source,""),"r");
+      if (test == NULL)
+        { EPRINTF(EPLACE,"%s: Could not find GDB %s\n",Prog_Name,source);
+          EXIT (NULL);
+        }
+      source = Strdup(MyCatenate(cpath,"/",source,""),"Allocating expanded name");
+      used_cpath = 1;
+    }
+  fclose(test);
+
+  type  = Get_GDB_Paths(source,NULL,&spath,&tpath,0);
+  if (type != IS_GDB)
+    units = Create_GDB(gdb,spath,type,num_bps,NULL);
+  else
+    { Read_GDB(gdb,tpath);
+      units = (FILE **) &(gdb->seqs);
+      if (num_bps > 0)
+        { if (gdb->seqs == NULL)
+            { EPRINTF(EPLACE,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
+              EXIT (NULL);
+            }
+          if (num_bps > 1)
+            { units = malloc(sizeof(FILE *)*num_bps);
+              if (units == NULL)
+                { EPRINTF(EPLACE,"%s: Could not allocate units array for GDB's\n",Prog_Name);
+                  EXIT(NULL);
+                }
+              units[0] = gdb->seqs;
+              for (i = 1; i < num_bps; i++)
+                { units[i] = fopen(gdb->seqpath,"r");
+                  if (units[i] == NULL)
+                    { EPRINTF(EPLACE,"%s: Cannot open another copye of GDB bps %s\n",
+                                     Prog_Name,gdb->seqpath);
+                      free(units);
+                      EXIT(NULL);
+                    }
+                }
+            }
+        }
+    }
+
+  if (used_cpath)
+    free(source);
+  return (units);
 }
 
 

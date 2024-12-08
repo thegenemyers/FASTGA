@@ -5,7 +5,7 @@
  * Description:
  * Exported functions:
  * HISTORY:
- * Last edited: Jun 19 17:51 2024 (rd)
+ * Last edited: Nov 30 21:54 2024 (rd109)
  * * May 15 02:26 2024 (rd109): incorporate rd utilities so stand alone
  * Created: Thu Feb 21 22:40:28 2019 (rd109)
  *-------------------------------------------------------------------
@@ -145,7 +145,17 @@ int main (int argc, char **argv)
   else
     { OneFile *vfOut = oneFileOpenWriteFrom (outFileName, vfIn, isBinary, 1) ;
       if (!vfOut) die ("failed to open output file %s", outFileName) ;
-
+      if (!isBinary) // need to copy across the object stats, so they write out into the header
+	for (i = 0 ; i < vfIn->nDefn ; ++i)
+	  { int k = vfIn->defnOrder[i] ;
+	    if (!(k & 0x80) && vfIn->info[k]->stats)
+	      { int n = 1 ; OneStat *s ;
+		for (s = vfIn->info[k]->stats ; s->type ; ++s) ++n ;
+		vfOut->info[k]->stats = new0 (n, OneStat) ;
+		memcpy (vfOut->info[k]->stats, vfIn->info[k]->stats, n*sizeof(OneStat)) ;
+	      }
+	}
+	
       if (isNoHeader) vfOut->isNoAsciiHeader = true ; // will have no effect if binary
 
       if (!isHeaderOnly)

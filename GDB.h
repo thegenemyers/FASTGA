@@ -95,6 +95,16 @@ typedef struct
 // In bacth mode the error message is output and the routine exits, shutting down the calling
 //    program.
 
+  //  Read or create a temporary GDB for the source file found at either <source> or
+  //     <cpath>/<source>.  If num_bps > 0 then return an array of num_bps FILE pointers
+  //     to the .bps file for the database (necessary as the .bps is already unlinked
+  //     at when creating a temporary GDB).  If num_bps > 1 then it is the responsibility
+  //     of the caller to free this array after closing all the units save for the first.
+  //     The first FILE pointer is shared with the GDB and so will be closed when the GDB
+  //     is closed.
+
+FILE **Get_GDB(GDB *gdb, char *source, char *cpath, int num_bps);
+
   //  Interpret source & target arguments returning complete path + extension names of
   //    the source and target in spath & tpath.  Returns the type of source.
   //  If target == NULL then tpath has the same path & root as spath
@@ -108,16 +118,19 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
 
   // Create a GDB from the source file 'spath' which is of type 'ftype'.  The GDB is created
   //   in the record 'gdb' supplied by the user.  The GDB is in seqstate EXTERNAL.
-  // bps = 0:
+  // num_bps = 0:
   //   Do not create a .bps sequence file
-  // bps != 0:
+  // num_bps > 0:
   //   Create a .bps file with its name consistent with a GDB with file name 'tpath'.
   //   But if tpath == NULL then create a temporary uniquely named .bps that is
   //     unlinked (i.e. disappears on program exit).
-  //   Return an array of bps open FILE pointers to the file.
+  //   Return an array of num_bps open FILE pointers to the .bps file.
+  // If num_bps > 1 then it is the responsibility of the caller to free this array after
+  //   closing all the units save for the first.  The first FILE pointer is shared with
+  //   the GDB and so will be closed when the GDB is closed.
   // In interactive mode a NULL value is returned if there is an error.
 
-FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath);
+FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int num_bps, char *tpath);
 
   // Open the given database "path" into the supplied GDB record "gdb".
   //   Initially the sequence data, if any, stays in the .bps file with a FILE pointer to it.

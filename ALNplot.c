@@ -395,13 +395,11 @@ void read_1aln(char *oneAlnFile)
 
   //  Initiate .1aln file reading and read header information
 
-  { char      *cpath, *tmp;
-    FILE      *test;
+  { char      *cpath;
     char      *src1_name, *src2_name;
-    char      *spath, *tpath;
     char      *sptr, *eptr;
     char      *head;
-    int        s, type, TSPACE;
+    int        s, TSPACE;
     
     input = open_Aln_Read(oneAlnFile,NTHREADS,&novl,&TSPACE,&src1_name,&src2_name,&cpath);
     if (input == NULL)
@@ -409,61 +407,17 @@ void read_1aln(char *oneAlnFile)
         exit (1);
       }
 
-    test = fopen(src1_name,"r");
-    if (test == NULL)
-      { if (*src1_name != '/')
-          test = fopen(Catenate(cpath,"/",src1_name,""),"r");
-        if (test == NULL)
-          { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src1_name);
-            exit (1);
-          }
-        tmp = Strdup(Catenate(cpath,"/",src1_name,""),"Allocating expanded name");
-        free(src1_name);
-        src1_name = tmp;
-      }
-    fclose(test);
+    ISTWO = (src2_name != NULL);
 
-    if (src2_name != NULL)
-      { test = fopen(src2_name,"r");
-        if (test == NULL)
-          { if (*src2_name != '/')
-              test = fopen(Catenate(cpath,"/",src2_name,""),"r");
-            if (test == NULL)
-              { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src2_name);
-                exit (1);
-              }
-            tmp = Strdup(Catenate(cpath,"/",src2_name,""),"Allocating expanded name");
-            free(src2_name);
-            src2_name = tmp;
-          }
-        fclose(test);
-      }
-
-    free(cpath);
-
-    ISTWO = 0;
-    type  = Get_GDB_Paths(src1_name,NULL,&spath,&tpath,0);
-    if (type != IS_GDB)
-      Create_GDB(AGDB,spath,type,0,NULL);
-    else
-      Read_GDB(AGDB,tpath);
-    free(spath);
-    free(tpath);
-
-    if (src2_name != NULL)
-      { type = Get_GDB_Paths(src2_name,NULL,&spath,&tpath,0);
-        if (type != IS_GDB)
-          Create_GDB(BGDB,spath,type,0,NULL);
-        else
-          Read_GDB(BGDB,tpath);
-        free(spath);
-        free(tpath);
-        ISTWO = 1;
-      }
+    Get_GDB(AGDB,src1_name,cpath,0);
+    if (ISTWO)
+      Get_GDB(BGDB,src1_name,cpath,0);
     else
       BGDB = AGDB;
+
     free(src1_name);
     free(src2_name);
+    free(cpath);
 
     NASCAFF  = AGDB->nscaff;
     NACONTIG = AGDB->ncontig;

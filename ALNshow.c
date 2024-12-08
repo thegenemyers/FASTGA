@@ -130,9 +130,6 @@ int main(int argc, char *argv[])
   
   { char  *pwd, *root, *cpath;
     char  *src1_name, *src2_name;
-    char  *spath, *tpath;
-    int    type;
-    FILE  *test;
 
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
@@ -143,73 +140,17 @@ int main(int argc, char *argv[])
     free(root);
     free(pwd);
 
-    test = fopen(src1_name,"r");
-    if (test == NULL)
-      { if (*src1_name != '/')
-          test = fopen(Catenate(cpath,"/",src1_name,""),"r");
-        if (test == NULL)
-          { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src1_name);
-            exit (1);
-          }
-        pwd = Strdup(Catenate(cpath,"/",src1_name,""),"Allocating expanded name");
-	free(src1_name);
-        src1_name = pwd;
-      }
-    fclose(test);
-
-    if (src2_name != NULL)
-      { test = fopen(src2_name,"r");
-        if (test == NULL)
-          { if (*src2_name != '/')
-              test = fopen(Catenate(cpath,"/",src2_name,""),"r");
-            if (test == NULL)
-              { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src2_name);
-                exit (1);
-              }
-            pwd = Strdup(Catenate(cpath,"/",src2_name,""),"Allocating expanded name");
-            free(src2_name);
-            src2_name = pwd;
-          }
-        fclose(test);
-      }
-
-    free(cpath);
-
-    //  Prepare GDBs from sources if necessary
+    if (ALIGN || REFERENCE)
+      Get_GDB(gdb1,src1_name,cpath,1);
+    else
+      Get_GDB(gdb1,src1_name,cpath,0);
 
     ISTWO = 0;
-    type  = Get_GDB_Paths(src1_name,NULL,&spath,&tpath,0);
-    if (type != IS_GDB)
-      if (ALIGN || REFERENCE)
-        Create_GDB(gdb1,spath,type,1,NULL);
-      else
-        Create_GDB(gdb1,spath,type,0,NULL);
-    else
-      { Read_GDB(gdb1,tpath);
-        if ((ALIGN || REFERENCE) && gdb1->seqs == NULL)
-          { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
-            exit (1);
-          }
-      }
-    free(spath);
-    free(tpath);
-
     if (src2_name != NULL)
-      { type = Get_GDB_Paths(src2_name,NULL,&spath,&tpath,0);
-        if (type != IS_GDB)
-          if (ALIGN || REFERENCE)
-            Create_GDB(gdb2,spath,type,1,NULL);
-          else
-            Create_GDB(gdb2,spath,type,0,NULL);
+      { if (ALIGN || REFERENCE)
+          Get_GDB(gdb2,src2_name,cpath,1);
         else
-          { Read_GDB(gdb2,tpath);
-            if ((ALIGN || REFERENCE) && gdb2->seqs == NULL)
-              { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
-                exit (1);
-              }
-          }
-        free(spath);
-        free(tpath);
+          Get_GDB(gdb2,src2_name,cpath,0);
         ISTWO = 1;
       }
     else
@@ -217,9 +158,10 @@ int main(int argc, char *argv[])
 
     free(src1_name);
     free(src2_name);
+    free(cpath);
   }
 
-  //  Set up scaffold name dictionary
+  //  Set up scaffold name dictionaries
 
   { int   s;
     char *head, *sptr, *eptr;
@@ -561,10 +503,10 @@ int main(int argc, char *argv[])
             Print_Number(aslen,ai_wide,stdout);
             printf(" x ");
             Print_Number(bslen,bi_wide,stdout);
-            printf(" bps,");
-            Print_Number((int64) path->diffs,mn_wide,stdout);
+            printf(" bps, ");
+            Print_Number((int64) path->diffs,0,stdout);
             printf(" diffs, ");
-            Print_Number(tps,tp_wide,stdout);
+            Print_Number(tps,0,stdout);
             printf(" trace pts)\n");
 
             if (reverse)

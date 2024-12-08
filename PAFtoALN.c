@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
+#include "gene_core.h"
 #include "GDB.h"
 #include "hash.h"
 #include "alncode.h"
@@ -44,6 +45,8 @@ static Hash_Table *BHASH;
 
 #undef TEST
 
+// HhPp -> 0, Ii -> 1, DdNn -> 2, = -> 3, Xx -> 4, Mm -> 5
+
 static int interp[128] =
   { -1, -1, -1, -1, -1, -1, -1, -1,
     -1, -1, -1, -1, -1, -1, -1, -1,
@@ -66,11 +69,54 @@ static int interp[128] =
      4, -1, -1, -1, -1, -1, -1, -1,
   };
 
+static int cigarCheck(Path *path, char *cigar, int allow_M)
+{ int   len;
+  int   apos, bpos;
+  char *c;
+
+  apos = path->abpos;
+  bpos = path->bbpos;
+  for (c = cigar; c != '\0'; c++)
+    { len = 0;
+      while (isdigit(*c))
+        len = 10*len + (*c++-'0');
+      if (len == 0)
+        len = 1;
+      switch (interp[(int) (*c)])
+      { case 5:
+          if (!allow_M)
+            return (1);
+        case 4:
+        case 3:
+          apos += len;
+          bpos += len;
+          break;
+        case 2:
+          bpos += len;
+          break;
+        case 1:
+          apos += len;
+          break;
+        case 0:
+          break;
+        default:
+          fprintf(stderr,"%s: Invalid Cigar symbol %c(%d)\n",Prog_Name,*c,*c);
+          exit (1);
+      }
+    }
+  if (path->aepos != apos || path->bepos != bpos)
+    { fprintf(stderr,"%s: Cigar span and alignment intervals do not match\n",Prog_Name);
+      exit (1);
+    }
+
+  return (0);
+}
+
 typedef struct
   { int64  aend;
     int64  bend;
     int    diff;
-    int    hasM;
+    int    gap;    // conversion cut short on indel of this length
     int    tlen;   // length of current result
     uint8 *trace;
     int    mlen;   // current length of trace array (for realloc purposes)
@@ -80,47 +126,22 @@ typedef struct
 //        cigar: 0-terminated CIGAR string
 //        tspace: trace point spacing
 //        bundle: pointer to a TP "bundle"
-// cigar2tp fills in the TP record for the alignment.
+//  cigar2tp fills in the TP record for the alignment, but stops short if an insert or delete
+//     causes a byte overflow.  It returns a pointer into the cigar string of the last command
+//     it interpreted, '\0' if it got to the end.
 
-static void cigar2tp(int64 abeg, char *cigar, int tspace, TP_Bundle *bundle)
+static char *cigar2tp(Overlap *ovl, int64 aend, int64 bend,
+                      char *cigar, int tspace, TP_Bundle *bundle)
 { int64 apos, anext;
   int64 bpos, blast;
   int64 diff, dlast;
-  int   hasM;
   uint8 *trace;
   int   len, nlen, inc;
   char *c;
+int abeg = 0;
+int premy;
 
-  hasM = 0;
-  apos = abeg;    //  In 1st pass figure out how long the tp array will be
-  c = cigar;
-  while (*c != '\0')
-    { len = 0;
-      while (isdigit(*c))
-        len = 10*len + (*c++-'0');
-      if (len == 0)
-        len = 1;
-      switch (interp[(int) (*c++)])
-      { case 4:
-          apos += len;
-          break;
-        case 5:
-          hasM = 1;
-        case 3:
-          apos += len;
-          break;
-        case 1:
-          apos += len;
-        case 2:
-        case 0:
-          break;
-        default:
-          fprintf(stderr,"Invalid Cigar symbol %c(%d)\n",c[-1],c[-1]);
-          exit (1);
-      }
-    }
-
-  nlen = ((apos-1)/tspace - (abeg/tspace)) + 1;
+  nlen = ((ovl->path.aepos-1)/tspace - (ovl->path.abpos/tspace)) + 1;
 
   if (nlen >= bundle->mlen)
     { if (bundle->mlen == 0)
@@ -133,20 +154,52 @@ static void cigar2tp(int64 abeg, char *cigar, int tspace, TP_Bundle *bundle)
         }
     }
 
-  diff = dlast = 0;   //  In 2nd pass fill in the tps & dfs vectors, and determine
-  bpos = blast = 0;   //    the end point of the alignment in the target and the length of the read.
+  //  In a pass fill in the tps & dfs vectors, and determine
+  //    the end point of the alignment in the target and the length of the read.
+
+  diff = dlast = 0;
+  bpos = blast = ovl->path.bbpos;
   anext = (abeg/tspace+1)*tspace;
-  apos  = abeg;
+  apos  = ovl->path.abpos;
   trace = bundle->trace;
-  c    = cigar;
-  while (*c != '\0')
+  for (c = cigar; *c != '\0'; c++)
     { len = 0;
       while (isdigit(*c))
         len = 10*len + (*c++-'0');
       if (len == 0)
         len = 1;
-      switch (interp[(int) (*c++)])
+      switch (interp[(int) (*c)])
       { case 4:
+
+if (apos < 0)
+  { if (apos + len <= 0)
+      { apos += len;
+        bpos += len;
+        break;
+      }
+    len  += apos;
+    bpos -= apos;
+    apos = 0;
+  }
+if (bpos < 0)
+  { if (bpos + len <= 0)
+      { apos += len;
+        bpos += len;
+        break;
+      }
+    len  += bpos;
+    apos -= bpos;
+    bpos = 0;
+  }
+if (apos+len > aend)
+  { premy = (apos+len)-aend;
+    len = aend-apos;
+  }
+if (bpos+len > bend)
+  { premy = (bpos+len)-bend;
+    len = bend-bpos;
+  }
+    
           while (apos+len > anext)
             { inc = anext-apos; 
               apos += inc;
@@ -179,10 +232,18 @@ static void cigar2tp(int64 abeg, char *cigar, int tspace, TP_Bundle *bundle)
           bpos += len;
           break;
         case 2:
+          if ((bpos-blast) + len + (anext-apos) > 200)
+            { bundle->gap = len;
+              goto gap;
+            }
           bpos += len;
           diff += len;
           break;
         case 1:
+          if ((bpos-blast) + len + (anext-apos) > 200)
+            { bundle->gap = len;
+              goto gap;
+            }
           while (apos+len > anext)
             { inc = anext-apos; 
               apos += inc;
@@ -200,6 +261,7 @@ static void cigar2tp(int64 abeg, char *cigar, int tspace, TP_Bundle *bundle)
           break;
       }
     }
+gap:
   if (apos > anext-tspace)
     { *trace++ = diff-dlast;
       *trace++ = bpos-blast;
@@ -208,13 +270,13 @@ static void cigar2tp(int64 abeg, char *cigar, int tspace, TP_Bundle *bundle)
   bundle->aend = apos;
   bundle->bend = bpos;
   bundle->diff = diff;
-  bundle->hasM = hasM;
-  bundle->tlen = 2*nlen;
+  bundle->tlen = trace - bundle->trace;
+  return (c);
 }
 
 #ifdef TEST
 
-static char *cigars[4] = {
+static char *cigars[5] = {
    "23=1X4=1X10=1X8=2I2=1I32=1X3=1X1=1I1X9=1X9=1X12=1X1=2X2=1X5=1I5=1X2=1X2=1I5=1D3=1X6=1I2="
    "1D2=1X4=1X1=1X16=2X1=1X3=1X19=1X10=1X12=1X14=1X16=1I1=1D8=1X11=1X10=2X2=1X3=1I3=2X2=1X2="
    "4D1=1X1=1D4=8D2=1X17=2X5=1I1=1D8=1X9=1X31=1X1=1X7=1X3=1X1=1I1=1D7=1X9=1X4=1X9=1X2=1X2=2X"
@@ -239,32 +301,53 @@ static char *cigars[4] = {
 
    "5=1X5=1X5=1X3=1X7=1X11=1X32=7D2=7I3=1X13=1X1=1X1=1X8=1X1=1X2=1X5=1I1=1D3=1D2=1I9=1X"
    "8=18D2=15D2=9D11=1X41=1D2=3D3=1X1=1X2=1X1D10=1X4=1X2D17=1X2=1X40=1X1=1X10=1X2=1X8=1D"
+   "2=1X4=1X1=1X4=1X4=1X6=1X2=1X9=",
+
+   "3=1I4=1I3=1X19=2X4=1X2=1X3=1X3=1X4=1X2=1X6=1X5=1X2=1X10=1X10=1X12=1X11=1X5=1I1=1X1D"
+   "2=1D1=1D2=1D1=1X1D2=1X1=2X1=1I1=1I1=1D3=1I1X3=1X1D2=1X1=1X2=1D19=2X1=1X5=1X2=1X2=1X4="
+   "1X14=1X5=8D2=1X3D35=1X15=1X16=1X1=1X1=1X1=1X2=1D12=1X3=1X7D21=1X11=1X4=1X7=1X2=1X2D"
+   "1=2X1=1X3=1X4=2X3D1=1X6=3X1=1I3=2I3=5I1=1X1=6I2=2X1=1D3=2I1=1I2=1X1=3I2=3I24=2X10=1X"
+   "2=1X2I1=1X1=1D1=1X1=1X2=1D23=1X4=1X10=1X12=1X19=1X4=1X2=1X12=1X12=1X7=1X6=150D"
+   "5=1X18=1X33=1I3=1I6=1I1=1X13=1X27=1X7=1X3=1X2=1X8=1X3=1X7=1X4=1I1=1D2=3X6=1X7=1X18="
+   "1X23=1I29=1X2=1X2=1X1=1I1=1D10=1X6=1X2=1X5=1X6=1I2=1D9=1X23=1X4=1X2=1X11=1X23=1X31="
+   "1I1=1D8=1X7=1X3=1X7=150I"
+   "5=1X5=1X5=1X3=1X7=1X11=1X32=7D2=7I3=1X13=1X1=1X1=1X8=1X1=1X2=1X5=1I1=1D3=1D2=1I9=1X"
+   "8=18D2=15D2=9D11=1X41=1D2=3D3=1X1=1X2=1X1D10=1X4=1X2D17=1X2=1X40=1X1=1X10=1X2=1X8=1D"
    "2=1X4=1X1=1X4=1X4=1X6=1X2=1X9="
 };
 
-static int64 starts[3] = { 126, 31111, 0, 31726 };
+static int64 starts[5] = { 126, 31111, 0, 31726, 31111 };
 
 int main(int argc, char *argv[])
 { TP_Bundle answer;
-  int i, j;
+  int       i, j;
+  char     *c;
 
   (void) argc;
   (void) argv;
 
   answer.mlen = 0;
 
-  for (j = 0; j < 4; j++)
-    { cigar2tp(starts[j],cigars[j],100,&answer);
+  for (j = 0; j < 5; j++)
+    { c = cigars[j];
+      while (1)
+        { c = cigar2tp(starts[j],c,100,&answer);
 
-      printf("T ");
-      for (i = 0; i < answer.tlen; i++)
-        printf(" %d",answer.tps[i]);
-      printf("\n");
+          printf("T ");
+          for (i = 1; i < answer.tlen; i += 2)
+            printf(" %d",answer.trace[i]);
+          printf("\n");
 
-      printf("D ");
-      for (i = 0; i < answer.tlen; i++)
-        printf(" %d",answer.dfs[i]);
-      printf("\n");
+          printf("D ");
+          for (i = 0; i < answer.tlen; i += 2)
+            printf(" %d",answer.trace[i]);
+          printf("\n");
+
+          if (*c == '\0')
+            break;
+
+          printf("%c %d\n",*c++,answer.gap);
+        }
     }
 
   exit(0);
@@ -333,7 +416,7 @@ static char *read_line(void *input, char *name, Line_Bundle *lb)
                            Prog_Name,name);
           else
             fprintf(stderr,"%s: Could not read next line of file %s (offset %lld)\n",
-                           Prog_Name,name,ftello(input));
+                           Prog_Name,name,(int64) ftello(input));
           exit (1);
         }
       len += strlen(buffer+len);
@@ -358,7 +441,10 @@ void *gen_1aln(void *args)
   int64  span, amnt;
   FILE  *input;
   int    index, nfields, linelen;
-  char  *fptrs[30], *fptr, *eptr;
+  char  *fptrs[30], *eptr, *c;
+
+char *b, d;
+int   aend, bend;
 
   int64  alen, blen;
   int    bpos,  epos;
@@ -389,8 +475,7 @@ void *gen_1aln(void *args)
       linelen = strlen(eptr) + 1;
       amnt   += linelen;
     
-      fptr = eptr;                // parse PAF line
-      while (*eptr != '\0' && isspace(*eptr))
+      while (*eptr != '\0' && isspace(*eptr))    // parse PAF line
         eptr += 1;
       nfields = 0;
       while (*eptr != '\0')
@@ -404,7 +489,7 @@ void *gen_1aln(void *args)
           
       if (nfields < 11)
         { fprintf(stderr,"%s: Line of paf has fewer than 11 fields (offset %lld)\n",
-                         Prog_Name,ftello(input)-linelen);
+                         Prog_Name,(int64) (ftello(input)-linelen));
           exit (1);
         }
 
@@ -412,7 +497,7 @@ void *gen_1aln(void *args)
       alen  = strtol(fptrs[1], &eptr, 10);
       if (index < 0 || alen != SCAFF1[index].slen)
         { fprintf(stderr,"%s: Scaffold name %s not found in first source (offset %lld)\n", 
-                         Prog_Name,fptrs[0],ftello(input)-linelen);
+                         Prog_Name,fptrs[0],(int64) (ftello(input)-linelen));
           exit (1);
         }
       bpos = strtol(fptrs[2], &eptr, 10);
@@ -428,7 +513,7 @@ void *gen_1aln(void *args)
       blen   = strtol(fptrs[6], &eptr, 10);
       if (index < 0 || blen != SCAFF2[index].slen)
         { fprintf(stderr,"%s: Scaffold name %s not found in second source (offset %lld)\n", 
-                         Prog_Name,fptrs[5],ftello(input)-linelen);
+                         Prog_Name,fptrs[5],(int64) (ftello(input)-linelen));
           exit (1);
         }
       bpos = strtol(fptrs[7], &eptr, 10);
@@ -448,26 +533,63 @@ void *gen_1aln(void *args)
           ovl->flags = 0;
         }
 
+      bend = CONTIG2[ovl->bread].clen;
+      aend = CONTIG1[ovl->aread].clen;
+
       for (i = 11; i < nfields; i++)
         if (strncmp(fptrs[i],"cg:Z:",5) == 0)
           break;
       if (i >= nfields)
         { fprintf(stderr,"%s: PAF line is missing a CIGAR string (offset %lld)\n",
-                         Prog_Name,ftello(input)-linelen);
+                         Prog_Name,(int64) (ftello(input)-linelen));
           exit (1);
         }
 
-      cigar2tp(ovl->path.abpos,fptrs[i]+5,TSPACE,tps);
-      if (tps->hasM)
+      if (cigarCheck(&(ovl->path),fptrs[i]+5,0))
         { fprintf(stderr,"%s: PAF CIGAR string uses M, should be X & = (offset %lld)\n",
-                         Prog_Name,ftello(input)-linelen);
+                         Prog_Name,(int64) (ftello(input)-linelen));
           exit (1);
         }
 
-      ovl->path.diffs = tps->diff;
+      oneWriteLine(of,'a',0,0);
 
-      Write_Aln_Overlap(of,ovl);
-      Write_Aln_Trace(of,tps->trace,tps->tlen);
+      c = fptrs[i]+5;
+      while (1)
+        { b = c;
+
+          c = cigar2tp(ovl,aend,bend,c,TSPACE,tps);
+
+          ovl->path.bepos = ovl->path.bbpos + tps->bend;
+          ovl->path.aepos = tps->aend;
+          ovl->path.diffs = tps->diff;
+          Write_Aln_Overlap(of,ovl);
+          Write_Aln_Trace(of,tps->trace,tps->tlen);
+
+{ d = *c;
+  *c = 0;
+  printf("%s\n",b);
+  *c = d;
+}
+
+          if (*c == '\0')
+            break;
+      
+          if (*c++ == 'I')
+            { ovl->path.abpos = ovl->path.aepos + tps->gap;
+              ovl->path.bbpos = ovl->path.bepos;
+              oneInt(of,0) = tps->gap;
+              oneInt(of,1) = 0;
+printf("I %d\n",tps->gap);
+            }
+          else
+            { ovl->path.abpos = ovl->path.aepos;
+              ovl->path.bbpos = ovl->path.bepos + tps->gap;
+              oneInt(of,0) = 0;
+              oneInt(of,1) = tps->gap;
+printf("D %d\n",tps->gap);
+            }
+          oneWriteLine(of,'p',0,0);
+        }
     }
 
   free(tps->trace);
@@ -483,8 +605,6 @@ int main(int argc, char *argv[])
   GDB       _gdb1, *gdb1 = &_gdb1;
   GDB       _gdb2, *gdb2 = &_gdb2;
   int        ISTWO;
-  FILE     **units1;
-  FILE     **units2;
   char      *SPATH1;
   char      *SPATH2;
   char      *APATH, *AROOT;
@@ -539,12 +659,10 @@ int main(int argc, char *argv[])
   { char *tpath;
     int   type;
 
-    units1 = NULL;
-    units2 = NULL;
     ISTWO = 0;
     type  = Get_GDB_Paths(argv[2],NULL,&SPATH1,&tpath,0);
     if (type != IS_GDB)
-      units1 = Create_GDB(gdb1,SPATH1,type,NTHREADS,NULL);
+      Create_GDB(gdb1,SPATH1,type,0,NULL);
     else
       { Read_GDB(gdb1,tpath);
         if (gdb1->seqs == NULL)
@@ -557,7 +675,7 @@ int main(int argc, char *argv[])
     if (argc == 4)
       { type = Get_GDB_Paths(argv[3],NULL,&SPATH2,&tpath,0);
         if (type != IS_GDB)
-          units2 = Create_GDB(gdb2,SPATH2,type,NTHREADS,NULL);
+          Create_GDB(gdb2,SPATH2,type,0,NULL);
         else
           { Read_GDB(gdb2,tpath);
             if (gdb2->seqs == NULL)
@@ -618,7 +736,6 @@ int main(int argc, char *argv[])
     else
       BHASH = AHASH;
   }
-
 
   //  Open .1aln file reading and read header information
   

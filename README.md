@@ -626,6 +626,8 @@ built.
        <1_extn>  = any valid 1-code sequence file type
 ```
 
+*Currently Broken*
+
 PAFtoALN takes a PAF file as its first argument and the two sources that were compared to produce the
 alignment in the PAF file as the second and third arguments.
 The PAF file must have CIGAR strings that use X and = to describe the alignment of ungapped segments

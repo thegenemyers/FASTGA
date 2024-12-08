@@ -502,10 +502,8 @@ int main(int argc, char *argv[])
 
   { char       *pwd, *root, *cpath;
     char       *src1_name, *src2_name;
-    char       *spath, *tpath;
     char       *head, *sptr, *eptr;
-    int         type, s;
-    FILE       *test;
+    int         s;
 
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
@@ -516,56 +514,30 @@ int main(int argc, char *argv[])
     free(root);
     free(pwd);
 
-    test = fopen(src1_name,"r");
-    if (test == NULL)
-      { if (*src1_name != '/')
-          test = fopen(Catenate(cpath,"/",src1_name,""),"r");
-        if (test == NULL)
-          { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src1_name);
-            exit (1);
-          }
-        pwd = Strdup(Catenate(cpath,"/",src1_name,""),"Allocating expanded name");
-        free(src1_name);
-        src1_name = pwd;
-      }
-    fclose(test);
+    ISTWO = (src2_name != NULL);
 
-    if (src2_name != NULL)
-      { test = fopen(src2_name,"r");
-        if (test == NULL)
-          { if (*src2_name != '/')
-              test = fopen(Catenate(cpath,"/",src2_name,""),"r");
-            if (test == NULL)
-              { fprintf(stderr,"%s: Could not find GDB %s\n",Prog_Name,src2_name);
-                exit (1);
-              }
-            pwd = Strdup(Catenate(cpath,"/",src2_name,""),"Allocating expanded name");
-            free(src2_name);
-            src2_name = pwd;
-          }
-        fclose(test);
+    if (CIGAR)
+      units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS);
+    else
+      Get_GDB(gdb1,src1_name,cpath,0);
+
+    if (ISTWO)
+      { if (CIGAR)
+          units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS);
+        else
+          Get_GDB(gdb2,src2_name,cpath,0);
+      }
+    else
+      { gdb2   = gdb1;
+        units2 = units1;
       }
 
+    free(src1_name);
+    free(src2_name);
     free(cpath);
 
-    //  Prepare GDBs from sources if necessary
+    //  Truncate GDB headers to first white-space
 
-    units1 = NULL;
-    units2 = NULL;
-    ISTWO = 0;
-    type  = Get_GDB_Paths(src1_name,NULL,&spath,&tpath,0);
-    if (type != IS_GDB)
-      if (CIGAR)
-        units1 = Create_GDB(gdb1,spath,type,NTHREADS,NULL);
-      else
-        Create_GDB(gdb1,spath,type,0,NULL);
-    else
-      { Read_GDB(gdb1,tpath);
-        if (CIGAR && gdb1->seqs == NULL)
-          { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
-            exit (1);
-          }
-      }
     head  = gdb1->headers;
     for (s = 0; s < gdb1->nscaff; s++)
       { sptr = head + gdb1->scaffolds[s].hoff;
@@ -574,24 +546,9 @@ int main(int argc, char *argv[])
             break;
         *eptr = '\0';
       }
-    free(spath);
-    free(tpath);
 
-    if (src2_name != NULL)
-      { type = Get_GDB_Paths(src2_name,NULL,&spath,&tpath,0);
-        if (type != IS_GDB)
-          if (CIGAR)
-            units2 = Create_GDB(gdb2,spath,type,NTHREADS,NULL);
-          else
-            Create_GDB(gdb2,spath,type,0,NULL);
-        else
-          { Read_GDB(gdb2,tpath);
-            if (CIGAR && gdb2->seqs == NULL)
-              { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
-                exit (1);
-              }
-          }
-        head  = gdb2->headers;
+    if (ISTWO)
+      { head  = gdb2->headers;
         for (s = 0; s < gdb2->nscaff; s++)
           { sptr = head + gdb2->scaffolds[s].hoff;
             for (eptr = sptr; *eptr != '\0'; eptr++)
@@ -599,15 +556,7 @@ int main(int argc, char *argv[])
                 break;
             *eptr = '\0';
           }
-        free(spath);
-        free(tpath);
-        ISTWO = 1;
       }
-    else
-      gdb2 = gdb1;
-
-    free(src1_name);
-    free(src2_name);
   }
 
   //  Divide .1aln into NTHREADS parts
@@ -638,35 +587,9 @@ int main(int argc, char *argv[])
     for (p = 0; p < NTHREADS; p++)
       { parm[p].gdb1 = *gdb1;
         parm[p].gdb2 = *gdb2;
-        if (p > 0 && CIGAR)
-          { if (units1 != NULL)
-              parm[p].gdb1.seqs = units1[p];
-            else
-              { parm[p].gdb1.seqs = fopen(gdb1->seqpath,"r");
-                if (parm[p].gdb1.seqs == NULL)
-                  { fprintf(stderr,"%s: Cannot open another copy of GDB %s\n",
-                                   Prog_Name,gdb1->seqpath);
-                    exit (1);
-                  }
-              }
-            if (ISTWO)
-              { if (units2 != NULL)
-                  parm[p].gdb2.seqs = units2[p];
-                else
-                  { parm[p].gdb2.seqs = fopen(gdb2->seqpath,"r");
-                    if (parm[p].gdb2.seqs == NULL)
-                      { fprintf(stderr,"%s: Cannot open another copy of GDB %s\n",
-                                       Prog_Name,gdb2->seqpath);
-                        exit (1);
-                      }
-                  }
-              }
-            else
-              { if (units1 != NULL)
-                  parm[p].gdb2.seqs = units1[p];
-                else
-                  parm[p].gdb2.seqs = parm[p].gdb1.seqs;
-              }
+        if (CIGAR)
+          { parm[p].gdb1.seqs = units1[p];
+            parm[p].gdb2.seqs = units2[p];
           }
         parm[p].in  = input + p;
         parm[p].out = fopen(Numbered_Suffix(oprefix,p,".paf"),"w+");
@@ -691,15 +614,14 @@ int main(int argc, char *argv[])
       pthread_join(threads[p],NULL);
 #endif
 
-    if (CIGAR)
+    if (CIGAR && NTHREADS > 1)
       { for (p = 1; p < NTHREADS; p++)
-          { fclose(parm[p].gdb1.seqs);
+          { fclose(units1[p]);
             if (ISTWO)
-            fclose(parm[p].gdb2.seqs);
+              fclose(units2[p]);
           }
-        if (units1 != NULL)
-          free(units1);
-        if (units2 != NULL)
+        free(units1);
+        if (ISTWO)
           free(units2);
       }
   

@@ -39,6 +39,8 @@ int main(int argc, char *argv[])
   Alignment _aln, *aln = &_aln;
   Path      *path = &(_ovl.path);
 
+  char    *src1_name, *src2_name;
+
   OneFile *input;
   int64    novl;
   int      tspace;
@@ -129,7 +131,6 @@ int main(int argc, char *argv[])
   //  Initiate .las file reading and read header information
   
   { char  *pwd, *root, *cpath;
-    char  *src1_name, *src2_name;
 
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
@@ -156,8 +157,6 @@ int main(int argc, char *argv[])
     else
       gdb2 = gdb1;
 
-    free(src1_name);
-    free(src2_name);
     free(cpath);
   }
 
@@ -318,7 +317,7 @@ int main(int argc, char *argv[])
     mn_wide += (mn_wide-1)/3;
     tp_wide += (tp_wide-1)/3;
 
-    root  = Root(argv[1],".las");
+    root  = Root(argv[1],".1aln");
     printf("\n%s: ",root);
     Print_Number(novl,0,stdout);
     printf(" records\n");
@@ -338,7 +337,7 @@ int main(int argc, char *argv[])
 
         aread = ovl->aread;
         if (aread >= nacontig)
-          { fprintf(stderr,"%s: A-read is out-of-range of GDB %s\n",Prog_Name,argv[1]);
+          { fprintf(stderr,"%s: A-read is out-of-range of GDB %s\n",Prog_Name,src1_name);
             exit (1);
           }
 
@@ -348,7 +347,7 @@ int main(int argc, char *argv[])
 
         bread = ovl->bread;
         if (bread >= nbcontig)
-          { fprintf(stderr,"%s: B-read is out-of-range of GDB %s\n",Prog_Name,argv[1+ISTWO]);
+          { fprintf(stderr,"%s: B-read is out-of-range of GDB %s\n",Prog_Name,src2_name);
             exit (1);
           }
 
@@ -443,6 +442,8 @@ int main(int argc, char *argv[])
           printf(">");
         else
           printf("]");
+
+fflush(stdout);
 
         if (ALIGN || REFERENCE)
           { char *aseq, *bseq;
@@ -576,6 +577,7 @@ int main(int argc, char *argv[])
               Print_Reference(stdout,aln,work,INDENT,WIDTH,BORDER,UPPERCASE,mx_wide,reverse);
             if (ALIGN)
               Print_Alignment(stdout,aln,work,INDENT,WIDTH,BORDER,UPPERCASE,mx_wide,reverse);
+fflush(stdout);
           }
         else
           { printf("  ~  %5.2f%% ",(200.*ovl->path.diffs) /
@@ -612,6 +614,9 @@ int main(int argc, char *argv[])
   if (ISTWO)
     Close_GDB(gdb2);
   Close_GDB(gdb1);
+
+  free(src1_name);
+  free(src2_name);
 
   free(Prog_Name);
   free(Command_Line);

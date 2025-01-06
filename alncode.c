@@ -76,7 +76,7 @@ OneFile *open_Aln_Read (char *filename, int nThreads,
     
   *db1_name = NULL;
   *db2_name = NULL;
-  *cpath    = "";
+  *cpath    = NULL;
   refInfo = of->info['<'];
   if (refInfo == NULL)
     { fprintf(stderr,"%s: No references in aln file",Prog_Name);
@@ -84,11 +84,22 @@ OneFile *open_Aln_Read (char *filename, int nThreads,
     }      
   for (i = 0; i < refInfo->accum.count; ++i)
     if (of->reference[i].count == 1)
-      *db1_name = strdup(of->reference[i].filename);
+      { if (*db1_name != NULL)
+          free(*db1_name);
+        *db1_name = strdup(of->reference[i].filename);
+      }
     else if (of->reference[i].count == 2)
-      *db2_name = strdup(of->reference[i].filename);
+      { if (*db2_name != NULL)
+          free(*db2_name);
+        *db2_name = strdup(of->reference[i].filename);
+      }
     else if (of->reference[i].count == 3)
-      *cpath = strdup(of->reference[i].filename);
+      { if (*cpath != NULL)
+          free(*cpath);
+        *cpath = strdup(of->reference[i].filename);
+      }
+  if (cpath == NULL)
+    *cpath = "";
 
   *tspace = 0;
   while (oneReadLine(of))             // advance to first alignment record

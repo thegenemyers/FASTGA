@@ -1561,7 +1561,7 @@ int main(int argc, char *argv[])
             ARG_NON_NEGATIVE(FREQ,"maximum seed frequency");
             break;
           case 'k':
-            ARG_NON_NEGATIVE(KMER,"maximum seed frequency");
+            ARG_NON_NEGATIVE(KMER,"index k-mer size");
             break;
           case 'P':
             SORT_PATH = argv[i]+2;

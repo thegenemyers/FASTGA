@@ -25,6 +25,7 @@
 #include "alncode.h"
 
 #define DEBUG_THREADS
+#define DEBUG
 
 #define TSPACE   100
 #define VERSION "0.1"
@@ -69,6 +70,9 @@ static int interp[128] =
      4, -1, -1, -1, -1, -1, -1, -1,
   };
 
+  //  Check that cigar string validly covers span of path and return size of trace point array
+  //    needed.  If allow_M is 0, then if an 'M' occurs return 0 (error).
+
 static int cigarCheck(Path *path, char *cigar, int allow_M)
 { int   len;
   int   apos, bpos;
@@ -76,7 +80,7 @@ static int cigarCheck(Path *path, char *cigar, int allow_M)
 
   apos = path->abpos;
   bpos = path->bbpos;
-  for (c = cigar; c != '\0'; c++)
+  for (c = cigar; *c != '\0'; c++)
     { len = 0;
       while (isdigit(*c))
         len = 10*len + (*c++-'0');
@@ -85,7 +89,7 @@ static int cigarCheck(Path *path, char *cigar, int allow_M)
       switch (interp[(int) (*c)])
       { case 5:
           if (!allow_M)
-            return (1);
+            return (0);
         case 4:
         case 3:
           apos += len;
@@ -109,14 +113,76 @@ static int cigarCheck(Path *path, char *cigar, int allow_M)
       exit (1);
     }
 
-  return (0);
+  return (((path->aepos-1)/TSPACE - (path->abpos/TSPACE)) + 1);
 }
 
 typedef struct
-  { int64  aend;
-    int64  bend;
-    int    diff;
-    int    gap;    // conversion cut short on indel of this length
+  { int   apos;   //  At point (apos,bpos) in the d.p. matrix (of current contig pair)
+    int   bpos;
+    char *cptr;   //  if len > 0, then next command is len,*cptr
+    int   len;    //      otherwise it is the length,command pair at cptr.
+  } Cigar_Position;
+
+  //  if apos or bpos < 0 then off the matrix, if next command is an indel then also
+  //     want to skip as these are part of the gap between alignments.
+  //  cigarPrefix moves the cursor C forward until both apos and bpos > 0 and the
+  //     next command is a diagonal one.
+
+static void cigarPrefix(Cigar_Position *C)
+{ int   len;
+  int   apos, bpos;
+  char *c;
+
+  apos = C->apos;
+  bpos = C->bpos;
+  len  = C->len;
+  for (c = C->cptr; *c != '\0'; c++)
+    { if (len <= 0)
+        { while (isdigit(*c))
+            len = 10*len + (*c++-'0');
+          if (len == 0)
+            len = 1;
+        }
+      switch (interp[(int) (*c)])
+      { case 5:
+        case 4:
+        case 3:
+          if (apos >= 0 && bpos > 0)
+            goto found;
+          if (apos < 0 && apos + len >= 0)
+            { len  += apos;
+              bpos -= apos;
+              apos = 0;
+              if (bpos >= 0)
+                goto found;
+            }
+          if (bpos < 0 && bpos + len >= 0)
+            { len  += bpos;
+              apos -= bpos;
+              bpos = 0;
+              if (apos >= 0)
+                goto found;
+            }
+          apos += len;
+        case 2:
+          bpos += len;
+          break;
+        case 1:
+          apos += len;
+        case 0:
+          break;
+      }
+      len = 0;
+    }
+found:
+  C->cptr = c;
+  C->len  = len;
+  C->apos = apos;
+  C->bpos = bpos;
+}
+
+typedef struct
+  { int    diff;
     int    tlen;   // length of current result
     uint8 *trace;
     int    mlen;   // current length of trace array (for realloc purposes)
@@ -130,76 +196,51 @@ typedef struct
 //     causes a byte overflow.  It returns a pointer into the cigar string of the last command
 //     it interpreted, '\0' if it got to the end.
 
-static char *cigar2tp(Overlap *ovl, int64 aend, int64 bend,
-                      char *cigar, int tspace, TP_Bundle *bundle)
+static char *cigar2tp(Cigar_Position *C, int64 aend, int64 bend,
+                      int tspace, TP_Bundle *bundle)
 { int64 apos, anext;
   int64 bpos, blast;
   int64 diff, dlast;
   uint8 *trace;
-  int   len, nlen, inc;
+  int   x, len, inc, slen;
   char *c;
-int abeg = 0;
-int premy;
-
-  nlen = ((ovl->path.aepos-1)/tspace - (ovl->path.abpos/tspace)) + 1;
-
-  if (nlen >= bundle->mlen)
-    { if (bundle->mlen == 0)
-        bundle->trace = NULL;
-      bundle->mlen  = 1.2*nlen + 250;
-      bundle->trace = realloc(bundle->trace,2*bundle->mlen);
-      if (bundle->trace == NULL)
-        { fprintf(stderr,"Out of memory interpreting CIGAR string");
-          exit (1);
-        }
-    }
 
   //  In a pass fill in the tps & dfs vectors, and determine
   //    the end point of the alignment in the target and the length of the read.
 
-  diff = dlast = 0;
-  bpos = blast = ovl->path.bbpos;
-  anext = (abeg/tspace+1)*tspace;
-  apos  = ovl->path.abpos;
+  diff  = dlast = 0;
+  bpos  = blast = C->bpos;
+  apos  = C->apos;
+  anext = (apos/tspace+1)*tspace;
   trace = bundle->trace;
-  for (c = cigar; *c != '\0'; c++)
-    { len = 0;
-      while (isdigit(*c))
-        len = 10*len + (*c++-'0');
-      if (len == 0)
-        len = 1;
-      switch (interp[(int) (*c)])
-      { case 4:
 
-if (apos < 0)
-  { if (apos + len <= 0)
-      { apos += len;
-        bpos += len;
-        break;
-      }
-    len  += apos;
-    bpos -= apos;
-    apos = 0;
-  }
-if (bpos < 0)
-  { if (bpos + len <= 0)
-      { apos += len;
-        bpos += len;
-        break;
-      }
-    len  += bpos;
-    apos -= bpos;
-    bpos = 0;
-  }
-if (apos+len > aend)
-  { premy = (apos+len)-aend;
-    len = aend-apos;
-  }
-if (bpos+len > bend)
-  { premy = (bpos+len)-bend;
-    len = bend-bpos;
-  }
-    
+  slen = 0;
+  len  = C->len;
+  for (c = C->cptr; *c != '\0'; c++)
+    { if (len <= 0)
+        { len = 0;
+          while (isdigit(*c))
+            len = 10*len + (*c++-'0');
+          if (len == 0)
+            len = 1;
+        }
+      if (apos >= aend || bpos >= bend)
+        { slen = len;
+          break;
+        }
+      x = interp[(int) (*c)];
+      if ((x >= 3 || x == 1) && apos+len > aend)
+        { slen = (apos+len)-aend;
+          len = aend-apos;
+printf("Inside A %d %d\n",len,slen);
+        }
+      if (x >= 2 && bpos+len > bend)
+        { slen = (bpos+len+slen)-bend;
+          len = bend-bpos;
+printf("Inside B %d %d\n",len,slen);
+        }
+      switch (x)
+      { case 4:
           while (apos+len > anext)
             { inc = anext-apos; 
               apos += inc;
@@ -233,16 +274,16 @@ if (bpos+len > bend)
           break;
         case 2:
           if ((bpos-blast) + len + (anext-apos) > 200)
-            { bundle->gap = len;
-              goto gap;
+            { slen += len;
+              break;
             }
           bpos += len;
           diff += len;
           break;
         case 1:
-          if ((bpos-blast) + len + (anext-apos) > 200)
-            { bundle->gap = len;
-              goto gap;
+          if (TSPACE + len > 200)
+            { slen += len;
+              break;
             }
           while (apos+len > anext)
             { inc = anext-apos; 
@@ -260,17 +301,22 @@ if (bpos+len > bend)
         case 0:
           break;
       }
+      if (slen > 0)
+        break;
+      len = 0;
     }
-gap:
   if (apos > anext-tspace)
     { *trace++ = diff-dlast;
       *trace++ = bpos-blast;
     }
-
-  bundle->aend = apos;
-  bundle->bend = bpos;
   bundle->diff = diff;
   bundle->tlen = trace - bundle->trace;
+
+  C->apos = apos;
+  C->bpos = bpos;
+  C->cptr = c;
+  C->len  = slen;
+
   return (c);
 }
 
@@ -434,20 +480,24 @@ void *gen_1aln(void *args)
   char    *iname = parm->iname;
   OneFile *of    = parm->of;   
 
-  Line_Bundle _lb, *lb = &_lb;
-  Overlap     _ovl, *ovl = &_ovl;
-  TP_Bundle   _tps, *tps = &_tps;
+  Line_Bundle    _lb, *lb = &_lb;
+  Overlap        _ovl, *ovl = &_ovl;
+  TP_Bundle      _tps, *tps = &_tps;
+  Cigar_Position _C, *C = &_C;
 
   int64  span, amnt;
   FILE  *input;
   int    index, nfields, linelen;
-  char  *fptrs[30], *eptr, *c;
+  char  *fptrs[100], *eptr;
 
-char *b, d;
-int   aend, bend;
+#ifdef DEBUG
+  char *d;
+#endif
 
-  int64  alen, blen;
-  int    bpos,  epos;
+  int64  alen, blen, tlen;
+  int    adel, bdel;
+  int    bpos, epos;
+  int    aend, bend;
   int    i;
 
   input = fopen(iname,"r");
@@ -486,7 +536,7 @@ int   aend, bend;
           while (isspace(*eptr))
             eptr += 1;
         }
-          
+ 
       if (nfields < 11)
         { fprintf(stderr,"%s: Line of paf has fewer than 11 fields (offset %lld)\n",
                          Prog_Name,(int64) (ftello(input)-linelen));
@@ -526,15 +576,13 @@ int   aend, bend;
         { ovl->path.bbpos = (CONTIG2[i].sbeg + CONTIG2[i].clen) - epos;
           ovl->path.bepos = (CONTIG2[i].sbeg + CONTIG2[i].clen) - bpos;
           ovl->flags = COMP_FLAG;
+printf("COMPLMENT\n");
         }
       else
         { ovl->path.bbpos = bpos - CONTIG2[i].sbeg;
           ovl->path.bepos = epos - CONTIG2[i].sbeg;
           ovl->flags = 0;
         }
-
-      bend = CONTIG2[ovl->bread].clen;
-      aend = CONTIG1[ovl->aread].clen;
 
       for (i = 11; i < nfields; i++)
         if (strncmp(fptrs[i],"cg:Z:",5) == 0)
@@ -545,51 +593,122 @@ int   aend, bend;
           exit (1);
         }
 
-      if (cigarCheck(&(ovl->path),fptrs[i]+5,0))
+      tlen = cigarCheck(&(ovl->path),fptrs[i]+5,0);
+
+      if (tlen == 0)
         { fprintf(stderr,"%s: PAF CIGAR string uses M, should be X & = (offset %lld)\n",
                          Prog_Name,(int64) (ftello(input)-linelen));
           exit (1);
         }
 
+      if (tlen >= tps->mlen)
+        { tps->mlen  = 1.2*tlen + 250;
+          tps->trace = realloc(tps->trace,2*tps->mlen);
+          if (tps->trace == NULL)
+            { fprintf(stderr,"Out of memory interpreting CIGAR string");
+              exit (1);
+            }
+        }
+
+      bend = CONTIG2[ovl->bread].clen;
+      aend = CONTIG1[ovl->aread].clen;
+
       oneWriteLine(of,'a',0,0);
 
-      c = fptrs[i]+5;
+      C->len = 0;
+      C->apos = ovl->path.abpos;
+      C->bpos = ovl->path.bbpos;
+      C->cptr = fptrs[i]+5;
+
+      cigarPrefix(C);   //  If starting in a gap skip it.
+
+#ifdef DEBUG
+      printf("Initial skip: %d %d",C->apos-ovl->path.abpos,C->bpos-ovl->path.bbpos);
+      printf(" %d %.7s\n",C->len,C->cptr);
+      fflush(stdout);
+#endif
+
       while (1)
-        { b = c;
+        { ovl->path.abpos = C->apos;
+          ovl->path.bbpos = C->bpos;
 
-          c = cigar2tp(ovl,aend,bend,c,TSPACE,tps);
+#ifdef DEBUG
+          d = C->cptr;
+#endif
 
-          ovl->path.bepos = ovl->path.bbpos + tps->bend;
-          ovl->path.aepos = tps->aend;
+          cigar2tp(C,aend,bend,TSPACE,tps);
+
+#ifdef DEBUG
+          printf("Piece: %.*s  %d  %.7s\n",(int) (C->cptr-d),d,C->len,C->cptr);
+          fflush(stdout);
+#endif
+
+          ovl->path.bepos = C->bpos;
+          ovl->path.aepos = C->apos;
           ovl->path.diffs = tps->diff;
+printf(" %d - %d  %d - %d\n",ovl->path.abpos,ovl->path.aepos,ovl->path.bbpos,ovl->path.bepos);
           Write_Aln_Overlap(of,ovl);
           Write_Aln_Trace(of,tps->trace,tps->tlen);
 
-{ d = *c;
-  *c = 0;
-  printf("%s\n",b);
-  *c = d;
-}
-
-          if (*c == '\0')
+          if (*C->cptr == '\0')
             break;
-      
-          if (*c++ == 'I')
-            { ovl->path.abpos = ovl->path.aepos + tps->gap;
-              ovl->path.bbpos = ovl->path.bepos;
-              oneInt(of,0) = tps->gap;
-              oneInt(of,1) = 0;
-printf("I %d\n",tps->gap);
+
+          adel = bdel = 0;
+          if (interp[(int) (*C->cptr)] == 1)
+            { adel += C->len;
+printf("Del\n");
+              C->apos += C->len;
+              C->cptr += 1;
+              C->len   = 0;
             }
-          else
-            { ovl->path.abpos = ovl->path.aepos;
-              ovl->path.bbpos = ovl->path.bepos + tps->gap;
-              oneInt(of,0) = 0;
-              oneInt(of,1) = tps->gap;
-printf("D %d\n",tps->gap);
+          else if (interp[(int) (*C->cptr)] == 2)
+            { bdel += C->len;
+printf("Ins\n");
+              C->bpos += C->len;
+              C->cptr += 1;
+              C->len   = 0;
             }
-          oneWriteLine(of,'p',0,0);
+          while (C->apos >= aend)
+            { C->apos += CONTIG1[ovl->aread].sbeg;
+              ovl->aread += 1;
+              C->apos -= CONTIG1[ovl->aread].sbeg;
+printf("Aend %d",aend);
+              aend = CONTIG1[ovl->aread].clen;
+printf(" .. %d .. %d\n",ovl->aread,aend);
+            }
+          while (C->bpos >= bend)
+            { C->bpos += CONTIG2[ovl->bread].sbeg;
+              ovl->bread += 1;
+              C->bpos -= CONTIG2[ovl->bread].sbeg;
+printf("Bend %d",bend);
+              bend = CONTIG1[ovl->bread].clen;
+printf(" .. %d .. %d\n",ovl->bread,bend);
+            }
+
+printf("Entering prefix @ %d %d (del = %d %d)\n",C->apos,C->bpos,adel,bdel);
+          adel -= C->apos;
+          bdel -= C->bpos;
+          cigarPrefix(C);
+          adel += C->apos;
+          bdel += C->bpos;
+
+#ifdef DEBUG
+          printf("Internal skip: %d %d",adel,bdel);
+          printf(" %d %.7s\n",C->len,C->cptr);
+          fflush(stdout);
+#endif
+
+          if (adel+bdel > 0)
+            { oneInt(of,0) = adel;
+              oneInt(of,1) = bdel;
+              oneWriteLine(of,'p',0,0);
+            }
         }
+
+#ifdef DEBUG
+      printf("Done\n");
+      fflush(stdout);
+#endif
     }
 
   free(tps->trace);

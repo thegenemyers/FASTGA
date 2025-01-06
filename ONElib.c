@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Dec  1 00:35 2024 (rd109)
+ * Last edited: Dec  8 16:30 2024 (rd109)
  * * May  1 00:23 2024 (rd109): moved to OneInfo->index and multiple objects/groups
  * * Apr 16 18:59 2024 (rd109): major change to object and group indexing: 0 is start of data
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
@@ -90,7 +90,7 @@ static inline I64 ltfRead (FILE *f) ;
 
 // error handling
 
-static char errorString[1024] ;
+static char errorString[1024] = "" ;
 
 char *oneErrorString (void) { return errorString ; }
 

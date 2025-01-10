@@ -46,6 +46,28 @@ typedef struct
     FILE    *out;
   } Packet;
 
+char OpComp[256] =
+  { ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+
+    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+    ' ', ' ', ' ', ' ', ' ',  '=', ' ', ' ',
+
+    ' ', ' ', ' ', ' ', 'I', ' ', ' ', ' ',
+    ' ', 'D', ' ', ' ', ' ',  'M', ' ', ' ',
+    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+    'X', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+
+    ' ', ' ', ' ', ' ', 'i', ' ', ' ', ' ',
+    ' ', 'd', ' ', ' ', ' ',  'm', ' ', ' ',
+    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+     'x', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+  };
+
 typedef struct
   { int64 n, m;
     char *op;
@@ -204,7 +226,6 @@ void *gen_paf(void *args)
               int    ilen, dlen;
 
               ilen = dlen = 0;
-              //fprintf(out,"\tcg:Z:");
               k = path->abpos+1;
               h = path->bbpos+1;
               for (x = 0; x < T; x++)
@@ -277,45 +298,38 @@ void *gen_paf(void *args)
               A = aln->aseq-1;
               B = aln->bseq-1;
               ilen = dlen = 0;
-              //fprintf(out,"\tcg:Z:");
               k = path->abpos+1;
               h = path->bbpos+1;
               for (x = 0; x < T; x++)
                 { if ((p = t[x]) < 0)
                     { blen = -(p+k);
                       if (dlen > 0)
-                        //fprintf(out,"%dI",dlen);
                         cigar_push(cig,'I',dlen);
                       dlen = 0;
                       if (blen == 0)
                         ilen += 1;
                       else
                         { if (ilen > 0)
-                            { //fprintf(out,"%dD",ilen);
-                              cigar_push(cig,'D',ilen);
+                            { cigar_push(cig,'D',ilen);
                               del += ilen;
                             }
                           elen = xlen = 0;
                           for (b = 0; b < blen; b++, k++, h++)
                             if (A[k] == B[h])
                               { if (xlen > 0)
-                                  //fprintf(out,"%dX",xlen);
                                   cigar_push(cig,'X',xlen);
                                 xlen = 0;
                                 elen += 1;
                               }
                             else
                               { if (elen > 0)
-                                  //fprintf(out,"%d=",elen);
                                   cigar_push(cig,'=',elen);
                                 elen = 0;
                                 xlen += 1;
                               }
                           if (xlen > 0)
-                            //fprintf(out,"%dX",xlen);
                             cigar_push(cig,'X',xlen);
                           if (elen > 0)
-                            //fprintf(out,"%d=",elen);
                             cigar_push(cig,'=',elen);
                           ilen = 1;
                         }
@@ -324,8 +338,7 @@ void *gen_paf(void *args)
                   else
                     { blen = p-h;
                       if (ilen > 0)
-                        { //fprintf(out,"%dD",ilen);
-                          cigar_push(cig,'D',ilen);
+                        { cigar_push(cig,'D',ilen);
                           del += ilen;
                         }
                       ilen = 0;
@@ -333,29 +346,24 @@ void *gen_paf(void *args)
                         dlen += 1;
                       else
                         { if (dlen > 0)
-                            //fprintf(out,"%dI",dlen);
                             cigar_push(cig,'I',dlen);
                           elen = xlen = 0;
                           for (b = 0; b < blen; b++, k++, h++)
                             if (A[k] == B[h])
                               { if (xlen > 0)
-                                  //fprintf(out,"%dX",xlen);
                                   cigar_push(cig,'X',xlen);
                                 xlen = 0;
                                 elen += 1;
                               }
                             else
                               { if (elen > 0)
-                                  //fprintf(out,"%d=",elen);
                                   cigar_push(cig,'=',elen);
                                 elen = 0;
                                 xlen += 1;
                               }
                           if (xlen > 0)
-                            //fprintf(out,"%dX",xlen);
                             cigar_push(cig,'X',xlen);
                           if (elen > 0)
-                            //fprintf(out,"%d=",elen);
                             cigar_push(cig,'=',elen);
                           dlen = 1;
                         }
@@ -363,11 +371,9 @@ void *gen_paf(void *args)
                     }
                 }
               if (dlen > 0)
-                //fprintf(out,"%dI",dlen);
                 cigar_push(cig,'I',dlen);
               if (ilen > 0)
-                { // fprintf(out,"%dD",ilen);
-                  cigar_push(cig,'D',ilen);
+                { cigar_push(cig,'D',ilen);
                   del += ilen;
                 }
               blen = (path->aepos - k)+1;
@@ -376,23 +382,19 @@ void *gen_paf(void *args)
                   for (b = 0; b < blen; b++, k++, h++)
                     if (A[k] == B[h])
                       { if (xlen > 0)
-                          //fprintf(out,"%dX",xlen);
                           cigar_push(cig,'X',xlen);
                         xlen = 0;
                         elen += 1;
                       }
                     else
                       { if (elen > 0)
-                          //fprintf(out,"%d=",elen);
                           cigar_push(cig,'=',elen);
                         elen = 0;
                         xlen += 1;
                       }
                   if (xlen > 0)
-                    //fprintf(out,"%dX",xlen);
                     cigar_push(cig,'X',xlen);
                   if (elen > 0)
-                    //fprintf(out,"%d=",elen);
                     cigar_push(cig,'=',elen);
                 }
             }
@@ -407,10 +409,16 @@ void *gen_paf(void *args)
           fprintf(out,"\tdv:f:%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
           fprintf(out,"\tdf:i:%d",path->diffs);
 
-          int i;
-          fprintf(out,"\tcg:Z:");
-          for (i = 0; i < cig->n; i++)
-            fprintf(out,"%d%c",cig->ln[i],cig->op[i]);
+          { int i;
+
+            fprintf(out,"\tcg:Z:");
+            if (COMP(aln->flags))
+              for (i = cig->n-1; i >= 0; i--)
+                fprintf(out,"%d%c",cig->ln[i],OpComp[(int) cig->op[i]]);
+            else
+              for (i = 0; i < cig->n; i++)
+                fprintf(out,"%d%c",cig->ln[i],cig->op[i]);
+          }
         }
       
       else

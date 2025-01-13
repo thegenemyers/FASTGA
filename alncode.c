@@ -269,15 +269,8 @@ void Write_Aln_Overlap (OneFile *of, Overlap *ovl)
   oneWriteLine (of,'D',0,0);
 }
 
-void Write_Aln_Trace (OneFile *of, uint8 *trace, int tlen)
-{ static int    tmax = 0;
-  static int64 *trace64 = NULL;
-  int    j, x;
-
-  if (tlen > tmax)
-    { tmax    = tlen*1.2 + 1024;
-      trace64 = (int64 *) Realloc(trace64,(tmax/2)*sizeof(int64),"Reallocating trace vector");
-    }
+void Write_Aln_Trace (OneFile *of, uint8 *trace, int tlen, int64 *trace64)
+{ int j, x;
 
   j = 0;
   for (x = 1; x < tlen; x += 2)

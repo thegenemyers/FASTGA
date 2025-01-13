@@ -34,6 +34,6 @@ OneFile *open_Aln_Write (char *filename, int nThreads,
 			 int tspace, char *db1_name, char *db2_name, char *cpath);
 
 void Write_Aln_Overlap(OneFile *of, Overlap *ovl);
-void Write_Aln_Trace  (OneFile *of, uint8 *trace, int tlen);
+void Write_Aln_Trace  (OneFile *of, uint8 *trace, int tlen, int64 *trace64);
 
 // end of file

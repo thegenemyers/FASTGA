@@ -24,8 +24,8 @@
 #include "hash.h"
 #include "alncode.h"
 
-#define DEBUG_THREADS
-#define DEBUG
+#undef  DEBUG_THREADS
+#undef  DEBUG
 
 #define TSPACE   100
 #define VERSION "0.1"
@@ -73,7 +73,7 @@ static int interp[128] =
   //  Check that cigar string validly covers span of path and return size of trace point array
   //    needed.  If allow_M is 0, then if an 'M' occurs return 0 (error).
 
-static int cigarCheck(Path *path, char *cigar, int allow_M)
+static int cigarCheck(Path *path, char *cigar, int allow_M, int comp)
 { int   len;
   int   apos, bpos;
   char *c;
@@ -108,9 +108,25 @@ static int cigarCheck(Path *path, char *cigar, int allow_M)
           exit (1);
       }
     }
+
   if (path->aepos != apos || path->bepos != bpos)
     { fprintf(stderr,"%s: Cigar span and alignment intervals do not match\n",Prog_Name);
       exit (1);
+    }
+
+  if (comp)               //  Reverse the CIGAR string if complemented
+    { char *d, *e, x;
+
+      for (d = cigar, c -= 1; d < c; d++, c--) 
+        { x = *d; *d = *c; *c = x; }
+      for (c = cigar; *c != '\0'; c = e)
+        { d = c+1;
+          while (isdigit(*d))
+            d += 1; 
+          e = d;
+          for (d--; c < d; c++, d--)
+            { x = *d; *d = *c; *c = x; }
+        }
     }
 
   return (((path->aepos-1)/TSPACE - (path->abpos/TSPACE)) + 1);
@@ -232,12 +248,10 @@ static char *cigar2tp(Cigar_Position *C, int64 aend, int64 bend,
       if ((x >= 3 || x == 1) && apos+len > aend)
         { slen = (apos+len)-aend;
           len = aend-apos;
-printf("Inside A %d %d\n",len,slen);
         }
       if (x >= 2 && bpos+len > bend)
         { slen = (bpos+len+slen)-bend;
           len = bend-bpos;
-printf("Inside B %d %d\n",len,slen);
         }
       switch (x)
       { case 4:
@@ -495,6 +509,8 @@ void *gen_1aln(void *args)
 #endif
 
   int64  alen, blen, tlen;
+  int64 *trace64;
+  int    comp;
   int    adel, bdel;
   int    bpos, epos;
   int    aend, bend;
@@ -517,6 +533,7 @@ void *gen_1aln(void *args)
 
   tps->mlen  = 0;
   tps->trace = NULL;
+  trace64    = NULL;
  
   while (amnt <= span)
     { eptr = read_line(input,iname,lb);
@@ -568,18 +585,22 @@ void *gen_1aln(void *args)
         }
       bpos = strtol(fptrs[7], &eptr, 10);
       epos = strtol(fptrs[8], &eptr, 10);
-      for (i = SCAFF2[index].fctg; i < SCAFF2[index].ectg; i++)
-        if (bpos < CONTIG2[i].sbeg + CONTIG2[i].clen)
-          break;
-      ovl->bread = i;
-      if (*fptrs[4] == '-')
-        { ovl->path.bbpos = (CONTIG2[i].sbeg + CONTIG2[i].clen) - epos;
+      comp = (*fptrs[4] == '-');
+      if (comp)
+        { for (i = SCAFF2[index].ectg-1; i >= SCAFF2[index].fctg; i--)
+            if (epos > CONTIG2[i].sbeg)
+              break;
+          ovl->bread = i;
+          ovl->path.bbpos = (CONTIG2[i].sbeg + CONTIG2[i].clen) - epos;
           ovl->path.bepos = (CONTIG2[i].sbeg + CONTIG2[i].clen) - bpos;
           ovl->flags = COMP_FLAG;
-printf("COMPLMENT\n");
         }
       else
-        { ovl->path.bbpos = bpos - CONTIG2[i].sbeg;
+        { for (i = SCAFF2[index].fctg; i < SCAFF2[index].ectg; i++)
+            if (bpos < CONTIG2[i].sbeg + CONTIG2[i].clen)
+              break;
+          ovl->bread = i;
+          ovl->path.bbpos = bpos - CONTIG2[i].sbeg;
           ovl->path.bepos = epos - CONTIG2[i].sbeg;
           ovl->flags = 0;
         }
@@ -593,7 +614,7 @@ printf("COMPLMENT\n");
           exit (1);
         }
 
-      tlen = cigarCheck(&(ovl->path),fptrs[i]+5,0);
+      tlen = cigarCheck(&(ovl->path),fptrs[i]+5,0,comp);
 
       if (tlen == 0)
         { fprintf(stderr,"%s: PAF CIGAR string uses M, should be X & = (offset %lld)\n",
@@ -604,7 +625,8 @@ printf("COMPLMENT\n");
       if (tlen >= tps->mlen)
         { tps->mlen  = 1.2*tlen + 250;
           tps->trace = realloc(tps->trace,2*tps->mlen);
-          if (tps->trace == NULL)
+          trace64    = realloc(trace64,sizeof(int64)*tps->mlen);
+          if (tps->trace == NULL || trace64 == NULL)
             { fprintf(stderr,"Out of memory interpreting CIGAR string");
               exit (1);
             }
@@ -646,9 +668,8 @@ printf("COMPLMENT\n");
           ovl->path.bepos = C->bpos;
           ovl->path.aepos = C->apos;
           ovl->path.diffs = tps->diff;
-printf(" %d - %d  %d - %d\n",ovl->path.abpos,ovl->path.aepos,ovl->path.bbpos,ovl->path.bepos);
           Write_Aln_Overlap(of,ovl);
-          Write_Aln_Trace(of,tps->trace,tps->tlen);
+          Write_Aln_Trace(of,tps->trace,tps->tlen,trace64);
 
           if (*C->cptr == '\0')
             break;
@@ -656,14 +677,12 @@ printf(" %d - %d  %d - %d\n",ovl->path.abpos,ovl->path.aepos,ovl->path.bbpos,ovl
           adel = bdel = 0;
           if (interp[(int) (*C->cptr)] == 1)
             { adel += C->len;
-printf("Del\n");
               C->apos += C->len;
               C->cptr += 1;
               C->len   = 0;
             }
           else if (interp[(int) (*C->cptr)] == 2)
             { bdel += C->len;
-printf("Ins\n");
               C->bpos += C->len;
               C->cptr += 1;
               C->len   = 0;
@@ -672,20 +691,23 @@ printf("Ins\n");
             { C->apos += CONTIG1[ovl->aread].sbeg;
               ovl->aread += 1;
               C->apos -= CONTIG1[ovl->aread].sbeg;
-printf("Aend %d",aend);
               aend = CONTIG1[ovl->aread].clen;
-printf(" .. %d .. %d\n",ovl->aread,aend);
             }
           while (C->bpos >= bend)
-            { C->bpos += CONTIG2[ovl->bread].sbeg;
-              ovl->bread += 1;
-              C->bpos -= CONTIG2[ovl->bread].sbeg;
-printf("Bend %d",bend);
-              bend = CONTIG1[ovl->bread].clen;
-printf(" .. %d .. %d\n",ovl->bread,bend);
+            { if (comp)
+                { C->bpos -= CONTIG2[ovl->bread].sbeg+CONTIG2[ovl->bread].clen;
+                  ovl->bread -= 1;
+                  C->bpos += CONTIG2[ovl->bread].sbeg+CONTIG2[ovl->bread].clen;
+                  bend = CONTIG1[ovl->bread].clen;
+                }
+              else
+                { C->bpos += CONTIG2[ovl->bread].sbeg;
+                  ovl->bread += 1;
+                  C->bpos -= CONTIG2[ovl->bread].sbeg;
+                  bend = CONTIG1[ovl->bread].clen;
+                }
             }
 
-printf("Entering prefix @ %d %d (del = %d %d)\n",C->apos,C->bpos,adel,bdel);
           adel -= C->apos;
           bdel -= C->bpos;
           cigarPrefix(C);
@@ -711,6 +733,7 @@ printf("Entering prefix @ %d %d (del = %d %d)\n",C->apos,C->bpos,adel,bdel);
 #endif
     }
 
+  free(trace64);
   free(tps->trace);
 
   fclose(input);

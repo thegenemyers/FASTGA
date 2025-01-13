@@ -2755,6 +2755,7 @@ typedef struct
     int64     nlive;
     int64     nlcov;
     int64     nmemo;
+    int       tmaxl;
   } TP;
 
 static void *search_seeds(void *args)
@@ -2887,7 +2888,7 @@ static void *la_sort(void *args)
   
   void     *iblock, *off;
   Overlap **perm;
-  int       j;
+  int       j, tmaxl;
   
   if (novl == 0)
     return (NULL);
@@ -2916,6 +2917,7 @@ static void *la_sort(void *args)
 
   qsort(perm,novl,sizeof(Overlap *),SORT_MAP);
 
+  tmaxl = 0;
   for (j = 0; j < novl; j++)
     { Overlap *o = perm[j];
 
@@ -2929,6 +2931,8 @@ static void *la_sort(void *args)
                          Prog_Name,SORT_PATH,ALGN_UNIQ,parm->tid);
           Clean_Exit(1);
         }
+      if (o->path.tlen > tmaxl)
+        tmaxl = o->path.tlen;
     }
 
   rewind(fid);
@@ -2936,6 +2940,7 @@ static void *la_sort(void *args)
   free(perm);
   free(iblock-PTR_SIZE);
 
+  parm->tmaxl = tmaxl;
   return (NULL);
 }
 
@@ -3034,10 +3039,11 @@ static int la_merge(TP *parm)
   char     *block;
   int       i, c;
   Overlap **heap;
-  int       hsize;
+  int       hsize, tmaxl;
   Overlap  *ovls;
   int64     totl;
   OneFile  *of;
+  int64    *trace64;
 
   //  Base level merge: Open all the input files and initialize their buffers
 
@@ -3048,6 +3054,7 @@ static int la_merge(TP *parm)
     return (1);
   block += PTR_SIZE;
 
+  tmaxl = 0;
   totl = 0;
   for (c = 0; c < NTHREADS; c++)
     { void *iblock;
@@ -3058,12 +3065,15 @@ static int la_merge(TP *parm)
       in[c].top    = iblock + fread(iblock,1,bsize,parm[c].ofile);
       in[c].count  = 0;
       totl += parm[c].nlive;
+      if (parm[c].tmaxl > tmaxl)
+        tmaxl = parm[c].tmaxl;
     }
 
   //  Initialize the heap
 
   heap = (Overlap **) Malloc(sizeof(Overlap *)*(NTHREADS+1),"Allocating heap");
   ovls = (Overlap *) Malloc(sizeof(Overlap)*NTHREADS,"Allocating heap");
+  trace64 = (int64 *) Malloc(sizeof(int64)*(tmaxl/2),"Allocating int64 trace vector");
   if (heap == NULL || ovls == NULL)
     return (1);
 
@@ -3131,7 +3141,7 @@ static int la_merge(TP *parm)
         ovl_reload(src,bsize);
 
       Write_Aln_Overlap (of, ov);
-      Write_Aln_Trace (of, src->ptr, tsize);
+      Write_Aln_Trace (of, src->ptr, tsize, trace64);
 
       src->ptr += tsize;
       if (src->ptr >= src->top)
@@ -3156,6 +3166,7 @@ static int la_merge(TP *parm)
       return (1);
     }
 
+  free(trace64);
   free(ovls);
   free(heap);
   free(in);

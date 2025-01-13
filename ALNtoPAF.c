@@ -46,35 +46,13 @@ typedef struct
     FILE    *out;
   } Packet;
 
-char OpComp[256] =
-  { ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-
-    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-    ' ', ' ', ' ', ' ', ' ',  '=', ' ', ' ',
-
-    ' ', ' ', ' ', ' ', 'I', ' ', ' ', ' ',
-    ' ', 'D', ' ', ' ', ' ',  'M', ' ', ' ',
-    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-    'X', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-
-    ' ', ' ', ' ', ' ', 'i', ' ', ' ', ' ',
-    ' ', 'd', ' ', ' ', ' ',  'm', ' ', ' ',
-    ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-     'x', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
-  };
-
 typedef struct
   { int64 n, m;
     char *op;
     int  *ln;
   } CigarList;
 
-static void cigar_push(CigarList *cigar, char op, int ln)
+static inline void cigar_push(CigarList *cigar, char op, int ln)
 { if (cigar->n >= cigar->m)
     { cigar->m = cigar->m * 1.2 + 100;
       cigar->op = Realloc(cigar->op,sizeof(char)*cigar->m,"Reallocating CIGAR char buffer");
@@ -414,7 +392,7 @@ void *gen_paf(void *args)
             fprintf(out,"\tcg:Z:");
             if (COMP(aln->flags))
               for (i = cig->n-1; i >= 0; i--)
-                fprintf(out,"%d%c",cig->ln[i],OpComp[(int) cig->op[i]]);
+                fprintf(out,"%d%c",cig->ln[i],cig->op[i]);
             else
               for (i = 0; i < cig->n; i++)
                 fprintf(out,"%d%c",cig->ln[i],cig->op[i]);

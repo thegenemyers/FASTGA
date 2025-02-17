@@ -218,7 +218,7 @@ static inline void First_Post_Entry(Post_List *P)
           P->part = 1;
         }
 
-      if (lseek(P->copn,sizeof(int)+sizeof(int64),SEEK_SET) < 0)
+      if (lseek(P->copn,2*sizeof(int)+sizeof(int64),SEEK_SET) < 0)
         { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
           exit (1);
         }

@@ -33,9 +33,10 @@
 #undef    DEBUG_SEARCH
 #undef    DEBUG_HIT
 #undef    DEBUG_TUBE
-#define   CALL_ALIGNER
 #undef    DEBUG_ALIGN
 #undef    DEBUG_ENTWINE
+
+#define   CALL_ALIGNER
 #define   BOX_ELIM
 
 #undef    LOAD_SEQS
@@ -67,6 +68,7 @@ static double ALIGN_RATE;  //  1.-e
 static int    NTHREADS;    //  -T
 static char  *SORT_PATH;   //  -P
 static int    KEEP;        //  -k
+static int    SYMMETRIC;   //  -S
 static int    SELF;        //  Comparing A to A, or A to B?
 static int    OUT_TYPE;    //  -paf = 0; -psl = 1; -one = 2
 static int    OUT_OPT;     //  -pafm = 1; -pafx = 2; all others = 0
@@ -433,7 +435,7 @@ static inline void First_Post_Entry(Post_List *P)
           P->part = 1;
         }
 
-      if (lseek(P->copn,sizeof(int)+sizeof(int64),SEEK_SET) < 0)
+      if (lseek(P->copn,2*sizeof(int)+sizeof(int64),SEEK_SET) < 0)
         { fprintf(stderr,"\n%s: Could not seek file %s\n",Prog_Name,P->name);
           Clean_Exit(1);
         }
@@ -548,7 +550,7 @@ static inline void JumpTo_Post_Index(Post_List *P, int64 del)
  *   ADAPTAMER MERGE THREAD:  
  *     For each k-mer in T1
  *       Find the longest prefix match to one or more k-mers in T2.
- *       If the totwl # of positions of the k-mers in T2, then output the pairs of positions
+ *       If the total # of positions of the k-mers in T2 <= FREQ, then output the pairs of positions
  *         from P1 & P2 to a file dependent on the slice of the P1 post and the sign of the match.
  *
  **********************************************************************************************/
@@ -571,6 +573,7 @@ typedef struct
     Kmer_Stream *T2;
     Post_List   *P1;
     Post_List   *P2;
+    int          flip;
     int          tid;
     int          pbeg, pend;
     uint8       *cache;
@@ -584,6 +587,7 @@ typedef struct
 static void *merge_thread(void *args)
 { SP *parm = (SP *) args;
   int tid          = parm->tid;
+  int flip         = parm->flip;
   uint8 *cache     = parm->cache;
   IOBuffer  *nunit = parm->nunit;
   IOBuffer  *cunit = parm->cunit;
@@ -637,6 +641,7 @@ static void *merge_thread(void *args)
   g1len = 0;
   tseed = 0;
   apost = 0;
+  bzero(post,(POST_BUF_LEN+FREQ)*sizeof(int64));
 
   First_Post_Entry(P1);
   First_Post_Entry(P2);
@@ -650,7 +655,6 @@ static void *merge_thread(void *args)
       GoTo_Kmer_Index(T2,T2->index[(parm->pbeg << 8) | 0xff]);
     }
   tend = T1->index[(parm->pend << 8) | 0xff];
-
 
   plen = 12;                         //  Keep the dumb compiler happy
   vlcp[plen] = rcur = rend = cache;
@@ -815,7 +819,7 @@ static void *merge_thread(void *args)
 #endif
 
       { int       freq, lcs, udx;
-        int       asign, acont, adest;
+        int       asign, acont, adest, bsign;
         IOBuffer *ou;
         uint8    *l, *vcp, *jptr, *btop;
         int       m, n, k, b;
@@ -887,84 +891,174 @@ static void *merge_thread(void *args)
               post[POST_BUF_LEN+m] = post[m];
           }
 
-        for (n = suf1[CBYTE]; n > 0; n--)
-          { Current_Post(P1,aptr);
-            asign = (aptr[ISIGN] & 0x80);
-            if (asign)
-              { Next_Post_Entry(P1);
-                continue;
-              }
-            nhits += freq;
-            g1len += 1;
-            tseed += freq * plen;
-            acont = (apost >> ESHIFT);
-            adest = Select[acont];
-            jptr  = (uint8 *) (post+b);
-            for (k = 0; k < freq; k++)
-              { if (jptr[JSIGN] & 0x80)
-                  ou = cunit + adest;
-                else
-                  ou = nunit + adest;
-                btop = ou->btop;
-                *btop++ = plen;
-                memcpy(btop,aptr,IBYTE);
-                btop += IBYTE;
-                memcpy(btop,jptr,JBYTE);
-                btop += JBYTE;
+        if (flip)
 
-                ou->buck[acont] += 1;
-
+          for (n = suf1[CBYTE]; n > 0; n--)
+            { Current_Post(P1,aptr);
+              bsign = (aptr[JSIGN] & 0x80);
+              if (bsign == 0)
+                g1len += 1;
+              jptr  = (uint8 *) (post+b);
+              for (k = 0; k < freq; k++)
+                {
 #ifdef DEBUG_MERGE
+                  if (n == suf1[CBYTE])
+                    { int64 ip;
+                      int   ss;
+  
+                      ss = (jptr[ISIGN] & 0x80);
+                      jptr[ISIGN] &= 0x7f;
+                      printf("      %ld: %c",((int64 *) jptr)-post,ss?'-':'+');
+                      ip = 0;
+                      memcpy((uint8 *) (&ip),jptr+IPOST,ICONT);
+                      // printf(" %4d",Perm1[ip]);
+                      printf(" %4lld",ip);
+                      ip = 0;
+                      memcpy((uint8 *) (&ip),jptr,IPOST);
+                      printf(" %9lld\n",ip);
+                      fflush(stdout);
+                      if (ss)
+                        jptr[ISIGN] |= 0x80;
+                    }
+#endif
+                  if (jptr[ISIGN] & 0x80)
+                    { jptr += sizeof(int64);
+                      continue;
+                    }
+                  acont = (*((uint64 *)jptr) >> ESHIFT);
+                  adest = Select[acont];
+                  if (bsign)
+                    ou = cunit + adest;
+                  else
+                    ou = nunit + adest;
+                  btop = ou->btop;
+                  *btop++ = plen;
+                  memcpy(btop,jptr,IBYTE);
+                  btop += IBYTE;
+                  memcpy(btop,aptr,JBYTE);
+                  btop += JBYTE;
+  
+                  nhits += 1;
+                  tseed += plen;
+  
+                  ou->buck[acont] += 1;
+  
+                  if (btop >= ou->bend)
+                    { if (write(ou->file,ou->bufr,btop-ou->bufr) < 0)
+                        { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
+                                         Prog_Name,SORT_PATH,PAIR_NAME,ou->inum,
+                                         (bsign == (jptr[JSIGN] & 0x80)) ? 'N' : 'C');
+                          Clean_Exit(1);
+                        }
+                      ou->btop = ou->bufr;
+                    }
+                  else
+                    ou->btop = btop;
+  
+                  jptr += sizeof(int64);
+                }
+#ifdef DEBUG_MERGE
+              { int64 ip;
+  
                 if (n == suf1[CBYTE])
-                  { int64 ip;
-                    int   ss;
-
-                    ss = (jptr[JSIGN] & 0x80);
-                    jptr[JSIGN] &= 0x7f;
-                    printf("      %ld: %c",((int64 *) jptr)-post,ss?'-':'+');
-                    ip = 0;
-                    memcpy((uint8 *) (&ip),jptr+JPOST,JCONT);
-                    printf(" %4lld",ip);
-                    ip = 0;
-                    memcpy((uint8 *) (&ip),jptr,JPOST);
-                    printf(" %9lld\n",ip);
-                    fflush(stdout);
-                    if (ss)
-                      jptr[JSIGN] |= 0x80;
-                  }
-#endif
-
-                if (btop >= ou->bend)
-                  { if (write(ou->file,ou->bufr,btop-ou->bufr) < 0)
-                      { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
-                                       Prog_Name,SORT_PATH,PAIR_NAME,ou->inum,
-                                       (asign == (jptr[JSIGN] & 0x80)) ? 'N' : 'C');
-                        Clean_Exit(1);
-                      }
-                    ou->btop = ou->bufr;
-                  }
-                else
-                  ou->btop = btop;
-
-                jptr += sizeof(int64);
+                  printf("   vs\n");
+                aptr[JSIGN] &= 0x7f;
+                printf("      %lld: %c",P1->cidx,bsign?'-':'+');
+                ip = 0;
+                memcpy((uint8 *) (&ip),aptr+JPOST,JCONT);
+                // printf(" %4d",Perm2[ip]);
+                printf(" %4lld",ip);
+                ip = 0;
+                memcpy((uint8 *) (&ip),aptr,JPOST);
+                printf(" %9lld\n",ip);
+                fflush(stdout);
+                if (bsign)
+                  aptr[JSIGN] |= 0x80;
               }
-#ifdef DEBUG_MERGE
-            { int64 ip;
-
-              if (n == suf1[CBYTE])
-                printf("   vs\n");
-              printf("      %lld: %c",P1->cidx,asign?'-':'+');
-              ip = 0;
-              memcpy((uint8 *) (&ip),aptr+IPOST,ICONT);
-              printf(" %4lld",ip);
-              ip = 0;
-              memcpy((uint8 *) (&ip),aptr,IPOST);
-              printf(" %9lld\n",ip);
-              fflush(stdout);
-            }
 #endif
-            Next_Post_Entry(P1);
-          }
+              Next_Post_Entry(P1);
+            }
+
+        else
+  
+          for (n = suf1[CBYTE]; n > 0; n--)
+            { Current_Post(P1,aptr);
+              asign = (aptr[ISIGN] & 0x80);
+              if (asign)
+                { Next_Post_Entry(P1);
+                  continue;
+                }
+              nhits += freq;
+              g1len += 1;
+              tseed += freq * plen;
+              acont = (apost >> ESHIFT);
+              adest = Select[acont];
+              jptr  = (uint8 *) (post+b);
+              for (k = 0; k < freq; k++)
+                { if (jptr[JSIGN] & 0x80)
+                    ou = cunit + adest;
+                  else
+                    ou = nunit + adest;
+                  btop = ou->btop;
+                  *btop++ = plen;
+                  memcpy(btop,aptr,IBYTE);
+                  btop += IBYTE;
+                  memcpy(btop,jptr,JBYTE);
+                  btop += JBYTE;
+  
+                  ou->buck[acont] += 1;
+  
+#ifdef DEBUG_MERGE
+                  if (n == suf1[CBYTE])
+                    { int64 ip;
+                      int   ss;
+  
+                      ss = (jptr[JSIGN] & 0x80);
+                      jptr[JSIGN] &= 0x7f;
+                      printf("      %ld: %c",((int64 *) jptr)-post,ss?'-':'+');
+                      ip = 0;
+                      memcpy((uint8 *) (&ip),jptr+JPOST,JCONT);
+                      printf(" %4d",Perm2[ip]);
+                      ip = 0;
+                      memcpy((uint8 *) (&ip),jptr,JPOST);
+                      printf(" %9lld\n",ip);
+                      fflush(stdout);
+                      if (ss)
+                        jptr[JSIGN] |= 0x80;
+                    }
+#endif
+  
+                  if (btop >= ou->bend)
+                    { if (write(ou->file,ou->bufr,btop-ou->bufr) < 0)
+                        { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
+                                         Prog_Name,SORT_PATH,PAIR_NAME,ou->inum,
+                                         (asign == (jptr[JSIGN] & 0x80)) ? 'N' : 'C');
+                          Clean_Exit(1);
+                        }
+                      ou->btop = ou->bufr;
+                    }
+                  else
+                    ou->btop = btop;
+  
+                  jptr += sizeof(int64);
+                }
+#ifdef DEBUG_MERGE
+              { int64 ip;
+  
+                if (n == suf1[CBYTE])
+                  printf("   vs\n");
+                printf("      %lld: +",P1->cidx);
+                ip = 0;
+                memcpy((uint8 *) (&ip),aptr+IPOST,ICONT);
+                printf(" %4d",Perm1[ip]);
+                ip = 0;
+                memcpy((uint8 *) (&ip),aptr,IPOST);
+                printf(" %9lld\n",ip);
+                fflush(stdout);
+              }
+#endif
+              Next_Post_Entry(P1);
+            }
 
         Next_Kmer_Entry(T1);
         continue;
@@ -1193,7 +1287,7 @@ static void *self_merge_thread(void *args)
           plen = rend[LBYTE];
           for (i = rcur[LBYTE]; i <= plen; i++)
             vlcp[i] = rcur;
-	  eorun = (plen <= 11);
+          eorun = (plen <= 11);
 
 #ifdef DEBUG_MERGE
           printf("... to %lld\n",T1->cidx);
@@ -1455,11 +1549,6 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
   int64      nhits, g1len, tseed;
   int        i;
 
-  if (VERBOSE)
-    { fprintf(stderr,"  Starting adaptive seed merge\n");
-      fflush(stderr);
-    }
-
   { Kmer_Stream *tp;
     uint8       *ent;
 #ifdef DEBUG_SPLIT
@@ -1503,7 +1592,10 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
       parm[i].P2 = Clone_Post_List(P2);
     }
 
-  cache = Malloc(NTHREADS*(P2->maxp+1)*KBYTE,"Allocating cache");
+  if (SYMMETRIC && P1->maxp > P2->maxp)
+    cache = Malloc(NTHREADS*(P1->maxp+1)*KBYTE,"Allocating cache");
+  else
+    cache = Malloc(NTHREADS*(P2->maxp+1)*KBYTE,"Allocating cache");
   if (cache == NULL)
     Clean_Exit(1);
 
@@ -1511,11 +1603,22 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
     { IOBuffer *nu, *cu;
 
       parm[i].tid   = i;
-      parm[i].cache = cache + i * (P2->maxp+1) * KBYTE;
+      if (SYMMETRIC && P1->maxp > P2->maxp)
+        parm[i].cache = cache + i * (P1->maxp+1) * KBYTE;
+      else
+        parm[i].cache = cache + i * (P2->maxp+1) * KBYTE;
       parm[i].nunit = nu = N_Units + i * NPARTS;
       parm[i].cunit = cu = C_Units + i * NPARTS;
       bzero(nu[0].buck,sizeof(int64)*NCONTS);
       bzero(cu[0].buck,sizeof(int64)*NCONTS);
+      parm[i].flip = 0;
+    }
+
+  nhits = g1len = tseed = 0;
+
+  if (VERBOSE)
+    { fprintf(stderr,"\n  Starting adaptive seed merge for G1\n");
+      fflush(stderr);
     }
 
 #ifdef DEBUG_MERGE
@@ -1534,6 +1637,56 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
     { fprintf(stderr,"\r    Completed 100%%\n");
       fflush(stderr);
     }
+
+  for (i = 0; i < NTHREADS; i++)
+    { nhits += parm[i].nhits;
+      g1len += parm[i].g1len;
+      tseed += parm[i].tseed;
+    }
+
+  if (SYMMETRIC)
+    { if (VERBOSE)
+        { fprintf(stderr,"\n  Starting adaptive seed merge for G2\n");
+          fflush(stderr);
+        }
+
+      for (i = 0; i < NTHREADS; i++)
+        { Kmer_Stream *u;
+          Post_List   *p;
+
+          u = parm[i].T1;
+          parm[i].T1 = parm[i].T2;
+          parm[i].T2 = u;
+          p = parm[i].P1;
+          parm[i].P1 = parm[i].P2;
+          parm[i].P2 = p;
+
+          parm[i].flip = 1;
+        }
+
+#ifdef DEBUG_MERGE
+      for (i = 0; i < NTHREADS; i++)
+        merge_thread(parm+i);
+#else
+      for (i = 1; i < NTHREADS; i++)
+        pthread_create(threads+i,NULL,merge_thread,parm+i);
+      merge_thread(parm);
+
+      for (i = 1; i < NTHREADS; i++)
+        pthread_join(threads[i],NULL);
+#endif
+
+      if (VERBOSE)
+        { fprintf(stderr,"\r    Completed 100%%\n");
+          fflush(stderr);
+        }
+
+      for (i = 0; i < NTHREADS; i++)
+        { nhits += parm[i].nhits;
+          g1len += parm[i].g1len;
+          tseed += parm[i].tseed;
+        }
+    }
    
   free(cache);
 
@@ -1546,15 +1699,8 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
   Free_Kmer_Stream(T1);
   Free_Kmer_Stream(T2);
 
-  nhits = g1len = tseed = 0;
-  for (i = 0; i < NTHREADS; i++)
-    { nhits += parm[i].nhits;
-      g1len += parm[i].g1len;
-      tseed += parm[i].tseed;
-    }
-
   if (VERBOSE)
-    { fprintf(stderr,"\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n",
+    { fprintf(stderr,"\n  Total seeds = %lld, ave. len = %.1f, seeds per genome position = %.1f\n",
                      nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
       fflush(stderr);
     }
@@ -2125,8 +2271,8 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
             }
 #endif
 
-	  //  Have triple b,m,e, b > m, to examine.  Capture the ipost-ordered merge of [b,m) and
-	  //    [m,e) in list[0..len) and process any above-threshold chains encountered while
+          //  Have triple b,m,e, b > m, to examine.  Capture the ipost-ordered merge of [b,m) and
+          //    [m,e) in list[0..len) and process any above-threshold chains encountered while
           //    doing the merge.
 
           alast = -1;
@@ -2580,7 +2726,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                          // o->path.bbpos,o->path.bepos,w->path.bbpos,w->path.bepos);
                   // dist = entwine(op,otrace,wp,wtrace,&where,1);
 
-		  ocut = 2 * (((where-op->abpos)-1)/TSPACE+1);
+                  ocut = 2 * (((where-op->abpos)-1)/TSPACE+1);
                   wcut = 2 * (((where-wp->abpos)-1)/TSPACE+1);
                   op->tlen  = ocut + (wp->tlen-wcut);
 
@@ -2687,7 +2833,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
               free(tcopy);
 
               align->path = &(ovl->path);
-	    }
+            }
         }
 
       nmem = 0;
@@ -3113,7 +3259,7 @@ static int la_merge(TP *parm)
 
     of = open_Aln_Write(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"), 1,
                         Prog_Name, VERSION, Command_Line,
-			TSPACE, db1_name, db2_name, cpath);
+                        TSPACE, db1_name, db2_name, cpath);
 
     free(cpath);
     if (db2_name != NULL)
@@ -3182,9 +3328,7 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
 
   RP     rarm[NTHREADS];
   TP     tarm[NTHREADS];
-#ifndef DEBUG_SORT
   pthread_t threads[NTHREADS];
-#endif
   int64    *panel;
   Range     range[NTHREADS];
 
@@ -3495,7 +3639,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("vk")
+            ARG_FLAGS("vkS")
             break;
           case '1':
             if (strncmp(argv[i]+1,"1:",2) == 0)
@@ -3569,8 +3713,9 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
     argc = j;
 
-    VERBOSE = flags['v'];
-    KEEP    = flags['k'];
+    VERBOSE   = flags['v'];
+    KEEP      = flags['k'];
+    SYMMETRIC = flags['S'];
 
     if (argc != 3 && argc != 2)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
@@ -3586,6 +3731,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
         fprintf(stderr,"      -k: Keep any generated .1gdb's and .gix's.\n");
+        // fprintf(stderr,"      -S: Use both A- and B adaptamer seeds\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
         fprintf(stderr,"\n");
@@ -3725,7 +3871,8 @@ int main(int argc, char *argv[])
               }
           }
 
-	      sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath1);
+        sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",
+                        VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath1);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
@@ -3749,7 +3896,8 @@ int main(int argc, char *argv[])
                 Clean_Exit(1);
               }
           }
-	      sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath2);
+        sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",
+                        VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath2);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
@@ -3955,7 +4103,7 @@ int main(int argc, char *argv[])
   }
 
   if (VERBOSE)
-    { fprintf(stderr,"\n  Using %d threads\n\n",NTHREADS);
+    { fprintf(stderr,"\n  Using %d threads\n",NTHREADS);
       fflush(stderr);
     }
 

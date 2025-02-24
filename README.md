@@ -170,7 +170,7 @@ thresholds for chaining and alignment just described.
 <a name="FAtoGDB"></a>
 
 ```
-1. FAtoGDB [-v] <source:path>(.1seq|[<fa_extn>|<1_extn>]) [<target:path>[.1gdb]]
+1. FAtoGDB [-v] [-n<int>] <source:path>(.1seq|[<fa_extn>|<1_extn>]) [<target:path>[.1gdb]]
 
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
        <1_extn>  = any valid 1-code sequence file type
@@ -194,6 +194,8 @@ The GDB actually consists of two files.  The first, *visible* file, is a ONEcode
 .1gdb that contains all the information about an assembly except for the base-pair sequences which
 are kept in a separate hidden file in 2-bit compressed format.  If the visible file has name say,
 ```foo.1gdb``` then this hidden file has name ```.foo.bps```.  We split the GDB this way as many application do not actually need the sequence, but simply need the sizes of contigs, gaps, & scaffolds and their names which are kept in the "light-weight" .1gdb portion.
+
+For assemblies in FASTA files that contain n's as an undetermined base
 
 
 <a name="GIXmake"></a>

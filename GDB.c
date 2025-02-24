@@ -812,6 +812,8 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
                           bpsbuf[bpscur++] = byte;
                           boff += 1;
                         }
+                      if (spos - lste < nthresh)
+                        spos = lste;
                     }
                   break;
                 }
@@ -846,6 +848,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
                                       }
                                     clen += 2;
                                   }
+                                spos -= (clen >> 1);
                               }
                             else
                               { if (bfl)
@@ -920,6 +923,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
                                     seqtot -= clen;
                                     clen += spos-lste;
                                   }
+                                spos -= clen;
                               }
                             else
                               { if (ncontig >= ctgtop)

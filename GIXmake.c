@@ -41,7 +41,7 @@
 #undef  SPACER         //  Single spaced-seed?
 
 static char *Usage[] =
-    { "[-v] [-T<int(8)>] [-P<dir(/tmp)>] [-k<int(40)] [-f<int(10)>]",
+    { "[-v] [-T<int(8)>] [-P<dir($TMPDIR)>] [-k<int(40)] [-f<int(10)>]",
       "( <source:path>[.1gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )"
     };
 
@@ -1549,7 +1549,9 @@ int main(int argc, char *argv[])
     FREQ = 10;
     KMER = 40;
     NTHREADS = 8;
-    SORT_PATH = "/tmp";
+    SORT_PATH = getenv("TMPDIR");
+    if (SORT_PATH == NULL)
+      SORT_PATH = ".";
 
     j = 1;
     for (i = 1; i < argc; i++)

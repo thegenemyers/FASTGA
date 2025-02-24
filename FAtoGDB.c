@@ -22,12 +22,13 @@
 
 #include "GDB.h"
 
-static char *Usage = "[-v] <source:path>[<fa_extn>|<1_extn>] [<target:path>[.1gdb]]";
+static char *Usage = "[-v] [-n<int>] <source:path>[<fa_extn>|<1_extn>] [<target:path>[.1gdb]]";
 
 int main(int argc, char *argv[])
 { char *spath, *tpath;
   char *TPATH, *TROOT;
   int   ftype;
+  int   NCUT;
   GDB   gdb;
 
   int VERBOSE;
@@ -36,8 +37,11 @@ int main(int argc, char *argv[])
 
   { int   i, j, k;
     int   flags[128];
+    char *eptr;
 
     ARG_INIT("FAtoGDB")
+
+    NCUT = 0;
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -45,6 +49,9 @@ int main(int argc, char *argv[])
         switch (argv[i][1])
         { default:
             ARG_FLAGS("v")
+            break;
+          case 'n':
+            ARG_POSITIVE(NCUT,"n-run cutoff");
             break;
         }
       else
@@ -58,6 +65,8 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"           <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
         fprintf(stderr,"           <1_extn>  = any valid 1-code sequence file type\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"       -n  turn runs of n's < # into a's\n");
         exit (1);
       }
   }
@@ -86,7 +95,7 @@ int main(int argc, char *argv[])
       free(TPATH);
     }
 
-  Create_GDB(&gdb,spath,ftype,1,tpath);
+  Create_GDB(&gdb,spath,ftype,1,tpath,NCUT);
 
   Write_GDB(&gdb,tpath);
 

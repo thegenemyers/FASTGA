@@ -804,7 +804,7 @@ int main(int argc, char *argv[])
     ISTWO = 0;
     type  = Get_GDB_Paths(argv[2],NULL,&SPATH1,&tpath,0);
     if (type != IS_GDB)
-      Create_GDB(gdb1,SPATH1,type,0,NULL);
+      Create_GDB(gdb1,SPATH1,type,0,NULL,0);
     else
       { Read_GDB(gdb1,tpath);
         if (gdb1->seqs == NULL)
@@ -817,7 +817,7 @@ int main(int argc, char *argv[])
     if (argc == 4)
       { type = Get_GDB_Paths(argv[3],NULL,&SPATH2,&tpath,0);
         if (type != IS_GDB)
-          Create_GDB(gdb2,SPATH2,type,0,NULL);
+          Create_GDB(gdb2,SPATH2,type,0,NULL,0);
         else
           { Read_GDB(gdb2,tpath);
             if (gdb2->seqs == NULL)

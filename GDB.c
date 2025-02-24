@@ -433,7 +433,7 @@ static char *read_line(void *input, int gzipd, int *plen, int nline, char *spath
   return (buffer);
 }
 
-FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
+FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nthresh)
 { GDB_SCAFFOLD  *scaffs;
   GDB_CONTIG    *contigs;
   OneProvenance *prov;
@@ -699,7 +699,8 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
       int           bpscur;
       char         *line;
       int           i, x, m, in;
-      uint8         byte;
+      int           g, lste;
+      uint8         byte, bfl;
 
       byte    = 0;
       bpscur  = 0;
@@ -762,9 +763,11 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
           memcpy(headers+hdrtot,line+i,len);
           hdrtot += len;
           headers[hdrtot++] = '\0';
-    
+
+          bfl  = 0;
           in   = 0;
           spos = 0;
+          lste = -nthresh;
           clen = 0;
           while (1)
             { nline += 1;
@@ -800,6 +803,16 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                             }
                         }
                     }
+                  else
+                    { if (bps && bfl)
+                        { if (bpscur >= 1024)
+                            { fwrite(bpsbuf,1024,1,bases);
+                              bpscur = 0;
+                            }
+                          bpsbuf[bpscur++] = byte;
+                          boff += 1;
+                        }
+                    }
                   break;
                 }
     
@@ -808,21 +821,58 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                   { x = number[(int) line[i]];
                     if (x < 4)
                       { if (!in)
-                          { if (ncontig >= ctgtop)
-                              { ctgtop = 1.2*ncontig + 1000;
-                                contigs = realloc(contigs,ctgtop*sizeof(GDB_CONTIG));
-                                if (contigs == NULL)
-                                  { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",
-                                                   Prog_Name,spath);
-                                    goto error;
+
+                          { if (spos - lste < nthresh)
+                              { if (ncontig == 0)
+                                  clen = 0;
+                                else
+                                  { ncontig -= 1;
+                                    clen = contigs[ncontig].clen;
+                                    seqtot -= clen;
+                                    clen <<= 1;
+                                  }
+                                for (g = spos-lste; g > 0; g--)
+                                  { count[0] += 1;
+                                    m = (clen & 0x7);
+                                    if (m == 0)
+                                      byte = 0;
+                                    else if (m == 6)
+                                      { if (bpscur >= 1024)
+                                          { fwrite(bpsbuf,1024,1,bases);
+                                            bpscur = 0;
+                                          }
+                                        bpsbuf[bpscur++] = byte;
+                                        boff += 1;
+                                      }
+                                    clen += 2;
                                   }
                               }
-                            contigs[ncontig].sbeg = spos;
-                            contigs[ncontig].boff = boff;
-                            contigs[ncontig].scaf = nscaff;
-                            clen = 0;
-                            in   = 1;
+                            else
+                              { if (bfl)
+                                  { if (bpscur >= 1024)
+                                      { fwrite(bpsbuf,1024,1,bases);
+                                        bpscur = 0;
+                                      }
+                                    bpsbuf[bpscur++] = byte;
+                                    boff += 1;
+                                  }
+                                if (ncontig >= ctgtop)
+                                  { ctgtop = 1.2*ncontig + 1000;
+                                    contigs = realloc(contigs,ctgtop*sizeof(GDB_CONTIG));
+                                    if (contigs == NULL)
+                                      { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",
+                                                       Prog_Name,spath);
+                                        goto error;
+                                      }
+                                  }
+                                contigs[ncontig].sbeg = spos;
+                                contigs[ncontig].boff = boff;
+                                contigs[ncontig].scaf = nscaff;
+                                clen = 0;
+                              }
+                            in = 1;
                           }
+
                         count[x] += 1;
                         m = (clen & 0x7);
                         if (m == 0)
@@ -842,16 +892,10 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                       }
                     else
                       { if (in)
-                          { if ((clen & 0x7) != 0)
-                              { if (bpscur >= 1024)
-                                  { fwrite(bpsbuf,1024,1,bases);
-                                    bpscur = 0;
-                                  }
-                                bpsbuf[bpscur++] = byte;
-                                boff += 1;
-                               }
+                          { bfl = ((clen & 0x7) != 0);
                             clen >>= 1;
                             spos += clen;
+                            lste  = spos;
                             contigs[ncontig].clen = clen;
                             seqtot += clen;
                             if (clen > maxctg)
@@ -867,20 +911,32 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath)
                   { x = number[(int) line[i]];
                     if (x < 4)
                       { if (!in)
-                          { if (ncontig >= ctgtop)
-                              { ctgtop = 1.2*ncontig + 1000;
-                                contigs = realloc(contigs,ctgtop*sizeof(GDB_CONTIG));
-                                if (contigs == NULL)
-                                  { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",
-                                                   Prog_Name,spath);
-                                    goto error;
+                          { if (spos - lste < nthresh)
+                              { if (ncontig == 0)
+                                  clen = 0;
+                                else
+                                  { ncontig -= 1;
+                                    clen = contigs[ncontig].clen;
+                                    seqtot -= clen;
+                                    clen += spos-lste;
                                   }
                               }
-                            contigs[ncontig].sbeg = spos;
-                            contigs[ncontig].boff = boff;
-                            contigs[ncontig].scaf = nscaff;
-                            clen = 0;
-                            in   = 1;
+                            else
+                              { if (ncontig >= ctgtop)
+                                  { ctgtop = 1.2*ncontig + 1000;
+                                    contigs = realloc(contigs,ctgtop*sizeof(GDB_CONTIG));
+                                    if (contigs == NULL)
+                                      { EPRINTF(EPLACE,"%s: Out of memory creating GDB for %s\n",
+                                                       Prog_Name,spath);
+                                        goto error;
+                                      }
+                                  }
+                                contigs[ncontig].sbeg = spos;
+                                contigs[ncontig].boff = boff;
+                                contigs[ncontig].scaf = nscaff;
+                                clen = 0;
+                                in   = 1;
+                              }
                           }
                         count[x] += 1;
                         clen += 1;
@@ -1485,7 +1541,7 @@ FILE **Get_GDB(GDB *gdb, char *source, char *cpath, int num_bps)
 
   type  = Get_GDB_Paths(source,NULL,&spath,&tpath,0);
   if (type != IS_GDB)
-    units = Create_GDB(gdb,spath,type,num_bps,NULL);
+    units = Create_GDB(gdb,spath,type,num_bps,NULL,0);
   else
     { Read_GDB(gdb,tpath);
       units = (FILE **) &(gdb->seqs);

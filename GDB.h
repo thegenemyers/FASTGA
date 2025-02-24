@@ -130,7 +130,7 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
   //   the GDB and so will be closed when the GDB is closed.
   // In interactive mode a NULL value is returned if there is an error.
 
-FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int num_bps, char *tpath);
+FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int num_bps, char *tpath, int nthresh);
 
   // Open the given database "path" into the supplied GDB record "gdb".
   //   Initially the sequence data, if any, stays in the .bps file with a FILE pointer to it.

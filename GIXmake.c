@@ -1,3 +1,4 @@
+/*  Last edited: Feb 21 16:55 2025 (rd109) */
 /*******************************************************************************************
  *
  *  Produce a k-mer index of genome's contigs suitable for finding adaptamer seed matches.
@@ -1697,7 +1698,7 @@ int main(int argc, char *argv[])
     close(tid);
     unlink(".xxx");
 
-    nfiles = (2*NTHREADS+2)*NTHREADS + 1 + tid;
+    nfiles = (2*NTHREADS+2)*NTHREADS + 1 + tid + 100 ; // RD 250221 add 100 to allow for a few wrapping processes
     getrlimit(RLIMIT_NOFILE,&rlp);
     if (nfiles > rlp.rlim_max)
       { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);

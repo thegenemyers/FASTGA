@@ -1,3 +1,4 @@
+/*  Last edited: Feb 21 16:55 2025 (rd109) */
  /*******************************************************************************************
  *
  *  Adaptamer merge phase of a WGA.  Given indices of two genomes (at a specified frequency
@@ -4046,7 +4047,7 @@ int main(int argc, char *argv[])
       close(tid);
       unlink(".xxx");
 
-      nfiles = (NTHREADS+3)*2*NTHREADS + tid;
+      nfiles = (NTHREADS+3)*2*NTHREADS + tid + 100 ; // RD 250221 add 100 to allow for a few wrapping processes
       getrlimit(RLIMIT_NOFILE,&rlp);
       if (nfiles > rlp.rlim_max)
         { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);

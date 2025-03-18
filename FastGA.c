@@ -3682,15 +3682,15 @@ int main(int argc, char *argv[])
           case 'p':
             if (strncmp(argv[i]+1,"paf",3) == 0)
               { OUT_TYPE = 0;
-                if (argv[1][4] == '\0')
+                if (argv[i][4] == '\0')
                   { OUT_OPT = 0;
                     break;
                   }
-                else if (strcmp(argv[i]+4,"m") == 0)
+                else if (argv[i][4] == 'm')
                   { OUT_OPT = 1;
                     break;
                   }
-                else if (strcmp(argv[i]+4,"x") == 0)
+                else if (argv[i][4] == 'x')
                   { OUT_OPT = 2;
                     break;
                   }

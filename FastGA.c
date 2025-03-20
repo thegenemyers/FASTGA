@@ -4158,7 +4158,7 @@ int main(int argc, char *argv[])
 
     N_Units = Malloc(NPARTS*NTHREADS*sizeof(IOBuffer),"IO buffers");
     C_Units = Malloc(NPARTS*NTHREADS*sizeof(IOBuffer),"IO buffers");
-    buffer  = Malloc(2*NPARTS*NTHREADS*1000000,"IO buffers");
+    buffer  = Malloc(2*NPARTS*NTHREADS*1000000ll,"IO buffers");
     bucks   = Malloc(2*NTHREADS*NCONTS*sizeof(int64),"IO buffers");
     if (N_Units == NULL || C_Units == NULL || buffer == NULL || bucks == NULL)
       Clean_Exit(1);
@@ -4166,8 +4166,8 @@ int main(int argc, char *argv[])
     k = 0;
     for (i = 0; i < NTHREADS; i++)
       for (j = 0; j < NPARTS; j++)
-        { N_Units[k].bufr = buffer + (2*k) * 1000000; 
-          C_Units[k].bufr = buffer + (2*k+1) * 1000000; 
+        { N_Units[k].bufr = buffer + (2*k) * 1000000ll; 
+          C_Units[k].bufr = buffer + (2*k+1) * 1000000ll; 
           N_Units[k].buck = bucks + (2*i) * NCONTS; 
           C_Units[k].buck = bucks + (2*i+1) * NCONTS; 
           N_Units[k].inum = k;
@@ -4219,7 +4219,7 @@ int main(int argc, char *argv[])
     for (j = 0; j < NPARTS; j++)
       for (i = 0; i < NTHREADS; i++)
         { N_Units[k].bufr = 
-          C_Units[k].bufr = buffer + i * (2*NPARTS*1000000); 
+          C_Units[k].bufr = buffer + i * (2*NPARTS*1000000ll); 
           x = i*NPARTS+j;
           nfile[k] = N_Units[x].file;
           cfile[k] = C_Units[x].file;

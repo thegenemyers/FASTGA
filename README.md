@@ -99,16 +99,16 @@ error a running discourse of the command's progress.
 ## FastGA Reference
 
 ```
-FastGA [-vk] [-T<int(8)>] [-P<dir($TMPDIR)] [<format(-paf)>]
-          [-f<int(10)>] [-c<int(85)>] [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)>]
-          <source1:path>[<precursor] [<source2:path>[<precursor>]]
-          
-    <format> = -paf[mx] | -psl | -1:<alignment:path>[.1aln] 
-        
-    <precursor> = .gix | .1gdb | <fa_extn> | <1_extn>
-    
-    <fa_extn> = (.fa|.fna|.fasta)[.gz]
-    <1_extn>  = any valid 1-code sequence file type
+FastGA [-vk] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf[mxsS]*)>]
+              [-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]
+              <source1:path>[<precursor>] [<source2:path>[<precursor>]]
+
+         <format> = -paf[mxsS]* | -psl | -1:<align:path>[.1aln]
+
+         <precursor> = .gix | .1gdb | <fa_extn> | <1_extn>
+
+             <fa_extn> = (.fa|.fna|.fasta)[.gz]
+             <1_extn>  = any valid 1-code sequence file type
 ```
 
 Performing a FastGA comparison can be as simple as issuing the command ```FastGA A B``` where A and B are FASTA, gzip'd FASTA, or ONEcode sequence files.  By default 8 threads will be used but this can be changed with the -T
@@ -118,8 +118,9 @@ can be changed with the -P option.  All the alignments found by FastGA are strea
 and by default will be in PAF format.  You can change this to PSL, or ONEcode ALN formatted output with
 the -psl and -1, options, respectively.
 Note carefully however, that the ONEcode -1 option produces binary output and the output is stored at the path given with the option, and is not streamed to the standard output.
-The -paf option can further be modulated with an 'x' or 'm', e.g. -pafx, which further requests that CIGAR
-strings detailing the alignments be output (see [ALNtoPAF](#ALNtoPAF) below).
+The -paf option can further be modulated with 'x', 'm', 's' or 'S', e.g. -pafx, which further requests that CIGAR
+strings detailing the alignments be output; and -pafxs, which further requests that CS
+strings be output in addition to CIGAR strings (see [ALNtoPAF](#ALNtoPAF) below).
 
 You can also call FastGA on a single source, e.g. ```FastGA A```, in which case FastGA compares A against
 itself, carefully avoiding self matches.  This is useful for detecting repetititve regions of a
@@ -245,7 +246,7 @@ decreasing it, the converse.  The effect is quadratic in -f so take care.
 <a name="ALNtoPAF"></a>
 
 ```
-3. ALNtoPAF [-mx] [-T<int(8)>] <alignments:path>[.1aln]
+3. ALNtoPAF [-mxsS] [-T<int(8)>] <alignment:path>[.1aln]
 ```
 
 ALNtoPAF converts a ALN file into a [PAF](https://github.com/lh3/miniasm/blob/master/PAF.md) file, streaming the PAF to the standard output.
@@ -266,7 +267,9 @@ The -m and -x options request ALNtoPAF to produce a CIGAR string tag of the form
 encoded with an 'M'.  With the -x option, aligned *equal* characters are encoded with an '=' and
 aligned *unequal* characters with an 'X'.
 
-*Beware*, the -m and -x options increase the time taken by ALNtoPAF by a factor of 10 and the file size
+The -s and -S options request ALNtoPAF to produce a CS string tag of the form ```cs:Z:<cs-string>``` that encodes difference sequences in the short form (-s) or the entire query and reference sequences in the long form (-S).
+
+*Beware*, the -m, -x, -s and -S options increase the time taken by ALNtoPAF by a factor of 10 and the file size
 by a factor of almost 100 !  The time taken can
 be ameliorated somewhat by running ALNtoPAF with more threads, controllable with the -T option.
 

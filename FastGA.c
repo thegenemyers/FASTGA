@@ -3741,7 +3741,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"         <format> = -paf[mx] | -psl | -1:<align:path>[.1aln]\n");
+        fprintf(stderr,"         <format> = -paf[mxsS]* | -psl | -1:<align:path>[.1aln]\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"         <precursor> = .gix | .1gdb | <fa_extn> | <1_extn>\n");
         fprintf(stderr,"\n");

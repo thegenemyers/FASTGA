@@ -25,7 +25,7 @@
 
 #undef DEBUG_THREADS
 
-static char *Usage = " [-mxsS] [-T<int(8)>] <alignment:path>[.1aln]";
+static char *Usage = "[-mxsS] [-T<int(8)>] <alignment:path>[.1aln]";
 
 static int  CIGAR_M;   // -m
 static int  CIGAR_X;   // -x

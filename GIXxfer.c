@@ -105,6 +105,7 @@ int main(int argc, char *argv[])
       }
 
     input = fopen(Catenate(SPATH,"/",SROOT,".1gdb"),"r");
+    SEXTN = NULL;
     if (input != NULL)
       { fclose(input);
         HAS_GDB = 1;

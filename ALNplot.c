@@ -1644,6 +1644,7 @@ int main(int argc, char *argv[])
         yseq = argv[3];
       }
   
+    pdftool = NULL;
     if (pdf != NULL && !(pdftool = findPDFtool()))
       { fprintf(stderr,"%s: Cannot find [e]ps[to|2]pdf needed to produce .pdf output\n",Prog_Name);
         exit (1);

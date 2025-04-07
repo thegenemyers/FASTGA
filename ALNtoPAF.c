@@ -594,7 +594,9 @@ int main(int argc, char *argv[])
     free(pwd);
 
     ISTWO = (src2_name != NULL);
-
+    
+    units1 = units2 = NULL;
+    
     if (CIGAR || DIFFS)
       units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS);
     else

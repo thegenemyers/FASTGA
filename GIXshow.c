@@ -106,8 +106,6 @@ static Post_List *Open_Post_List(char *name)
       exit (1);
     }
   sprintf(full,"%s/.%s.post.",dir,root);
-  free(root);
-  free(dir);
 
   if (lseek(f,4*sizeof(int)+0x1000000*sizeof(int64),SEEK_SET) < 0) goto open_io_error;
 
@@ -136,7 +134,10 @@ static Post_List *Open_Post_List(char *name)
 
   if (read(f,P->perm,sizeof(int)*nctg) < 0) goto open_io_error;
   if (read(f,P->index,sizeof(int64)*0x10000) < 0) goto open_io_error;
+  
   close(f);
+  free(root);
+  free(dir);
 
   nels = 0;
   for (p = 1; p <= nfile; p++)

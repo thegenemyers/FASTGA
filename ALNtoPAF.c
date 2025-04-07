@@ -453,8 +453,8 @@ void *gen_paf(void *args)
                       case 'X':
                         fputc('*',out);
                         for (j = 0; j < l; j++)
-                          { fputc(DNA_DBASE[(int)A[j]],out);
-                            fputc(DNA_DBASE[(int)B[j]],out);
+                          { fputc(DNA_DBASE[(int)B[j]],out);
+                            fputc(DNA_DBASE[(int)A[j]],out);
                           }
                         A += l;
                         B += l;

@@ -55,7 +55,12 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    BUCK_ANTI    128  //  2*BUCK_WIDTH
 #define    BOX_FUZZ      10
 
-static char *Usage[] = { "[-vk] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]",
+#define    PAFM         0x1
+#define    PAFX         0x2
+#define    PAFS         0x4
+#define    PAFL         0x8
+
+static char *Usage[] = { "[-vk] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf[mxsS]*)>]",
                          "[-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]",
                          "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
                        };
@@ -72,7 +77,7 @@ static int    KEEP;        //  -k
 static int    SYMMETRIC;   //  -S
 static int    SELF;        //  Comparing A to A, or A to B?
 static int    OUT_TYPE;    //  -paf = 0; -psl = 1; -one = 2
-static int    OUT_OPT;     //  -pafm = 1; -pafx = 2; all others = 0
+static int    OUT_OPT;     //  -paf = 0, -m = PAFM; -x = PAFX; -s = PAFS; -S = PAFL
 static char  *ONE_PATH;    //  -one option path
 static char  *ONE_ROOT;    //  -one option path
 
@@ -3682,18 +3687,29 @@ int main(int argc, char *argv[])
           case 'p':
             if (strncmp(argv[i]+1,"paf",3) == 0)
               { OUT_TYPE = 0;
-                if (argv[i][4] == '\0')
-                  { OUT_OPT = 0;
-                    break;
+                eptr = &argv[i][4];
+                while (*eptr)
+                  { switch (*eptr)
+                      { case 'm':
+                          OUT_OPT |= PAFM;
+                          break;
+                        case 'x':
+                          OUT_OPT |= PAFX;
+                          break;
+                        case 's':
+                          OUT_OPT |= PAFS;
+                          break;
+                        case 'S':
+                          OUT_OPT |= PAFL;
+                          break;
+                        default:
+                          fprintf(stderr,"%s: Do not recognize option %s\n",Prog_Name,argv[i]);
+                          exit (1);
+                          break;
+                      }
+                    eptr++;
                   }
-                else if (argv[i][4] == 'm')
-                  { OUT_OPT = 1;
-                    break;
-                  }
-                else if (argv[i][4] == 'x')
-                  { OUT_OPT = 2;
-                    break;
-                  }
+                  break;
               }
             else if (strcmp(argv[i]+1,"psl") == 0)
               { OUT_TYPE = 1;
@@ -3741,6 +3757,8 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -paf: Stream PAF output\n");
         fprintf(stderr,"        -pafx: Stream PAF output with CIGAR sring with X's\n");
         fprintf(stderr,"        -pafm: Stream PAF output with CIGAR sring with ='s\n");
+        fprintf(stderr,"        -pafs: Stream PAF output with CS sring in short form\n");
+        fprintf(stderr,"        -pafS: Stream PAF output with CS sring in long form\n");
         fprintf(stderr,"      -psl: Stream PSL output\n");
         fprintf(stderr,"      -1: Generate 1-code output to specified file\n");
         fprintf(stderr,"\n");
@@ -3755,6 +3773,16 @@ int main(int argc, char *argv[])
 
     if (FREQ > 255)
       { fprintf(stderr,"%s: The maximum allowable frequency cutoff is 255\n",Prog_Name);
+        exit (1);
+      }
+    
+    if ((OUT_OPT & PAFM) && (OUT_OPT & PAFX))
+      { fprintf(stderr,"%s: Only one of -paf[m] or -paf[x] can be set\n",Prog_Name);
+        exit (1);
+      }
+
+    if ((OUT_OPT & PAFS) && (OUT_OPT & PAFL))
+      { fprintf(stderr,"%s: Only one of -paf[s] or -paf[S] can be set\n",Prog_Name);
         exit (1);
       }
   }
@@ -4277,8 +4305,10 @@ int main(int argc, char *argv[])
 
         switch (OUT_TYPE)
         { case 0: // PAF
-            sprintf(command,"ALNtoPAF%s -T%d %s/%s",
-                            OUT_OPT==2?" -x":(OUT_OPT==1?" -m":""),NTHREADS,ONE_PATH,ONE_ROOT);
+            sprintf(command,"ALNtoPAF %s %s -T%d %s/%s",
+                            (OUT_OPT&PAFM)? "-m" : ((OUT_OPT&PAFX)? "-x" : ""),
+                            (OUT_OPT&PAFS)? "-s" : ((OUT_OPT&PAFL)? "-S" : ""),
+                            NTHREADS,ONE_PATH,ONE_ROOT);
             break;
           case 1: // PSL
             sprintf(command,"ALNtoPSL -T%d %s/%s",NTHREADS,ONE_PATH,ONE_ROOT);

@@ -25,11 +25,14 @@
 
 #undef DEBUG_THREADS
 
-static char *Usage = " [-mx] [-T<int(8)>] <alignment:path>[.1aln]";
+static char *Usage = " [-mxsS] [-T<int(8)>] <alignment:path>[.1aln]";
 
 static int  CIGAR_M;   // -m
 static int  CIGAR_X;   // -x
 static int  CIGAR;     // -m or -x
+static int  DIFFS_S;   // -s
+static int  DIFFS_L;   // -S
+static int  DIFFS;     // -s or -S
 static int  NTHREADS;  // -T
 static int  ISTWO;     // one gdb or two?
 
@@ -91,6 +94,8 @@ void *gen_paf(void *args)
   Path         *path;
   Work_Data    *work;
   int           blocksum, iid;
+  char          DNA_DBASE[4] = {'a', 'c', 'g', 't'};
+  char          DNA_MBASE[4] = {'A', 'C', 'G', 'T'};
 
   work = New_Work_Data();
   aseq = New_Contig_Buffer(gdb1);
@@ -163,7 +168,7 @@ void *gen_paf(void *args)
           fprintf(out,"\t%lld",boff + path->bepos);
         }
 
-      if (CIGAR)
+      if (CIGAR || DIFFS)
         { int  bmin, bmax;
           int  del;
           char *bact;
@@ -197,7 +202,7 @@ void *gen_paf(void *args)
           cig->n = 0;
           del = 0;
 
-          if (CIGAR_M)
+          if (CIGAR_M && !DIFFS)
             { int    k, h, p, x, blen;
               int32 *t = (int32 *) path->trace;
               int    T = path->tlen;
@@ -212,18 +217,15 @@ void *gen_paf(void *args)
                       k += blen;
                       h += blen+1;
                       if (dlen > 0)
-                        //fprintf(out,"%dI",dlen);
                         cigar_push(cig,'I',dlen);    
                       dlen = 0;
                       if (blen == 0)
                         ilen += 1;
                       else
                         { if (ilen > 0)
-                            { //fprintf(out,"%dD",ilen);
-                              cigar_push(cig,'D',ilen);
+                            { cigar_push(cig,'D',ilen);
                               del += ilen;
                             }
-                          //fprintf(out,"%dM",blen);
                           cigar_push(cig,'M',blen);
                           ilen = 1;
                         }
@@ -233,8 +235,7 @@ void *gen_paf(void *args)
                       k += blen+1;
                       h += blen;
                       if (ilen > 0)
-                        { //fprintf(out,"%dD",ilen);
-                          cigar_push(cig,'D',ilen);
+                        { cigar_push(cig,'D',ilen);
                           del += ilen;
                         }
                       ilen = 0;
@@ -242,30 +243,24 @@ void *gen_paf(void *args)
                         dlen += 1;
                       else
                         { if (dlen > 0)
-                            //fprintf(out,"%dI",dlen);
                             cigar_push(cig,'I',dlen);
-                          //fprintf(out,"%dM",blen);
                           cigar_push(cig,'M',blen);
                           dlen = 1;
                         }
                     }
                 }
               if (dlen > 0)
-                //fprintf(out,"%dI",dlen);
                 cigar_push(cig,'I',dlen);
               if (ilen > 0)
-                { //fprintf(out,"%dD",ilen);
-                  cigar_push(cig,'D',ilen);
+                { cigar_push(cig,'D',ilen);
                   del += ilen;
                 }
               blen = (path->aepos - k)+1;
               if (blen > 0)
-                { //fprintf(out,"%dM",blen);
-                  cigar_push(cig,'M',blen);
-                }
+                cigar_push(cig,'M',blen);
             }
 
-          else  //  CIGAR_X
+          else //  CIGAR_X or DIFFS
             { int    k, h, p, x, b, blen;
               int32 *t = (int32 *) path->trace;
               int    T = path->tlen;
@@ -387,16 +382,103 @@ void *gen_paf(void *args)
           fprintf(out,"\tdv:f:%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
           fprintf(out,"\tdf:i:%d",path->diffs);
 
-          { int i;
+          if (CIGAR) 
+            { int i, j, beg, end, step;
+              
+              beg  = 0;
+              end  = cig->n;
+              step = 1;
+              if (COMP(aln->flags)) {
+                beg  = cig->n-1;
+                end  = -1;
+                step = -1;
+              }
 
-            fprintf(out,"\tcg:Z:");
-            if (COMP(aln->flags))
-              for (i = cig->n-1; i >= 0; i--)
-                fprintf(out,"%d%c",cig->ln[i],cig->op[i]);
-            else
-              for (i = 0; i < cig->n; i++)
-                fprintf(out,"%d%c",cig->ln[i],cig->op[i]);
-          }
+              fprintf(out,"\tcg:Z:");
+              if (CIGAR_M && DIFFS)
+                { // merge 'X' and '=' as 'M'
+                  for (i = beg, j = 0; i != end; i += step)
+                    { if (cig->op[i] == 'I' || cig->op[i] == 'D')
+                        { if (j) 
+                            { fprintf(out,"%dM",j);
+                              j = 0;
+                            }
+                          fprintf(out,"%d%c",cig->ln[i],cig->op[i]);
+                        }
+                      else
+                        j += cig->ln[i];
+                    }
+                  if (j) fprintf(out,"%dM",j);
+                }
+              else
+                for (i = beg, j = 0; i != end; i += step)
+                  fprintf(out,"%d%c",cig->ln[i],cig->op[i]);
+            }
+          if (DIFFS)
+            { int    i, j, l, beg, end, step;
+              char  *A, *B;
+
+              A    = aln->aseq + path->abpos;
+              B    = aln->bseq + path->bbpos;
+              beg  = 0;
+              end  = cig->n;
+              step = 1;
+              if (COMP(aln->flags)) {
+                Complement_Seq(A,path->aepos-path->abpos);
+                Complement_Seq(B,path->bepos-path->bbpos);
+                beg  = cig->n-1;
+                end  = -1;
+                step = -1;
+              }
+              if (DIFFS_S) // change '=' to 'M' for short form
+                for (i = 0; i < cig->n; i ++)
+                  if (cig->op[i] == '=')
+                    cig->op[i] = 'M';
+              fprintf(out,"\tcs:Z:");
+              for (i = beg; i != end; i += step)
+                { l = cig->ln[i];
+                  switch (cig->op[i])
+                    { case '=':
+                        fputc('=',out);
+                        for (j = 0; j < l; j++)
+                          fputc(DNA_MBASE[(int)A[j]],out);
+                        A += l;
+                        B += l;
+                        break;
+                      case 'M':
+                        fprintf(out,":%d",l);
+                        A += l;
+                        B += l;
+                        break;
+                      case 'X':
+                        fputc('*',out);
+                        for (j = 0; j < l; j++)
+                          { fputc(DNA_DBASE[(int)A[j]],out);
+                            fputc(DNA_DBASE[(int)B[j]],out);
+                          }
+                        A += l;
+                        B += l;
+                        break;
+                      case 'I':
+                        fputc('+',out);
+                        for (j = 0; j < l; j++)
+                          fputc(DNA_DBASE[(int)A[j]],out);
+                        A += l;
+                        break;
+                      case 'D':
+                        fputc('-',out);
+                        for (j = 0; j < l; j++)
+                          fputc(DNA_DBASE[(int)B[j]],out);
+                        B += l;
+                        break;
+                      default:
+                        break;
+                    }
+                }
+
+                if (COMP(aln->flags))
+                  Complement_Seq(aln->aseq + path->abpos,path->aepos-path->abpos);
+            }
         }
       
       else
@@ -450,7 +532,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("mx")
+            ARG_FLAGS("mxsS")
             break;
           case 'T':
             ARG_POSITIVE(NTHREADS,"Number of threads")
@@ -464,18 +546,29 @@ int main(int argc, char *argv[])
     CIGAR_M = flags['m'];
     CIGAR   = CIGAR_X || CIGAR_M;
 
+    DIFFS_S = flags['s'];
+    DIFFS_L = flags['S'];
+    DIFFS   = DIFFS_S || DIFFS_L;
+
     if (argc != 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -m: produce Cigar string tag with M's\n");
         fprintf(stderr,"      -x: produce Cigar string tag with X's and ='s\n");
+        fprintf(stderr,"      -s: produce CS string tag in short form\n");
+        fprintf(stderr,"      -S: produce CS string tag in long form\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -T: Use -T threads.\n");
         exit (1);
       }
 
     if (CIGAR_X + CIGAR_M > 1)
-      { fprintf(stderr,"%s: Only one of -m, -x, or -t can be set\n",Prog_Name);
+      { fprintf(stderr,"%s: Only one of -m or -x can be set\n",Prog_Name);
+        exit (1);
+      }
+    
+    if (DIFFS_S + DIFFS_L > 1)
+      { fprintf(stderr,"%s: Only one of -s or -S can be set\n",Prog_Name);
         exit (1);
       }
 
@@ -502,13 +595,13 @@ int main(int argc, char *argv[])
 
     ISTWO = (src2_name != NULL);
 
-    if (CIGAR)
+    if (CIGAR || DIFFS)
       units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS);
     else
       Get_GDB(gdb1,src1_name,cpath,0);
 
     if (ISTWO)
-      { if (CIGAR)
+      { if (CIGAR || DIFFS)
           units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS);
         else
           Get_GDB(gdb2,src2_name,cpath,0);
@@ -573,7 +666,7 @@ int main(int argc, char *argv[])
     for (p = 0; p < NTHREADS; p++)
       { parm[p].gdb1 = *gdb1;
         parm[p].gdb2 = *gdb2;
-        if (CIGAR)
+        if (CIGAR || DIFFS)
           { parm[p].gdb1.seqs = units1[p];
             parm[p].gdb2.seqs = units2[p];
           }
@@ -600,7 +693,7 @@ int main(int argc, char *argv[])
       pthread_join(threads[p],NULL);
 #endif
 
-    if (CIGAR && NTHREADS > 1)
+    if ((CIGAR || DIFFS) && NTHREADS > 1)
       { for (p = 1; p < NTHREADS; p++)
           { fclose(units1[p]);
             if (ISTWO)

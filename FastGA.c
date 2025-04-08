@@ -1,4 +1,3 @@
-/*  Last edited: Feb 21 16:55 2025 (rd109) */
  /*******************************************************************************************
  *
  *  Adaptamer merge phase of a WGA.  Given indices of two genomes (at a specified frequency
@@ -60,7 +59,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    PAFS         0x4
 #define    PAFL         0x8
 
-static char *Usage[] = { "[-vk] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf[mxsS]*)>]",
+static char *Usage[] = { "[-vkS] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf[mxsS]*)>]",
                          "[-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]",
                          "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
                        };
@@ -587,7 +586,6 @@ typedef struct
     IOBuffer    *nunit;
     IOBuffer    *cunit;
     int64        nhits;
-    int64        g1len;
     int64        tseed;
   } SP;
 
@@ -620,7 +618,7 @@ static void *merge_thread(void *args)
   int64   post[POST_BUF_LEN + FREQ];
 
   int     qcnt, pcnt;
-  int64   nhits, g1len, tseed;
+  int64   nhits, tseed;
 
 #ifdef DEBUG_MERGE
   int64   Tdp;
@@ -645,7 +643,6 @@ static void *merge_thread(void *args)
 #endif
 
   nhits = 0;
-  g1len = 0;
   tseed = 0;
   apost = 0;
   bzero(post,(POST_BUF_LEN+FREQ)*sizeof(int64));
@@ -903,8 +900,6 @@ static void *merge_thread(void *args)
           for (n = suf1[CBYTE]; n > 0; n--)
             { Current_Post(P1,aptr);
               bsign = (aptr[JSIGN] & 0x80);
-              if (bsign == 0)
-                g1len += 1;
               jptr  = (uint8 *) (post+b);
               for (k = 0; k < freq; k++)
                 {
@@ -996,7 +991,6 @@ static void *merge_thread(void *args)
                   continue;
                 }
               nhits += freq;
-              g1len += 1;
               tseed += freq * plen;
               acont = (apost >> ESHIFT);
               adest = Select[acont];
@@ -1095,7 +1089,6 @@ static void *merge_thread(void *args)
   }
 
   parm->nhits = nhits;
-  parm->g1len = g1len;
   parm->tseed = tseed;
   return (NULL);
 }
@@ -1197,7 +1190,7 @@ static void *self_merge_thread(void *args)
   int64   post[POST_BUF_LEN + FREQ];
 
   int     qcnt, pcnt;
-  int64   nhits, g1len, tseed;
+  int64   nhits, tseed;
 
 #ifdef DEBUG_MERGE
   int64   Tdp;
@@ -1223,7 +1216,6 @@ static void *self_merge_thread(void *args)
 #endif
 
   nhits = 0;
-  g1len = 0;
   tseed = 0;
 
   First_Post_Entry(P2);
@@ -1430,7 +1422,6 @@ static void *self_merge_thread(void *args)
           }
 
         nhits += suf1[CBYTE] * (freq-1);
-        g1len += suf1[CBYTE];
         tseed += suf1[CBYTE] * (freq-1) * plen;
 
         iptr = (uint8 *) (post+odx);
@@ -1540,20 +1531,19 @@ static void *self_merge_thread(void *args)
   }
 
   parm->nhits = nhits/2;
-  parm->g1len = g1len;
   parm->tseed = tseed/2;
   return (NULL);
 }
 
 
 static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
-                            Post_List *P1,   Post_List *P2)
+                            Post_List *P1,   Post_List *P2, int64 g1len)
 { SP         parm[NTHREADS];
 #ifndef DEBUG_MERGE
   pthread_t  threads[NTHREADS];
 #endif
   uint8     *cache;
-  int64      nhits, g1len, tseed;
+  int64      nhits, tseed;
   int        i;
 
   { Kmer_Stream *tp;
@@ -1621,7 +1611,7 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
       parm[i].flip = 0;
     }
 
-  nhits = g1len = tseed = 0;
+  nhits = tseed = 0;
 
   if (VERBOSE)
     { fprintf(stderr,"\n  Starting adaptive seed merge for G1\n");
@@ -1647,7 +1637,6 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
 
   for (i = 0; i < NTHREADS; i++)
     { nhits += parm[i].nhits;
-      g1len += parm[i].g1len;
       tseed += parm[i].tseed;
     }
 
@@ -1690,7 +1679,6 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
 
       for (i = 0; i < NTHREADS; i++)
         { nhits += parm[i].nhits;
-          g1len += parm[i].g1len;
           tseed += parm[i].tseed;
         }
     }
@@ -1714,13 +1702,13 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
 }
 
 
-static void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1)
+static void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len)
 { SP         parm[NTHREADS];
 #ifndef DEBUG_MERGE
   pthread_t  threads[NTHREADS];
 #endif
   uint8     *cache;
-  int64      nhits, g1len, tseed;
+  int64      nhits, tseed;
   int        i;
 
   if (VERBOSE)
@@ -1802,10 +1790,9 @@ static void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1)
     }
   Free_Kmer_Stream(T1);
 
-  nhits = g1len = tseed = 0;
+  nhits = tseed = 0;
   for (i = 0; i < NTHREADS; i++)
     { nhits += parm[i].nhits;
-      g1len += parm[i].g1len;
       tseed += parm[i].tseed;
     }
 
@@ -3688,7 +3675,7 @@ int main(int argc, char *argv[])
           case 'p':
             if (strncmp(argv[i]+1,"paf",3) == 0)
               { OUT_TYPE = 0;
-                eptr = &argv[i][4];
+                eptr = argv[i]+4;
                 while (*eptr)
                   { switch (*eptr)
                       { case 'm':
@@ -3768,6 +3755,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -s: threshold for starting a new seed chain\n");
         fprintf(stderr,"      -l: minimum alignment length\n");
         fprintf(stderr,"      -i: minimum alignment identity\n");
+        fprintf(stderr,"      -S: seed adaptamers from both genomes\n");
         fprintf(stderr,"\n");
         exit (1);
       }
@@ -4078,7 +4066,7 @@ int main(int argc, char *argv[])
       close(tid);
       unlink(".xxx");
 
-      nfiles = (NTHREADS+3)*2*NTHREADS + tid + 100 ; // RD 250221 add 100 to allow for a few wrapping processes
+      nfiles = (NTHREADS+3)*2*NTHREADS + tid + 100 ; // 100 allows for a few wrapping processes
       getrlimit(RLIMIT_NOFILE,&rlp);
       if (nfiles > rlp.rlim_max)
         { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);
@@ -4233,9 +4221,9 @@ int main(int argc, char *argv[])
 #endif
 
     if (SELF)
-      self_adaptamer_merge(T1,P1);
+      self_adaptamer_merge(T1,P1,gdb1->seqtot);
     else
-      adaptamer_merge(T1,T2,P1,P2);
+      adaptamer_merge(T1,T2,P1,P2,gdb1->seqtot);
 
     if (VERBOSE)
       TimeTo(stderr,0);

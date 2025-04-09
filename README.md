@@ -99,7 +99,7 @@ error a running discourse of the command's progress.
 ## FastGA Reference
 
 ```
-FastGA [-vk] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf[mxsS]*)>]
+FastGA [-vkS] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]
               [-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]
               <source1:path>[<precursor>] [<source2:path>[<precursor>]]
 
@@ -114,17 +114,27 @@ FastGA [-vk] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf[mxsS]*)>]
 Performing a FastGA comparison can be as simple as issuing the command ```FastGA A B``` where A and B are FASTA, gzip'd FASTA, or ONEcode sequence files.  By default 8 threads will be used but this can be changed with the -T
 parameter.  By default the myriad temporary files produced by FastGA are located in the directory given
 by the environment varialble ```TMPDIR``` (or ```.``` if it is undefined) but this directory
-can be changed with the -P option.  All the alignments found by FastGA are streamed to the standard output
-and by default will be in PAF format.  You can change this to PSL, or ONEcode ALN formatted output with
+can be changed with the -P option.  In the default case, all the alignments found by FastGA are streamed to the standard output in PAF format.  You can change this to PSL, or ONEcode ALN formatted output by specifying
 the -psl and -1, options, respectively.
-Note carefully however, that the ONEcode -1 option produces binary output and the output is stored at the path given with the option, and is not streamed to the standard output.
-The -paf option can further be modulated with 'x', 'm', 's' or 'S', e.g. -pafx, which further requests that CIGAR
-strings detailing the alignments be output; and -pafxs, which further requests that CS
-strings be output in addition to CIGAR strings (see [ALNtoPAF](#ALNtoPAF) below).
+Note carefully, that the ONEcode -1 option produces binary output and so requires you also specify a file where the binaray will be stored.
+The -paf option can further be followed by any combination of 'x', 'm', 's' or 'S', save that
+'x' and 'm' do not both occur, and 's' and 'S' do not both occur.  These modulators specifiy that
+CIGAR strings (x or m) or CS strings (s or S) be additionally output for each alignment, e.g.
+-pafxS would request a CIGAR string with X and = in aligned regions, and a long form CS string
+be output.
+See the argument description for [ALNtoPAF](#ALNtoPAF) below for more details.
 
 You can also call FastGA on a single source, e.g. ```FastGA A```, in which case FastGA compares A against
 itself, carefully avoiding self matches.  This is useful for detecting repetititve regions of a
 genome (and their degree of repetitiveness), and for finding homologous regions between haplotypes in an unphased genome assembly, or one that is phased but not split into separate haplotype files.
+
+FastGA uses the adaptamer seed idea of Martin Frith which means that ```FastGA A B``` does not find
+the same set of alignments as ```FastGA B A``` as the adaptamers of A and B are not the same.
+Specifying the 'S' option (S for symmetric) requests FastGA to use the adaptamers of both genomes
+taking a bit more time but producing roughly the same result independent of the order of A and B
+on the command line.  The difference is typically that more repetitive alignments in B are found.
+So we advise not to use the option when synteny is the goal, and only use it when understanding the
+repeat structure of both genomes is of interest.
 
 The one or two source arguments to FastGA can be either a FASTA file, a ONEcode sequence file (e.g. .1seq), a precomputed genome database
 (GDB), or a precomputed genome index (GIX).  FastGA determines this by looking at the extension of
@@ -265,9 +275,9 @@ of differences in an optimal alignment between the two intervals of the query an
 
 The -m and -x options request ALNtoPAF to produce a CIGAR string tag of the form ```cg:Z:<cigar-string>``` that explicitly encodes an optimal alignment.  With the -m option, aligned characters regardless of whether they are equal or not are
 encoded with an 'M'.  With the -x option, aligned *equal* characters are encoded with an '=' and
-aligned *unequal* characters with an 'X'.
+aligned *unequal* characters with an 'X'.  Only one of 'x' or 'm can be specified.
 
-The -s and -S options request ALNtoPAF to produce a CS string tag of the form ```cs:Z:<cs-string>``` that encodes difference sequences in the short form (-s) or the entire query and reference sequences in the long form (-S).
+The -s and -S options request ALNtoPAF to produce a CS string tag of the form ```cs:Z:<cs-string>``` that encodes the differences between the sequences in the short form (-s) or the entire query and reference sequences in the long form (-S).  Only one of 's' or 'S can be specified.
 
 *Beware*, the -m, -x, -s and -S options increase the time taken by ALNtoPAF by a factor of 10 and the file size
 by a factor of almost 100 !  The time taken can

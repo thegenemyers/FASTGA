@@ -59,7 +59,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    PAFS         0x4
 #define    PAFL         0x8
 
-static char *Usage[] = { "[-vkS] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf[mxsS]*)>]",
+static char *Usage[] = { "[-vkS] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]",
                          "[-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]",
                          "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
                        };

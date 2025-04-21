@@ -804,7 +804,7 @@ int main(int argc, char *argv[])
 
     Get_GDB(AGDB,src1_name,cpath,0);
     if (ISTWO)
-      Get_GDB(BGDB,src1_name,cpath,0);
+      Get_GDB(BGDB,src2_name,cpath,0);
     else
       BGDB = AGDB;
 

@@ -328,8 +328,8 @@ static int get_range(char *x, int64 *v, Hash_Table *hash)
 
   src = x;
 
-  y = x + strlen(x);        //  Clip tailing +/- from string
-  while (isspace(y[-1]))
+  y = x + strlen(x) - 1;        //  Clip tailing +/- from string
+  while (isspace(*y))
     y -= 1;
   if (*y == '+')
     { v[8] = +1;

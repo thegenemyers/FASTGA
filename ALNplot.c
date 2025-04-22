@@ -781,31 +781,26 @@ static int USORT(const void *l, const void *r)
   return (-1);
 }
 
-/*  Currently not needed
-
-static void axisReverse(uint64 *sarray, int64 *caxis, int64 soff, int beg, int end,
-        int *cbeg, int *cend)
+static void axisReverse(uint64 *sarray, int64 *caxis, int64 soff, int beg, int end, Contig_Range *chord)
 { int i, c, clen;
   int64 coff;
   coff = caxis[(uint32) sarray[beg]];
   for (i = beg; i < end; i++)
     { c = (uint32) sarray[i];
       soff -= caxis[c] - coff; // gap
-      clen  = cend[c] - cbeg[c];
+      clen  = chord[c].end - chord[c].beg;
       soff -= clen; // ctg
       coff  = caxis[c] + clen;
       caxis[c] = soff;
     }
 }
 
-*/
-
 // Now string length of a name is capped by MAX_LAB_LEN
 // If the length N exceeds the limit then 
 // substring name[MAX_LAB_LEN-2,N-2] is replaced by a "*"
 static void addSeqName(char *names, uint32 n, uint32 m, int c0, int c1, 
-                       uint32 s, Hash_Table *hash, GDB *gdb, Contig_Range *chord, int rank,
-                       char **_names, uint32 *_n, uint32 *_m)
+                       uint32 s, Hash_Table *hash, GDB *gdb, Contig_Range *chord,
+                       int orien, char **_names, uint32 *_n, uint32 *_m)
 { uint32 l, n0;
   int64 p;
   char *name;
@@ -844,7 +839,7 @@ static void addSeqName(char *names, uint32 n, uint32 m, int c0, int c1,
       sprintf(names+n,"-%lld",p);
       n += l;
     }
-  if (rank < 0)
+  if (orien < 0)
     { // add a prime
       expandBuffer(&names, &n, &m, 2);
       names[n++] = '\'';
@@ -853,7 +848,7 @@ static void addSeqName(char *names, uint32 n, uint32 m, int c0, int c1,
   if (n > n0 + MAX_LAB_LEN) {
     // string length exceed limits
     l = n - n0;
-    if (rank < 0) {
+    if (orien < 0) {
       names[n0+MAX_LAB_LEN-3] = '*';
       names[n0+MAX_LAB_LEN-2] = names[n-2]; // the last character
       names[n0+MAX_LAB_LEN-1] = names[n-1]; // the prime
@@ -934,7 +929,7 @@ static double chooseFontSizeByHeight(int64 *soff, int n, double unit, double min
 
 int axisConfig(Hash_Table *hash, GDB *gdb, Contig_Range *chord,
                int64 **_caxis, int64 **_saxis, char **_names, int64 *_tseq)
-{ int i, j, s, r1, r2, mseq, nseq;
+{ int i, j, s, r1, r2, o1, o2, mseq, nseq;
   uint32 c0, c1, c2, nstr, mstr;
   uint64 *sarray;
   int64 *caxis, *saxis, tseq;
@@ -942,7 +937,7 @@ int axisConfig(Hash_Table *hash, GDB *gdb, Contig_Range *chord,
 
   mseq = 0;
   for (i = 0; i < gdb->ncontig; i++)
-    if (chord[i].order >= 0)
+    if (chord[i].order)
       mseq++;
 
   sarray = (uint64 *) Malloc(sizeof(uint64)*mseq,"Allocating seq array");
@@ -965,6 +960,7 @@ int axisConfig(Hash_Table *hash, GDB *gdb, Contig_Range *chord,
 
   c1 = (uint32) sarray[0];
   r1 = chord[c1].order;
+  o1 = chord[c1].orient;
   tseq = 0;
   nseq = 0;
   nstr = 0;
@@ -973,26 +969,29 @@ int axisConfig(Hash_Table *hash, GDB *gdb, Contig_Range *chord,
       tseq += chord[c1].end - chord[c1].beg;
       c2 = (uint32) sarray[i];
       r2 = chord[c2].order;
+      o2 = chord[c2].orient;
       if (chord[c1].end < gdb->contigs[c1].clen ||      // end-clipping
               c1 + 1 < c2 ||          // contigs skipped
               gdb->contigs[c1].scaf != gdb->contigs[c2].scaf || // scaffolds switched
               r1 != r2 ||             // ranks changed
-              chord[c2].beg > 0)           // start-clipping
+              o1 != o2 ||             // orien changed
+              chord[c2].beg > 0)      // start-clipping
         { // different rank group or gap
           // add new seq [j,i)
           c0 = (uint32) sarray[j];
           s = gdb->contigs[c0].scaf; // get scaffold id
           if (LABELS)
-            addSeqName(names,nstr,mstr,c0,c1,s,hash,gdb,chord,r1,&names,&nstr,&mstr);
+            addSeqName(names,nstr,mstr,c0,c1,s,hash,gdb,chord,o1,&names,&nstr,&mstr);
           saxis[nseq++] = tseq;
           // reverse ctg [j,i)
-          // if (r1 < 0) axisReverse(sarray, caxis, tseq, j, i, cbeg, cend);
+          if (o1 < 0) axisReverse(sarray, caxis, tseq, j, i, chord);
           j = i;
         }
       else
         tseq += gdb->contigs[c2].sbeg - gdb->contigs[c1].sbeg - gdb->contigs[c1].clen;
       c1 = c2;
       r1 = r2;
+      o1 = o2;
     }
   // add new seq [j,i)
   caxis[c1] = tseq - chord[c1].beg;
@@ -1000,9 +999,9 @@ int axisConfig(Hash_Table *hash, GDB *gdb, Contig_Range *chord,
   c0 = (uint32) sarray[j];
   s = gdb->contigs[c0].scaf; // get scaffold id
   if (LABELS)
-    addSeqName(names,nstr,mstr,c0,c1,s,hash,gdb,chord,r1,&names,&nstr,&mstr);
+    addSeqName(names,nstr,mstr,c0,c1,s,hash,gdb,chord,o1,&names,&nstr,&mstr);
   saxis[nseq++] = tseq;
-  // if (r1 < 0) axisReverse(sarray, caxis, tseq, j, i, cbeg, cend);
+  if (o1 < 0) axisReverse(sarray, caxis, tseq, j, i, chord);
 
   if (_caxis) *_caxis = caxis;
   if (_saxis) *_saxis = saxis;
@@ -1031,7 +1030,7 @@ int axisConfig(Hash_Table *hash, GDB *gdb, Contig_Range *chord,
 
 static void alnConfig()
 { int64 i;
-  int abpos, aepos, bbpos, bepos, a, b;
+  int aread, abpos, aepos, bread, bbpos, bepos, a, b, l;
   Segment *segment;
 
   for (i = 0; i < nSegment; i++)
@@ -1039,21 +1038,23 @@ static void alnConfig()
       if (IS_DEL(segment->flag))
         continue;
 
+      aread = segment->aread;
       abpos = segment->abpos;
       aepos = segment->aepos;
+      bread = segment->bread;
       bbpos = segment->bbpos;
       bepos = segment->bepos;
 
-      // if (ACHORD[aread].order < 0)         //  orientation not currently available
-        // { l = AEND[aread] - ABEG[aread];
-          // abpos = l - abpos;
-          // aepos = l - aepos;
-        // }
-      // if (BSEQ[bread].order < 0)
-        // { l = BEND[bread] - BBEG[bread];
-          // bbpos = l - bbpos;
-          // bepos = l - bepos;
-        // }
+      if (ACHORD[aread].order < 0)
+        { l = ACONTIG[aread].clen;
+          abpos = l - abpos;
+          aepos = l - aepos;
+        }
+      if (BCHORD[bread].order < 0)
+        { l = BCONTIG[bread].clen;
+          bbpos = l - bbpos;
+          bepos = l - bepos;
+        }
 
       segment->abpos = abpos;
       segment->aepos = aepos;
@@ -1321,12 +1322,12 @@ static int SEG_COLOR[3] = { G_COLOR, N_COLOR, C_COLOR };
   // generate eps file
 
 void make_plot(FILE *fo)
-{ int    width, height, fsize, maxis, xmargin, ymargin;
+{ double width, height, maxis, xmargin, ymargin;
+  double fsize, lsize, bsize, gsize; // line size, border size, grid size
+  double sx, sy;
   int    nxseq, nyseq;
   char  *xnames, *ynames;
   int64  txseq, tyseq, *cxoff, *sxoff, *cyoff, *syoff;
-  double sx, sy;
-  double lsize, bsize, gsize; // line size, border size, grid size
   int    i, c;
 
   // find total length of x- and y-axis and order of plotting
@@ -1339,29 +1340,29 @@ void make_plot(FILE *fo)
 
   width  = IMGWIDTH;
   height = IMGHEIGH;
-  if (!height)
-    height = (int) ((((double) width) / txseq) * tyseq + .499);
-  if (!width)
-    width = (int)((((double) height) / tyseq) * txseq + .499);
+  if (height < 1e-6)
+    height = (int) (width / txseq * tyseq + .499);
+  if (width < 1e-6)
+    width = (int) (height / tyseq * txseq + .499);
   
   maxis = (width > height ? width : height);
   if (maxis > MAX_XY_LEN)
-    { double scale = (double) MAX_XY_LEN / maxis;
+    { fprintf(stderr,"%s: Image size too large [%.0f]x[%.0f]\n",Prog_Name,width,height);
+      
+      double scale = (double) MAX_XY_LEN / maxis;
       int    plen  = strlen(Prog_Name);
-
-      width  = (int)(width  * scale + 0.499);
-      height = (int)(height * scale + 0.499);
-      fprintf(stderr,"%s: Image size too large [%d]x[%d]\n",Prog_Name,width,height);
-      fprintf(stderr,"%*s  Shrinking the size to [%d]x[%d]\n",plen,"",width,height);
+      width  = (int) (width  * scale + .499);
+      height = (int) (height * scale + .499);
+      fprintf(stderr,"%*s  Shrinking the size to [%.0f]x[%.0f]\n",plen,"",width,height);
       
       if (width < MIN_XY_LEN)
-        { fprintf(stderr,"%s: Image width too small [%d]\n",Prog_Name,width);
+        { fprintf(stderr,"%s: Image width too small [%.0f]\n",Prog_Name,width);
           fprintf(stderr,"%*s  Reseting image width to [%d]\n",plen,"",MAX_XY_LEN);
           fprintf(stderr,"%*s  Axes are no longer at same scale\n",plen,"");
           width = MIN_XY_LEN;  
         }
       if (height < MIN_XY_LEN)
-        { fprintf(stderr,"%s: Image height too small [%d]\n",Prog_Name,height);
+        { fprintf(stderr,"%s: Image height too small [%.0f]\n",Prog_Name,height);
           fprintf(stderr,"%*s  Reseting image height to [%d]\n",plen,"",MIN_XY_LEN);
           fprintf(stderr,"%*s  Axes are no longer at same scale\n",plen,"");
           height = MIN_XY_LEN;
@@ -1370,22 +1371,22 @@ void make_plot(FILE *fo)
   
   maxis = (width < height ? width : height);
   if (maxis < MIN_XY_LEN)
-    { double scale = (double) MIN_XY_LEN / maxis;
+    { fprintf(stderr,"%s: Image size too small [%.0f]x[%.0f]\n",Prog_Name,width,height);
+      
+      double scale = (double) MIN_XY_LEN / maxis;
       int    plen  = strlen(Prog_Name);
-
       width  = (int)(width  * scale + 0.499);
       height = (int)(height * scale + 0.499);
-      fprintf(stderr,"%s: Image size too small [%d]x[%d]\n",Prog_Name,width,height);
-      fprintf(stderr,"%*s  Expanding the size to [%d]x[%d]\n",plen,"",width,height);
+      fprintf(stderr,"%*s  Expanding the size to [%.0f]x[%.0f]\n",plen,"",width,height);
 
       if (width > MAX_XY_LEN)
-        { fprintf(stderr,"%s: Image width too large [%d]\n",Prog_Name,width);
+        { fprintf(stderr,"%s: Image width too large [%.0f]\n",Prog_Name,width);
           fprintf(stderr,"%*s  Reseting image width to [%d]\n",plen,"", MAX_XY_LEN);
           fprintf(stderr,"%*s  Axes are no longer at same scale\n",plen,"");
           width = MAX_XY_LEN;
         }
       if (height > MAX_XY_LEN)
-        { fprintf(stderr,"%s: Image height too large [%d]\n",Prog_Name,height);
+        { fprintf(stderr,"%s: Image height too large [%.0f]\n",Prog_Name,height);
           fprintf(stderr,"%*s  Reseting image height to [%d]\n",plen,"",MAX_XY_LEN);
           fprintf(stderr,"%*s  Axes are no longer at same scale\n",plen,"");
           height = MAX_XY_LEN;
@@ -1396,26 +1397,26 @@ void make_plot(FILE *fo)
   
   lsize = LINESIZE;
   if (lsize < 1e-6)
-    lsize = (double) maxis / 500;
+    lsize = maxis / 500;
   bsize = lsize * 2;
   gsize = lsize / 2;
 
-  sx = (double)  width / txseq;
-  sy = (double) height / tyseq;
+  sx =  width / txseq;
+  sy = height / tyseq;
 
-  xmargin = bsize*2;
-  ymargin = bsize*2;
+  xmargin = bsize * 2;
+  ymargin = bsize * 2;
 
   fsize = FONTSIZE;
-  if (!fsize)
+  if (fsize < 1e-6)
     { if (LABELS)
         { double xlabw, ylabw; // x/y lab width
           double xfsize, yfsize; // adjusted x/y font size
 
           // choose a font size by height
           // the smallest that is between 1 and 2 percent of axis size
-          xfsize = chooseFontSizeByHeight(sxoff, nxseq, sx, (double) maxis / 100, (double) maxis / 50);
-          yfsize = chooseFontSizeByHeight(syoff, nyseq, sy, (double) maxis / 100, (double) maxis / 50);
+          xfsize = chooseFontSizeByHeight(sxoff, nxseq, sx, maxis / 100, maxis / 50);
+          yfsize = chooseFontSizeByHeight(syoff, nyseq, sy, maxis / 100, maxis / 50);
           fsize  = (xfsize < yfsize? xfsize : yfsize);
 
           // adjust font size by sequence name width
@@ -1428,20 +1429,30 @@ void make_plot(FILE *fo)
           if (ylabw * fsize > width * MAX_LAB_FRC)
             fsize = width * MAX_LAB_FRC / ylabw;
 
-          // adjust x/y lab width
-          // some labels will be excluded since no enough space
-          xlabw = seqNameRenderWidth(xnames, nxseq, sxoff, sx, fsize);
-          ylabw = seqNameRenderWidth(ynames, nyseq, syoff, sy, fsize);
-
-          xmargin += fsize * ylabw;
-          ymargin += fsize * xlabw;
+          fsize = (int) (fsize + .499);
         }
       else
         fsize = 10; // this has no effect
     }
 
-  eps_header(fo, width+xmargin+bsize*3, height+ymargin+bsize*3, lsize);
-  eps_font(fo, "Helvetica-Narrow", fsize);
+  if (LABELS)
+    { double xlabw, ylabw; // x/y lab width
+      // adjust x/y lab width
+      // some labels will be excluded since no enough space
+      xlabw = seqNameRenderWidth(xnames, nxseq, sxoff, sx, fsize);
+      ylabw = seqNameRenderWidth(ynames, nyseq, syoff, sy, fsize);
+
+      // margin for labels
+      xmargin += fsize * ylabw;
+      ymargin += fsize * xlabw;
+    }
+  
+  // one pixel for PDF BoundingBox
+  xmargin += 1;
+  ymargin += 1;
+
+  eps_header(fo, width+xmargin*1.1+bsize*3+1.0, height+ymargin*1.1+bsize*3+1.0, lsize);
+  eps_font(fo, "Helvetica-Narrow", (int) fsize);
   eps_Ralign(fo);
 
   if (LABELS)
@@ -1450,21 +1461,21 @@ void make_plot(FILE *fo)
       aoff  = xmargin > ymargin ? ymargin * 0.1 : xmargin * 0.1;
       // write x labels
       names = xnames;
-      if (sxoff[0] * sx >= fsize)
+      if (sx * sxoff[0] >= fsize)
         eps_RotatedStr(fo, xmargin + bsize + .5 * sxoff[0] * sx - fsize / 2, ymargin - aoff, 270, names);
       names += strlen(names) + 1;
       for (i = 1; i < nxseq; i++)
-        { if ((sxoff[i] - sxoff[i-1]) * sx >= fsize)
+        { if (sx * (sxoff[i] - sxoff[i-1]) >= fsize)
             eps_RotatedStr(fo, xmargin + bsize + .5 * (sxoff[i-1] + sxoff[i]) * sx - fsize / 2, ymargin - aoff, 270, names);
           names += strlen(names) + 1;
         }
       // write y labels
       names = ynames;
-      if (syoff[0] * sy >= fsize)
+      if (sy * syoff[0] >= fsize)
         eps_RAlignedStr(fo, xmargin - aoff, ymargin + bsize + .5 * syoff[0] * sy - fsize / 2, names);
       names += strlen(names) + 1;
       for (i = 1; i < nyseq; i++)
-        { if ((syoff[i] - syoff[i-1]) * sy >= fsize)
+        { if (sy * (syoff[i] - syoff[i-1]) >= fsize)
             eps_RAlignedStr(fo, xmargin - aoff, ymargin + bsize + .5 * (syoff[i-1] + syoff[i]) * sy - fsize / 2, names);
           names += strlen(names) + 1;
         }
@@ -1720,6 +1731,16 @@ int main(int argc, char *argv[])
 
   ACHORD = get_selection_contigs(xseq, AGDB, AHASH, 1);
   BCHORD = get_selection_contigs(yseq, BGDB, BHASH, 1);
+
+  { // combine oriens and orders 
+    int i;
+    for (i = 0; i < NACONTIG; i++)
+      if (ACHORD[i].orient < 0)
+        ACHORD[i].order = -ACHORD[i].order;
+    for (i = 0; i < NBCONTIG; i++)
+      if (BCHORD[i].orient < 0)
+        BCHORD[i].order = -BCHORD[i].order;
+  }
 
   aln_filter();
 

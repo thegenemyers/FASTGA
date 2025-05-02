@@ -775,7 +775,11 @@ int main(int argc, char *argv[])
     if (input == NULL)
       { fprintf(stderr,"%s: Could not open .1aln file: %s\n",Prog_Name,path);
         exit (1);
-      }    
+      }
+    if (novl == 0)
+      { fprintf(stderr, "%s: Empty .1aln file: %s\n",Prog_Name,path);
+        exit (1);
+      }
     if (outfile == NULL)
       path = Catenate(pwd,"/",root,".chain.1aln");
     else

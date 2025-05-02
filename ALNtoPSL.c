@@ -71,6 +71,8 @@ void *gen_psl(void *args)
   Path         *path;
   Work_Data    *work;
 
+  if (beg >= end) return (NULL);
+
   work = New_Work_Data();
   aseq = New_Contig_Buffer(gdb1);
   bseq = New_Contig_Buffer(gdb2);

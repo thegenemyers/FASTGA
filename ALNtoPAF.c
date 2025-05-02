@@ -97,6 +97,8 @@ void *gen_paf(void *args)
   char          DNA_DBASE[4] = {'a', 'c', 'g', 't'};
   char          DNA_MBASE[4] = {'A', 'C', 'G', 'T'};
 
+  if (beg >= end) return (NULL);
+
   work = New_Work_Data();
   aseq = New_Contig_Buffer(gdb1);
   bseq = New_Contig_Buffer(gdb2);

@@ -40,6 +40,9 @@ void *threadCopy(void *args)
   OneFile   *out = copy->out;
   int64      n;
 
+  if (copy->beg >= copy->end)
+    return (NULL);
+
   oneGoto(in,'A',copy->beg+1);
 
   n = copy->end - copy->beg;

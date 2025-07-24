@@ -29,7 +29,7 @@
   - [PAFtoALN](#PAFtoALN): Convert a PAF formatted file with X-CIGAR strings to a .1aln file
   - [PAFtoPSL](#PAFtoPSL): Convert a PAF formatted file with X-CIGAR strings to a .psl file
 
-## <font color="red">Version 1.1 (July 23, 2025) Notes</font>
+## <font color="red">Version 1.3 (July 23, 2025) Notes</font>
 
 <font color="red">
 Soft masking is now supported and taken advantage of by the FastGA suite.  Soft masking is assumed

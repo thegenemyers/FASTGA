@@ -670,7 +670,7 @@ static void *new_merge_thread(void *args)
     }
   tend = T1->index[(parm->pend << 8) | 0xff];
 
-  mlen = 0;
+  mlen = KMER+1;
   plen = 12;                         //  Keep the dumb compiler happy
   vlcp[plen] = rcur = rend = cache;
   eorun = 0;
@@ -1670,7 +1670,7 @@ static void *new_self_merge_thread(void *args)
   tend = T1->index[(parm->pend<<8) | 0xff];
   tbeg = T1->cidx;
 
-  mlen = 0;
+  mlen = KMER+1;
   plen = 12;
   vlcp[12] = rcur = rend = cache;
   eorun = 0;

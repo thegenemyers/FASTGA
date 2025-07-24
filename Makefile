@@ -4,7 +4,7 @@ CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
 CC = gcc
 
-ALL = FAtoGDB GDBtoFA GDBstat GDBshow GIXmake GIXshow GIXrm GIXmv GIXcp FastGA ALNshow ALNtoPAF ALNtoPSL ALNreset ALNplot ALNchain PAFtoALN PAFtoPSL ONEview
+ALL = FAtoGDB GDBtoFA GDBstat GDBshow GIXmake GIXshow GIXrm GIXmv GIXcp FastGA ALNshow ALNtoPAF ALNtoPSL ALNreset ALNplot ALNchain PAFtoALN PAFtoPSL ONEview FastKS
 
 all: $(ALL)
 
@@ -43,6 +43,9 @@ GIXcp: GIXxfer.c GDB.c GDB.h ONElib.c ONElib.h gene_core.c gene_core.h
 
 FastGA: FastGA.c libfastk.c libfastk.h GDB.c GDB.h RSDsort.c align.c align.h alncode.c alncode.h ONElib.c ONElib.h
 	$(CC) $(CFLAGS) -o FastGA FastGA.c RSDsort.c libfastk.c align.c GDB.c alncode.c gene_core.c ONElib.c -lpthread -lm -lz
+
+FastKS: FastKS.c libfastk.c libfastk.h GDB.c GDB.h RSDsort.c align.c align.h alncode.c alncode.h ONElib.c ONElib.h
+	$(CC) $(CFLAGS) -o FastKS FastKS.c RSDsort.c libfastk.c align.c GDB.c alncode.c gene_core.c ONElib.c -lpthread -lm -lz
 
 ALNshow: ALNshow.c align.h align.c GDB.c GDB.h select.c select.h hash.c hash.h alncode.c alncode.h ONElib.c ONElib.h
 	$(CC) $(CFLAGS) -o ALNshow ALNshow.c align.c GDB.c alncode.c select.c hash.c gene_core.c ONElib.c -lpthread -lm -lz

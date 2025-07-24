@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "gene_core.h"
 
@@ -63,6 +64,7 @@ int main(int argc, char *argv[])
 
   { char *PATH, *ROOT, *GEXTN;
     int   HAS_GDB, HAS_GIX;
+    struct stat status;
     char *p, *com;
     FILE *input;
     int   c, a, yes;
@@ -149,8 +151,13 @@ int main(int argc, char *argv[])
                   { fprintf(stderr,"  Removing %s/%s.gix\n",PATH,ROOT);
                     fflush(stderr);
                   }
-                sprintf(command,"%s %s/%s.gix %s/.%s.ktab.* %s/.%s.post.*",
-                                com,PATH,ROOT,PATH,ROOT,PATH,ROOT);
+     
+                sprintf(command,"%s/.%s.post.1",PATH,ROOT);
+                if (stat(Catenate(PATH,"/.",ROOT,".post.1"),&status) != 0)
+                  sprintf(command,"%s %s/%s.gix %s/.%s.ktab.*",com,PATH,ROOT,PATH,ROOT);
+                else
+                  sprintf(command,"%s %s/%s.gix %s/.%s.ktab.* %s/.%s.post.*",
+                                  com,PATH,ROOT,PATH,ROOT,PATH,ROOT);
                 if (system(command) != 0) goto sys_error;
               }
           }
@@ -185,6 +192,6 @@ int main(int argc, char *argv[])
   exit (0);
 
 sys_error:
-  fprintf(stderr,"%s: Cannot execute command '%s'\n",Prog_Name,command);
+  fprintf(stderr,"%s: Command '%s' failed\n",Prog_Name,command);
   exit (1);
 }

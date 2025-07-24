@@ -11,6 +11,8 @@
 
 static char *Usage = "<source>[.gix] [ <address>[-<address>] ] ";
 
+static int NEW_GIX;  //  Is this a rev 2.0 style GIX?
+
 /***********************************************************************************************
  *
  *   POSITION LIST ABSTRACTION:
@@ -87,7 +89,7 @@ static void More_Post_List(Post_List *P)
 static Post_List *Open_Post_List(char *name)
 { Post_List *P;
   int        pbyte, cbyte, nctg;
-  int64      nels, maxp, n;
+  int64      nels, maxp, n, I1;
   int        copn;
 
   int    f, p;
@@ -102,7 +104,7 @@ static Post_List *Open_Post_List(char *name)
   sprintf(full,"%s/%s.gix",dir,root);
   f = open(full,O_RDONLY);
   if (f < 0)
-    { fprintf(stderr,"%s: Cannot open post stub file %s/%s.post\n",Prog_Name,dir,root);
+    { fprintf(stderr,"%s: Cannot open GIX stub file %s/%s.gix\n",Prog_Name,dir,root);
       exit (1);
     }
   sprintf(full,"%s/.%s.post.",dir,root);
@@ -125,15 +127,35 @@ static Post_List *Open_Post_List(char *name)
   P->name   = full;
   P->nlen   = strlen(full);
   P->maxp   = maxp;
-  P->cache  = Malloc(POST_BLOCK*pbyte,"Allocating post list buffer\n");
-  P->neps   = Malloc(nfile*sizeof(int64),"Allocating parts table of Post_List");
+  P->pbyte  = pbyte;
+  P->cbyte  = cbyte;
+  P->nthr   = nfile;
+  P->freq   = freq;
+  P->nctg   = nctg;
   P->perm   = Malloc(nctg*sizeof(int),"Allocating sort permutation");
-  P->index  = Malloc(0x10000*sizeof(int64),"Allocating index array");
-  if (P->cache == NULL || P->neps == NULL || P->perm == NULL || P->index == NULL)
+  if (P->perm == NULL)
     exit (1);
 
   if (read(f,P->perm,sizeof(int)*nctg) < 0) goto open_io_error;
-  if (read(f,P->index,sizeof(int64)*0x10000) < 0) goto open_io_error;
+  if (read(f,&I1,sizeof(int64)) < 0) goto open_io_error;
+
+  if (I1 < 0)
+    { P->nels   = 0;
+      P->cache  = NULL;
+      P->neps   = NULL;
+      P->index  = NULL;
+      P->copn   = -1;
+      return (P);
+    }
+
+  P->cache  = Malloc(POST_BLOCK*pbyte,"Allocating post list buffer\n");
+  P->neps   = Malloc(nfile*sizeof(int64),"Allocating parts table of Post_List");
+  P->index  = Malloc(0x10000*sizeof(int64),"Allocating index array");
+  if (P->cache == NULL || P->neps == NULL || P->index == NULL)
+    exit (1);
+
+  if (read(f,P->index+1,sizeof(int64)*0xffff) < 0) goto open_io_error;
+  P->index[0] = I1;
   
   close(f);
   free(root);
@@ -160,13 +182,7 @@ static Post_List *Open_Post_List(char *name)
         }
       close(copn);
     }
-
-  P->pbyte = pbyte;
-  P->cbyte = cbyte;
-  P->nels  = nels;
-  P->nthr  = nfile;
-  P->freq  = freq;
-  P->nctg  = nctg;
+  P->nels = nels;
 
   sprintf(P->name+P->nlen,"%d",1);
   copn = open(P->name,O_RDONLY);
@@ -338,7 +354,7 @@ void JumpTo_Ktab_Index(Kmer_Stream *T, Post_List *P, int64 idx)
   JumpTo_Post_Index(P,bidx);
 }
 
-static void Print_Index(Kmer_Stream *T, Post_List *P, int64 bidx, int64 eidx)
+static void Print_Index_Old(Kmer_Stream *T, Post_List *P, int64 bidx, int64 eidx)
 { char  *buffer;
   int    invert;
   int64  post, cont, flag;
@@ -374,6 +390,49 @@ static void Print_Index(Kmer_Stream *T, Post_List *P, int64 bidx, int64 eidx)
           fflush(stdout);
           Next_Post_Entry(P);
         }
+    }
+}
+
+static void Print_Index_New(Kmer_Stream *T, Post_List *P, int64 bidx, int64 eidx)
+{ char  *kbuff;
+  uint8 *pbuff;
+  int    invert;
+  int64  post, cont, flag, kmer;
+  int    cbyte, pbyte, kbyte;
+  uint8 *cptr  = (uint8 *) (&cont);
+  uint8 *pptr  = (uint8 *) (&post);
+  int   *perm  = P->perm;
+
+  kbuff  = Current_Kmer(T,NULL);
+  pbuff  = Current_Entry(T,NULL);
+  cbyte  = P->cbyte;
+  pbyte  = P->pbyte - cbyte;
+  kbyte  = T->kbyte;
+  flag   = (0x1ll << (8*cbyte-1));
+  kmer   = T->kmer;
+
+  post = cont = 0;
+
+  printf("  Index: K-mer%*s mask lcp sign contig |  position\n",T->kmer-5,"");
+  GoTo_Kmer_Index(T,bidx);
+  for ( ; T->cidx < eidx; Next_Kmer_Entry(T))
+    { printf(" %6lld: %s",T->cidx,Current_Kmer(T,kbuff));
+      Current_Entry(T,pbuff);
+      if (pbuff[kbyte] == 0)
+        printf("   *");
+      else
+        printf(" %3d",pbuff[kbyte]);
+      if (pbuff[kbyte+1] == kmer)
+        printf("   *");
+      else
+        printf(" %3d",pbuff[kbyte+1]);
+      memcpy(pptr,pbuff+(kbyte+2),pbyte);
+      memcpy(cptr,pbuff+(kbyte+2+pbyte),cbyte);
+      invert = ((cont & flag) != 0);
+      if (invert)
+        cont -= flag;
+      printf("    %c  %4d   | %9lld\n",invert?'-':'+',perm[cont],post);
+      fflush(stdout);
     }
 }
 
@@ -539,14 +598,24 @@ int main(int argc, char *argv[])
       }
   }
 
-  T = Open_Kmer_Stream(argv[1]);
-  if (T == NULL)
-    { fprintf(stderr,"%s: Cannot open k-mer table %s\n",Prog_Name,argv[1]);
-      exit (1);
-    }
   P = Open_Post_List(argv[1]);
   if (P == NULL)
-    exit (1);
+    { fprintf(stderr,"%s: Cannot open GIX %s\n",Prog_Name,argv[1]);
+      exit (1);
+    }
+
+  if (P->nels == 0)  //  new style GIX
+    { NEW_GIX = 1;
+      T = Open_Kmer_Stream(argv[1],P->pbyte+2);
+    }
+  else
+    { NEW_GIX = 0;
+      T = Open_Kmer_Stream(argv[1],2);
+    }
+  if (T == NULL)
+    { fprintf(stderr,"%s: Cannot open GIX %s\n",Prog_Name,argv[1]);
+      exit (1);
+    }
 
   if (argc == 2)
     { bidx = 0;
@@ -566,7 +635,10 @@ int main(int argc, char *argv[])
         }
     }
 
-  Print_Index(T,P,bidx,eidx); 
+  if (NEW_GIX)
+    Print_Index_New(T,P,bidx,eidx); 
+  else
+    Print_Index_Old(T,P,bidx,eidx); 
 
   Free_Post_List(P);
   Free_Kmer_Stream(T);

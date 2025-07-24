@@ -22,7 +22,7 @@
 
 #include "GDB.h"
 
-static char *Usage = "[-v] [-n<int>] <source:path>[<fa_extn>|<1_extn>] [<target:path>[.1gdb]]";
+static char *Usage = "[-v] [-L:<log:path>] [-n<int>] <source:path>[<fa_extn>|<1_extn>] [<target:path>[.1gdb]]";
 
 int main(int argc, char *argv[])
 { char *spath, *tpath;
@@ -31,7 +31,8 @@ int main(int argc, char *argv[])
   int   NCUT;
   GDB   gdb;
 
-  int VERBOSE;
+  int   VERBOSE;
+  FILE *LOG_FILE;
 
   //   Process command line
 
@@ -42,6 +43,7 @@ int main(int argc, char *argv[])
     ARG_INIT("FAtoGDB")
 
     NCUT = 0;
+    LOG_FILE = NULL;
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -52,6 +54,17 @@ int main(int argc, char *argv[])
             break;
           case 'n':
             ARG_POSITIVE(NCUT,"n-run cutoff");
+            break;
+          case 'L':
+            if (argv[i][2] != ':')
+              { fprintf (stderr,"%s: option -L must be followed by :<filename>\n",Prog_Name);
+                exit (1);
+              }
+            LOG_FILE = fopen(argv[i]+3,"a");
+            if (LOG_FILE == NULL)
+              { fprintf (stderr,"%s: Cannot open logfile %s for output\n",Prog_Name,argv[i]+3);
+                exit(1);
+              }
             break;
         }
       else
@@ -66,12 +79,16 @@ int main(int argc, char *argv[])
         fprintf(stderr,"           <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
         fprintf(stderr,"           <1_extn>  = any valid 1-code sequence file type\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"       -n  turn runs of n's < # into a's\n");
+        fprintf(stderr,"       -n: Turn runs of n's of length < # into a's.\n");
+        fprintf(stderr,"       -L: Output log to specified file.\n");
         exit (1);
       }
   }
 
-  if (VERBOSE)
+  if (LOG_FILE)
+    fprintf(LOG_FILE,"\n%s\n",Command_Line);
+
+  if (VERBOSE || LOG_FILE)
     StartTime();
 
   //  Determine source and target root names, paths, and extensions
@@ -103,7 +120,11 @@ int main(int argc, char *argv[])
   free(spath);
 
   if (VERBOSE)
-    TimeTo(stderr,0);
+    TimeTo(stderr,1,0);
+  if (LOG_FILE)
+    { TimeTo(LOG_FILE,1,0);
+      fclose(LOG_FILE);
+    }
 
   exit (0);
 }

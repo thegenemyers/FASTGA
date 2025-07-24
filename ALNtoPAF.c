@@ -67,6 +67,37 @@ static inline void cigar_push(CigarList *cigar, char op, int ln)
   cigar->ln[cigar->n++] = ln;
 }
 
+static inline void itoa(int x, char *buf, FILE *out)
+{ char *s;
+ 
+  s = buf;
+  while (x >= 10)
+    { *s++ = '0' + (x % 10);
+      x /= 10;
+    }
+  fputc('0' + x, out);
+  while (s > buf)
+    fputc(*--s, out);
+}
+
+static inline void ltoa(int64 x, char *buf, FILE *out)
+{ char *s;
+ 
+  s = buf;
+  while (x >= 10)
+    { *s++ = '0' + (x % 10);
+      x /= 10;
+    }
+  fputc('0' + x, out);
+  while (s > buf)
+    fputc(*--s, out);
+}
+
+static inline void stoa(char *s, FILE *out)
+{ while (*s != '\0')
+    fputc(*s++,out);
+}
+
 void *gen_paf(void *args)
 { Packet *parm = (Packet *) args;
 
@@ -94,6 +125,7 @@ void *gen_paf(void *args)
   Path         *path;
   Work_Data    *work;
   int           blocksum, iid;
+  char          buf[32];
   char          DNA_DBASE[4] = {'a', 'c', 'g', 't'};
   char          DNA_MBASE[4] = {'A', 'C', 'G', 'T'};
 
@@ -149,25 +181,35 @@ void *gen_paf(void *args)
       bscaff = contigs2[bcontig].scaf;
 
       aoff = contigs1[acontig].sbeg;
-      fprintf(out,"%s",ahead + scaff1[ascaff].hoff);
-      fprintf(out,"\t%lld",scaff1[ascaff].slen);
-      fprintf(out,"\t%lld",aoff + path->abpos);
-      fprintf(out,"\t%lld",aoff + path->aepos);
+      stoa(ahead + scaff1[ascaff].hoff,out);
+      fputc('\t',out);
+      ltoa(scaff1[ascaff].slen,buf,out);
+      fputc('\t',out);
+      ltoa(aoff + path->abpos,buf,out);
+      fputc('\t',out);
+      ltoa(aoff + path->aepos,buf,out);
 
-      fprintf(out,"\t%c",COMP(aln->flags)?'-':'+');
+      fputc('\t',out);
+      fputc(COMP(aln->flags)?'-':'+',out);
 
-      fprintf(out,"\t%s",bhead + scaff2[bscaff].hoff);
-      fprintf(out,"\t%lld",scaff2[bscaff].slen);
+      fputc('\t',out);
+      stoa(bhead + scaff2[bscaff].hoff,out);
+      fputc('\t',out);
+      ltoa(scaff2[bscaff].slen,buf,out);
 
       if (COMP(aln->flags))
         { boff = contigs2[bcontig].sbeg + contigs2[bcontig].clen;
-          fprintf(out,"\t%lld",boff - path->bepos);
-          fprintf(out,"\t%lld",boff - path->bbpos);
+          fputc('\t',out);
+          ltoa(boff - path->bepos,buf,out);
+          fputc('\t',out);
+          ltoa(boff - path->bbpos,buf,out);
         }
       else
         { boff = contigs2[bcontig].sbeg;
-          fprintf(out,"\t%lld",boff + path->bbpos);
-          fprintf(out,"\t%lld",boff + path->bepos);
+          fputc('\t',out);
+          ltoa(boff + path->bbpos,buf,out);
+          fputc('\t',out);
+          ltoa(boff + path->bepos,buf,out);
         }
 
       if (CIGAR || DIFFS)
@@ -377,12 +419,24 @@ void *gen_paf(void *args)
           blocksum = (path->aepos-path->abpos) + del;
           iid      = blocksum - path->diffs;
 
-          fprintf(out,"\t%d",iid);
-          fprintf(out,"\t%d",blocksum);
-          fprintf(out,"\t255");
+          fputc('\t',out);
+          itoa(iid,buf,out);
+          fputc('\t',out);
+          itoa(blocksum,buf,out);
+          stoa("\t255",out);
 
-          fprintf(out,"\tdv:f:%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
-          fprintf(out,"\tdf:i:%d",path->diffs);
+          { int x;
+
+            stoa("\tdv:f:.",out);
+            x = 10000 + (10000ll*((path->aepos-path->abpos)-iid))/(path->aepos-path->abpos);
+            fputc('0'+((x/1000)%10),out);
+            fputc('0'+((x/100)%10),out);
+            fputc('0'+((x/10)%10),out);
+            fputc('0'+(x%10),out);
+          }
+
+          stoa("\tdf:i:",out);
+          itoa(path->diffs,buf,out);
 
           if (CIGAR) 
             { int i, j, beg, end, step;
@@ -390,31 +444,38 @@ void *gen_paf(void *args)
               beg  = 0;
               end  = cig->n;
               step = 1;
-              if (COMP(aln->flags)) {
-                beg  = cig->n-1;
-                end  = -1;
-                step = -1;
-              }
+              if (COMP(aln->flags))
+                { beg  = cig->n-1;
+                  end  = -1;
+                  step = -1;
+                }
 
-              fprintf(out,"\tcg:Z:");
-              if (CIGAR_M && DIFFS)
-                { // merge 'X' and '=' as 'M'
-                  for (i = beg, j = 0; i != end; i += step)
+              stoa("\tcg:Z:",out);
+              if (CIGAR_M && DIFFS)                             // merge 'X' and '=' as 'M'
+                { for (i = beg, j = 0; i != end; i += step)
                     { if (cig->op[i] == 'I' || cig->op[i] == 'D')
                         { if (j) 
-                            { fprintf(out,"%dM",j);
+                            { itoa(j,buf,out);
+                              fputc('M',out);
                               j = 0;
                             }
-                          fprintf(out,"%d%c",cig->ln[i],cig->op[i]);
+                          itoa(cig->ln[i],buf,out);
+                          fputc(cig->op[i],out);
                         }
                       else
                         j += cig->ln[i];
                     }
-                  if (j) fprintf(out,"%dM",j);
+                  if (j)
+                    { itoa(j,buf,out);
+                      fputc('M',out);
+                    }
                 }
               else
-                for (i = beg, j = 0; i != end; i += step)
-                  fprintf(out,"%d%c",cig->ln[i],cig->op[i]);
+                { for (i = beg; i != end; i += step)
+                    { itoa(cig->ln[i],buf,out);
+                      fputc(cig->op[i],out);
+                    }
+                }
             }
           if (DIFFS)
             { int    i, j, l, beg, end, step;
@@ -425,18 +486,18 @@ void *gen_paf(void *args)
               beg  = 0;
               end  = cig->n;
               step = 1;
-              if (COMP(aln->flags)) {
-                Complement_Seq(A,path->aepos-path->abpos);
-                Complement_Seq(B,path->bepos-path->bbpos);
-                beg  = cig->n-1;
-                end  = -1;
-                step = -1;
-              }
-              if (DIFFS_S) // change '=' to 'M' for short form
+              if (COMP(aln->flags))
+                { Complement_Seq(A,path->aepos-path->abpos);
+                  Complement_Seq(B,path->bepos-path->bbpos);
+                  beg  = cig->n-1;
+                  end  = -1;
+                  step = -1;
+                }
+              if (DIFFS_S)                       // change '=' to 'M' for short form
                 for (i = 0; i < cig->n; i ++)
                   if (cig->op[i] == '=')
                     cig->op[i] = 'M';
-              fprintf(out,"\tcs:Z:");
+              stoa("\tcs:Z:",out);
               for (i = beg; i != end; i += step)
                 { l = cig->ln[i];
                   switch (cig->op[i])
@@ -448,7 +509,8 @@ void *gen_paf(void *args)
                         B += l;
                         break;
                       case 'M':
-                        fprintf(out,":%d",l);
+                        fputc(':',out);
+                        itoa(l,buf,out);
                         A += l;
                         B += l;
                         break;
@@ -488,12 +550,25 @@ void *gen_paf(void *args)
           iid      = (blocksum - path->diffs)/2;
 
           // the residue matches and alignment block length are approximate
-          fprintf(out,"\t%d",iid);
-          fprintf(out,"\t%d",blocksum/2);
-          fprintf(out,"\t255");
 
-          fprintf(out,"\tdv:f:%.04f",1.*((path->aepos-path->abpos)-iid)/(path->aepos-path->abpos));
-          fprintf(out,"\tdf:i:%d",path->diffs);
+          fputc('\t',out);
+          itoa(iid,buf,out);
+          fputc('\t',out);
+          itoa(blocksum,buf,out);
+          stoa("\t255",out);
+
+          { int x;
+
+            stoa("\tdv:f:.",out);
+            x = 10000 + (10000ll*((path->aepos-path->abpos)-iid))/(path->aepos-path->abpos);
+            fputc('0'+((x/1000)%10),out);
+            fputc('0'+((x/100)%10),out);
+            fputc('0'+((x/10)%10),out);
+            fputc('0'+(x%10),out);
+          }
+
+          stoa("\tdf:i:",out);
+          itoa(path->diffs,buf,out);
         }
 
       fprintf(out,"\n");

@@ -206,6 +206,8 @@ int main(int argc, char *argv[])
                    sprintf(command,"%s %s/.%s.ktab.%d %s/.%s.ktab.%d",
                                    op,SPATH,SROOT,a,TPATH,TROOT,a);
                    if (system(command) != 0) goto sys_error;
+                   if (stat(Catenate(SPATH,"/.",SROOT,Numbered_Suffix(".post.",a,"")),&status) != 0)
+                      continue;
                    sprintf(command,"%s %s/.%s.post.%d %s/.%s.post.%d",
                                    op,SPATH,SROOT,a,TPATH,TROOT,a);
                    if (system(command) != 0) goto sys_error;

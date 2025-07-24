@@ -376,7 +376,7 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
     { bzero(index,ixlen*sizeof(int64));
       close(f);
 
-      S = Open_Kmer_Stream(name);
+      S = Open_Kmer_Stream(name,2);
       for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
         if (Current_Count(S) >= cut_off)
           nels += 1;
@@ -425,7 +425,7 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
       int64  off;
       int    x;
 
-      S = Open_Kmer_Stream(name);
+      S = Open_Kmer_Stream(name,2);
       jptr = table;
       for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
         if (Current_Count(S) >= cut_off)
@@ -782,7 +782,7 @@ static void More_Kmer_Stream(_Kmer_Stream *S)
   S->copn = copn;
 }
 
-Kmer_Stream *Open_Kmer_Stream(char *name)
+Kmer_Stream *Open_Kmer_Stream(char *name, int csize)
 { _Kmer_Stream *S;
   int           kmer, tbyte, kbyte, minval, ibyte, pbyte, hbyte, ixlen;
   int64         nels;
@@ -821,7 +821,7 @@ Kmer_Stream *Open_Kmer_Stream(char *name)
 
   kmer  = smer;
   kbyte = (kmer+3)>>2;
-  tbyte = kbyte+2;
+  tbyte = kbyte+csize;
   pbyte = tbyte-ibyte;
   hbyte = kbyte-ibyte;
   ixlen = (1 << (8*ibyte));

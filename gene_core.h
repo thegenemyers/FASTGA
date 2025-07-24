@@ -173,6 +173,6 @@ void Number_Arrow(char *s);   //  Convert arrow pw string from letters to number
  ********************************************************************************************/
 
 void StartTime();
-void TimeTo(FILE *f, int all);
+void TimeTo(FILE *f, int all, int reset);
 
 #endif // _CORE

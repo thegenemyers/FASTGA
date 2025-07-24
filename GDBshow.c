@@ -25,7 +25,7 @@
 #define DEBUG_RANGE
 
 static char *Usage =
-            "[-hU] [-w<int(80)>] <source:path>[.1gdb] [ <selection>|<FILE> ]";
+            "[-h] [-w<int(80)>] <source:path>[.1gdb] [ <selection>|<FILE> ]";
 
 #define MAX_BUFFER   10001
 
@@ -98,7 +98,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("hU")
+            ARG_FLAGS("h")
             break;
           case 'w':
             ARG_NON_NEGATIVE(WIDTH,"Line width")
@@ -108,10 +108,6 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
     argc = j;
 
-    if (flags['U'])
-      UPPER = UPPER_CASE;
-    else
-      UPPER = LOWER_CASE;
     DOSEQ = 1-flags['h'];
 
     if (argc <= 1)
@@ -131,7 +127,6 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"      -h: Show only the header lines.\n");
         fprintf(stderr,"      -w: Print -w bp per line (default is 80).\n");
-        fprintf(stderr,"      -U: Use upper case for DNA (default is lower case).\n");
         exit (1);
       }
   }
@@ -164,6 +159,11 @@ int main(int argc, char *argv[])
           }
         *eptr = c;
       }
+
+    if (gdb->iscaps)
+      UPPER = UPPER_CASE;
+    else
+      UPPER = LOWER_CASE;
   }
 
   //  Get the selection list (every contig by default)
@@ -186,7 +186,7 @@ int main(int argc, char *argv[])
     //  Setup 'n' string for printing scaffold gaps and buffer for contigs
 
     nstring = Malloc(WIDTH+1,"Allocating write buffer\n");
-    if (UPPER == 2)
+    if (UPPER == UPPER_CASE)
       for (c = 0; c < WIDTH; c++)
         nstring[c] = 'N';
     else

@@ -29,7 +29,6 @@ static int S_gap1, S_gap2;
 
 static int    RSIZE;
 static int    KSIZE;
-static int64 *PARTS;
 static uint8 *ARRAY;
 
 #ifdef LCPs
@@ -361,112 +360,115 @@ static void radix_sort(uint8 *array, int64 asize, int digit, int64 *alive)
 }
 
 typedef struct
-  { int   beg;
-    int   end;
-    int64 off;
-  } Range;
+  { int64 off;
+    int64 span;
+    int   tid;
+  } Packet;
+
+static pthread_mutex_t TMUTEX;
+static pthread_cond_t  TCOND;
+
+//  Tstack[0..Tavail-1] is a stack of available threads at any moment.
+//  It is always manipulated inside the mutex TMUTEX
+
+static int *Tstack;
+static int  Tavail;
 
 static void *sort_thread(void *arg) 
-{ Range *param = (Range *) arg;
-
-  int      beg   = param->beg;
-  int      end   = param->end;
-  int64    off   = param->off;
+{ Packet *param = (Packet *) arg;
+  int64   off   = param->off;
+  int64   span  = param->span;
+  int     tid   = param->tid;
 
   int      x;
   int64    alive[256];
 
-  if (KSIZE <= 1)
-    return (NULL);
-
   for (x = 0; x < 256; x++)
     alive[x] = 0;
 
-  for (x = beg; x < end; x++)
-    { if (PARTS[x] == 0)
-        continue;
-
 #ifdef SHOW_STUFF
-      printf("Bucket %3d: %12lld - %12lld\n",x,off,off+PARTS[x]);
+  printf("Bucket %3d: %12lld - %12lld\n",beg,off,off+span);
 #endif
 
-      radix_sort(ARRAY + off, PARTS[x], 1, alive);
+  radix_sort(ARRAY + off, span, 1, alive);
 
-      off += PARTS[x];
-    }
+  pthread_mutex_lock(&TMUTEX);   //  Put this thread back on the avail stack
+    Tstack[Tavail++] = tid;
+  pthread_mutex_unlock(&TMUTEX);
+
+  pthread_cond_signal(&TCOND);   //  Signal a thread is available
 
   return (NULL);
 }
 
 void msd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
-              int64 *part, int nthreads, Range *parms)
-{
+              int64 *part, int beg, int end, int nthreads) 
+{ Packet    packet[nthreads];
+  int       tstack[nthreads];
 #ifndef SHOW_STUFF
-  pthread_t     threads[nthreads];
+  pthread_t threads[nthreads];
 #endif
 
   int   x, n;
-  int64 sum, off;
+  int64 off;
   int64 asize;
-  int64 thr;
-  int   beg;
 
   asize = nelem*rsize;
 
   ARRAY = array;
-  PARTS = part;
   RSIZE = rsize;
   KSIZE = ksize;
 
-  S_thr0 = THR0*RSIZE;
-  S_thr1 = THR1*RSIZE;
-  S_thr2 = THR2*RSIZE;
-  S_gap1 = GAP1*RSIZE;
-  S_gap2 = GAP2*RSIZE;
+  pthread_mutex_init(&TMUTEX,NULL);
+  pthread_cond_init(&TCOND,NULL);
 
-  n   = 0;
-  thr = asize / nthreads;
-  off = 0;
-  sum = 0;
-  for (x = 0; x < 256; x++)
-    if (part[x] > 0)
-      break;
-  beg = x;
-  for (; x < 256; x++)
-    { sum += part[x];
-      if (sum >= thr)
-        { parms[n].end = x+1;
-          parms[n].beg = beg;
-          parms[n].off = off;
-          n  += 1;
-          thr = (asize * (n+1))/nthreads;
-          beg = x+1;
-          off = sum;
+  if (KSIZE > 1)
+
+    { S_thr0 = THR0*RSIZE;
+      S_thr1 = THR1*RSIZE;
+      S_thr2 = THR2*RSIZE;
+      S_gap1 = GAP1*RSIZE;
+      S_gap2 = GAP2*RSIZE;
+
+      Tstack = tstack;
+      for (x = 0; x < nthreads; x++)
+        { Tstack[x] = x;
+          packet[x].tid = x;
         }
+      Tavail = nthreads;
+
+      off = 0;
+      for (x = beg; x < end; x++)
+        if (part[x] > 0)
+          { int tid;
+
+            pthread_mutex_lock(&TMUTEX);
+ 
+            if (Tavail <= 0)                       //  all threads are busy, wait
+              pthread_cond_wait(&TCOND,&TMUTEX);
+
+            tid = Tstack[--Tavail];                //  thread tid is available
+ 
+            pthread_mutex_unlock(&TMUTEX);
+
+            // Launching job on thread tid
+
+            packet[tid].off  = off;
+            packet[tid].span = part[x];
+            off += part[x];
+
+            pthread_create(threads+tid,NULL,sort_thread,packet+tid);
+          }
+
+      pthread_mutex_lock(&TMUTEX);   //  Wait for all the jobs to complete
+      while (Tavail < nthreads)
+        pthread_cond_wait(&TCOND,&TMUTEX);
+      pthread_mutex_unlock(&TMUTEX);
     }
-  while (n < nthreads)
-    { parms[n].end = 256;
-      parms[n].beg = 256;
-      parms[n].off = off;
-      n += 1;
-    }
-
-#ifdef SHOW_STUFF
-  for (x = 0; x < nthreads; x++)
-    sort_thread(parms+x);
-#else
-  for (x = 1; x < nthreads; x++)
-    pthread_create(threads+x,NULL,sort_thread,parms+x);
-
-  sort_thread(parms);
-
-  for (x = 1; x < nthreads; x++)
-    pthread_join(threads[x],NULL);
-#endif
 
 #ifdef DEBUG_SORT
   sum = 0;
-  for (x = 0; x < 256; x++)
+  for (x = beg; x < end; x++)
     { print_table(array+sum,part[x]);
       sum += part[x];
     }
@@ -474,7 +476,7 @@ void msd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
 
 #ifdef IS_SORTED
   sum = 0;
-  for (x = 0; x < 256; x++)
+  for (x = beg; x < end; x++)
     { sorted(array+sum,part[x],0);
       sum += part[x];
     }
@@ -482,16 +484,19 @@ void msd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
 
 #ifdef LCPs
   array[0] = 0;
-  n = 0;
+  n = beg;
 #else
   array[0] = 1;
 #endif
-  off = part[0]; 
-  for (x = 1; x < 256; x++)
+  off = part[beg]; 
+  for (x = beg+1; x < end; x++)
     { if (part[x] == 0)
         continue;
 #ifdef LCPs
-      array[off] = LCP_Table[x^n];
+      if ((x&0x300) == (n&0x300))
+        array[off] = 1 + LCP_Table[x^n];
+      else
+        array[off] = 0;
       n = x;
 #else
       array[off] = 1;

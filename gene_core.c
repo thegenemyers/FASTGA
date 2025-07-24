@@ -35,6 +35,7 @@ void *Malloc(int64 size, char *mesg)
         EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
       EXIT(NULL);
     }
+  // printf("Alloc %10lld / %12lld: %s\n",size,(int64) p,mesg);
   return (p);
 }
 
@@ -48,6 +49,7 @@ void *Realloc(void *p, int64 size, char *mesg)
         EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
       EXIT(NULL);
     }
+  // printf("Alloc %10lld / %12lld: %s\n",size,(int64) p,mesg);
   return (p);
 }
 
@@ -426,7 +428,7 @@ void StartTime()
   Mwall = Iwall;
 }
 
-void TimeTo(FILE *f, int all)
+void TimeTo(FILE *f, int all, int reset)
 { struct rusage    now;
   struct timespec  today;
   struct rusage   *t;
@@ -442,14 +444,13 @@ void TimeTo(FILE *f, int all)
   if (all)
     { t = &Itime;
       w = &Iwall;
-      fprintf (f,"\nTotal Resources:");
+      fprintf (f,"\n  Total Resources:");
     }
   else
     { t = &Mtime;
       w = &Mwall;
       fprintf (f,"\n  Resources for phase:");
     }
-
 
   usecs = now.ru_utime.tv_sec  - t->ru_utime.tv_sec;
   umics = now.ru_utime.tv_usec - t->ru_utime.tv_usec;
@@ -495,6 +496,8 @@ void TimeTo(FILE *f, int all)
 
   fprintf(f,"\n");
 
-  Mtime = now;
-  Mwall = today;
+  if (reset)
+    { Mtime = now;
+      Mwall = today;
+    }
 }

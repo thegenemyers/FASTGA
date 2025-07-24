@@ -2,7 +2,7 @@
   
 <font size ="4">**_Author:  Gene Myers_**<br>
 **_First:   May 10, 2023_**<br>
-**_Last:  Feb. 1, 2024_**<br>
+**_Last:  July 23, 2025_**<br>
 
 - [FastGA](#FastGA) Compare two genomes or a genome against itself and output a .1aln, .paf, or .psl file of all alignments found.
 
@@ -28,6 +28,27 @@
   - [ALNreset](#ALNreset): Reset a .1aln file's internal references to the GDB(s) it was computed from
   - [PAFtoALN](#PAFtoALN): Convert a PAF formatted file with X-CIGAR strings to a .1aln file
   - [PAFtoPSL](#PAFtoPSL): Convert a PAF formatted file with X-CIGAR strings to a .psl file
+
+## <font color="red">Version 1.1 (July 23, 2025) Notes</font>
+
+<font color="red">
+Soft masking is now supported and taken advantage of by the FastGA suite.  Soft masking is assumed
+to be specifid in the input FastA files by denoting masked sequence in lower-case and unmasked sequence in upper-case.  Such masks are recorded in our GDB's and in a suitable form within our
+GIX indices.  The later required a slight modification to the GIX data structure.  Old GIX's are
+still recognized and supported, but if you want masking you must rebuild any GDB's and GIX's that
+were produced previously.
+
+Additionally,
+
+* GIXmake has been substantially improved to use much less memory and make better use of threads.
+
+* The IO performance of ALNtoPAF and ALNtoPSL has also been substantially improved.
+
+* A -L log file option has been added to support HPC cluster usage.
+
+We are seeking similar improvements in FastGA proper, better handling of satellitic repeats, and
+higher sensitivity for distant genomes without resorting to using LastZ as a subroutine.
+</font>
 
 ## Overview
 
@@ -92,16 +113,18 @@ of the default PAF output.
 All you do is append -psl to what you've already typed and then hit return.  So for example,
 ```FastGA -v Asm1 -T16 Asm2 -psl``` is an acceptable command line.  Finally, if a -v option
 is specified for a command then it always means "verbose mode", i.e. output to the standard
-error a running discourse of the command's progress.
+error a running discourse of the command's progress, and if a -L option is available and
+specified with a file name, then a log file of the command's performance is appended to said
+file.
 
 <a name="FastGA"></a>
 
 ## FastGA Reference
 
 ```
-FastGA [-vkS] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]
-              [-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]
-              <source1:path>[<precursor>] [<source2:path>[<precursor>]]
+FastGA [-vkMS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]
+               [-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]
+               <source1:path>[<precursor>] [<source2:path>[<precursor>]]
 
          <format> = -paf[mxsS]* | -psl | -1:<align:path>[.1aln]
 
@@ -127,6 +150,13 @@ See the argument description for [ALNtoPAF](#ALNtoPAF) below for more details.
 You can also call FastGA on a single source, e.g. ```FastGA A```, in which case FastGA compares A against
 itself, carefully avoiding self matches.  This is useful for detecting repetititve regions of a
 genome (and their degree of repetitiveness), and for finding homologous regions between haplotypes in an unphased genome assembly, or one that is phased but not split into separate haplotype files.
+
+FastGA will use soft-mask information recorded in the inputs.  In a source FastA file, unmasked
+sequence should be in upper-case and an masked intervals in lower-case.  If FastGA detects this
+convention then the underlying machinery records the masks and uses them in determining which seeds
+to use in it's alignment search, i.e. any adaptive seed that is masked is not used.  By default,
+FastGA does not employ soft-masking, to do so you must specify the -M option (and of course, the
+inputs have masks).
 
 FastGA uses the adaptamer seed idea of Martin Frith which means that ```FastGA A B``` does not find
 the same set of alignments as ```FastGA B A``` as the adaptamers of A and B are not the same.
@@ -181,7 +211,7 @@ thresholds for chaining and alignment just described.
 <a name="FAtoGDB"></a>
 
 ```
-1. FAtoGDB [-v] [-n<int>] <source:path>(.1seq|[<fa_extn>|<1_extn>]) [<target:path>[.1gdb]]
+1. FAtoGDB [-v] [-L:<log:path>] [-n<int>] <source:path>(.1seq|[<fa_extn>|<1_extn>]) [<target:path>[.1gdb]]
 
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
        <1_extn>  = any valid 1-code sequence file type
@@ -212,7 +242,7 @@ For assemblies in FASTA files that contain n's as an undetermined base
 <a name="GIXmake"></a>
 
 ```
-2. GIXmake [-v] [-T<int(8)>] [-P<dir($TMPDIR>] [-k<int(40)>] [-f<int(10)>]
+2. GIXmake [-v] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR>] [-k<int(40)>] [-f<int(10)>]
             ( <source:path>[.1gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )
             
        <fa_extn> = (.fa|.fna|.fasta)[.gz]

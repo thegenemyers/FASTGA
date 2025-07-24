@@ -577,7 +577,6 @@ fflush(stdout);
               Print_Reference(stdout,aln,work,INDENT,WIDTH,BORDER,UPPERCASE,mx_wide,reverse);
             if (ALIGN)
               Print_Alignment(stdout,aln,work,INDENT,WIDTH,BORDER,UPPERCASE,mx_wide,reverse);
-fflush(stdout);
           }
         else
           { printf("  ~  %5.2f%% ",(200.*ovl->path.diffs) /

@@ -7,7 +7,7 @@
  *
  *  Author  :  Gene Myers
  *  Date    :  February 2023
- *  Last Mod: March 2023 - RD replace .las with .1aln
+ *  Last Mod: July 2025 - EWM developes new masked GIX merges
  *
  *******************************************************************************************/
 
@@ -59,13 +59,17 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    PAFS         0x4
 #define    PAFL         0x8
 
-static char *Usage[] = { "[-vkS] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]",
+static char *Usage[] = { "[-vkMS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]",
                          "[-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]",
                          "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
                        };
 
-static int    FREQ;        //  -f: Adaptemer frequence cutoff parameter
+static int    NEW_GIX;     //  Is this a rev 2.0 style GIX?
+
+static int    FREQ;        //  -f: Adaptamer frequency cutoff parameter
 static int    VERBOSE;     //  -v: Verbose output
+static char  *LOG_PATH;    //  -L: Log file path name
+static FILE  *LOG_FILE;    //      Log file handle
 static int    CHAIN_BREAK; //  -s
 static int    CHAIN_MIN;   //  -c
 static int    ALIGN_MIN;   //  -a
@@ -74,6 +78,7 @@ static int    NTHREADS;    //  -T
 static char  *SORT_PATH;   //  -P
 static int    KEEP;        //  -k
 static int    SYMMETRIC;   //  -S
+static int    SOFT_MASK;   //  -M
 static int    SELF;        //  Comparing A to A, or A to B?
 static int    OUT_TYPE;    //  -paf = 0; -psl = 1; -one = 2
 static int    OUT_OPT;     //  -paf = 0, -m = PAFM; -x = PAFX; -s = PAFS; -S = PAFL
@@ -103,9 +108,10 @@ static int JPOST;         // # of bytes in post of a P2 entry
 static int JCONT;         // # of bytes in contig of a P2 entry
 static int JSIGN;         // byte index in a P2 entry of the sign flag
 
-static int KBYTE;         // # of bytes for a k-mer table entry (both T1 & T2)
-static int CBYTE;         // byte of k-mer table entry containing post count
+static int KBYTE;         // # of bytes for a k-mer table entry (both T1 & T2, old version only)
+static int CBYTE;         // byte of k-mer table entry containing post count / mask len (new verse)
 static int LBYTE;         // byte of k-mer table entry containing lcp
+static int PAYOFF;        // offset to contig/post payload in new gix tables.
 
 static int64 AMXPOS;     //  longest contig in gdb1
 static int64 BMXPOS;     //  longest contig in gdb1
@@ -266,7 +272,7 @@ static void More_Post_List(Post_List *P)
 static Post_List *Open_Post_List(char *name)
 { Post_List *P;
   int        pbyte, cbyte, nctg;
-  int64      nels, maxp, n;
+  int64      nels, maxp, n, I1;
   int        copn;
 
   int    f, p;
@@ -277,15 +283,12 @@ static Post_List *Open_Post_List(char *name)
   root = Root(name,".gix");
   full = Malloc(strlen(dir)+strlen(root)+20,"Post list name allocation");
   if (full == NULL)
-    { Clean_Exit(1);
-      exit (1);
-    }
+    Clean_Exit(1);
   sprintf(full,"%s/%s.gix",dir,root);
   f = open(full,O_RDONLY);
   if (f < 0)
     { fprintf(stderr,"%s: Cannot open post stub file %s/%s.post\n",Prog_Name,dir,root);
       Clean_Exit(1);
-      exit (1);
     }
   sprintf(full,"%s/.%s.post.",dir,root);
 
@@ -307,17 +310,37 @@ static Post_List *Open_Post_List(char *name)
   P->name   = full;
   P->nlen   = strlen(full);
   P->maxp   = maxp;
+  P->pbyte  = pbyte;
+  P->cbyte  = cbyte;
+  P->nthr   = nfile;
+  P->freq   = freq;
+  P->nctg   = nctg;
+  P->perm   = Malloc(nctg*sizeof(int),"Allocating sort permutation");
+  if (P->perm == NULL)
+    Clean_Exit(1);
+
+  if (read(f,P->perm,sizeof(int)*nctg) < 0) goto open_io_error;
+  if (read(f,&I1,sizeof(int64)) < 0) goto open_io_error;
+
+  if (I1 < 0)
+    { P->nels   = 0;
+      P->cache  = NULL;
+      P->neps   = NULL;
+      P->index  = NULL;
+      P->copn   = -1;
+      return (P);
+    }
+
   P->cache  = Malloc(POST_BLOCK*pbyte,"Allocating post list buffer\n");
   P->neps   = Malloc(nfile*sizeof(int64),"Allocating parts table of Post_List");
-  P->perm   = Malloc(nctg*sizeof(int),"Allocating sort permutation");
   P->index  = Malloc(0x10000*sizeof(int64),"Allocating index array");
-  if (P->cache == NULL || P->neps == NULL || P->perm == NULL || P->index == NULL)
+  if (P->cache == NULL || P->neps == NULL || P->index == NULL)
     { Clean_Exit(1);
       exit (1);
     }
 
-  if (read(f,P->perm,sizeof(int)*nctg) < 0) goto open_io_error;
-  if (read(f,P->index,sizeof(int64)*0x10000) < 0) goto open_io_error;
+  if (read(f,P->index+1,sizeof(int64)*0xffff) < 0) goto open_io_error;
+  P->index[0] = I1;
   
   close(f);
   free(root);
@@ -346,13 +369,7 @@ static Post_List *Open_Post_List(char *name)
         }
       close(copn);
     }
-
-  P->pbyte = pbyte;
-  P->cbyte = cbyte;
   P->nels  = nels;
-  P->nthr  = nfile;
-  P->freq  = freq;
-  P->nctg  = nctg;
   P->clone = 0;
 
   sprintf(P->name+P->nlen,"%d",1);
@@ -589,7 +606,424 @@ typedef struct
     int64        tseed;
   } SP;
 
-static void *merge_thread(void *args)
+static void *new_merge_thread(void *args)
+{ SP *parm = (SP *) args;
+  int tid          = parm->tid;
+  int flip         = parm->flip;
+  uint8 *cache     = parm->cache;
+  IOBuffer  *nunit = parm->nunit;
+  IOBuffer  *cunit = parm->cunit;
+  Kmer_Stream *T1  = parm->T1;
+  Kmer_Stream *T2  = parm->T2;
+
+  int64   tbeg, tend;
+
+  int     cpre;
+  uint8  *ctop, *suf1;
+  int     kbyte, kfreq;
+
+  int     eorun, plen, mlen;
+  uint8  *rcur, *rend;
+  uint8  *vlcp[KMER+1];
+  uint8  *low, *hgh, *top;
+
+  int64  acont;
+  uint8 *aptr  = (uint8 *) (&acont);
+
+  int     qcnt, pcnt;
+  int64   nhits, tseed;
+
+#ifdef DEBUG_MERGE
+  int64   Tdp;
+  int     fst_in;
+  char   *tbuffer;
+#endif
+
+  { int j;
+
+    for (j = 0; j < NPARTS; j++)
+      { nunit[j].bend = nunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
+        nunit[j].btop = nunit[j].bufr;
+        cunit[j].bend = cunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
+        cunit[j].btop = cunit[j].bufr;
+      }
+  }
+
+  cpre  = -1;
+  ctop  = cache;
+#ifdef DEBUG_MERGE
+  tbuffer = Current_Kmer(T1,NULL);
+#endif
+
+  nhits  = 0;
+  tseed  = 0;
+  kbyte  = T2->pbyte;
+  kfreq  = FREQ * kbyte;
+
+  acont = 0;
+  First_Kmer_Entry(T1);
+  First_Kmer_Entry(T2);
+
+  if (tid != 0)
+    { GoTo_Kmer_Index(T1,T1->index[(parm->pbeg << 8) | 0xff]);
+      GoTo_Kmer_Index(T2,T2->index[(parm->pbeg << 8) | 0xff]);
+    }
+  tend = T1->index[(parm->pend << 8) | 0xff];
+
+  mlen = 0;
+  plen = 12;                         //  Keep the dumb compiler happy
+  vlcp[plen] = rcur = rend = cache;
+  eorun = 0;
+
+  qcnt = -1;
+  for (tbeg = T1->cidx; T1->cidx < tend; Next_Kmer_Entry(T1))
+    { suf1 = T1->csuf;
+#ifdef DEBUG_MERGE
+      printf("Doing %s (%lld)\n",Current_Kmer(T1,tbuffer),T1->cidx); fflush(stdout);
+#endif
+
+      if (T1->cpre != cpre)  //  New prefix panel
+        { uint8 *cp;
+
+          if (VERBOSE && tid == 0)
+            { if (tbeg == tend)
+                pcnt = 100;
+              else
+                pcnt = ((T1->cidx - tbeg) * 100) / (tend-tbeg); 
+              if (pcnt > qcnt)
+                { fprintf(stderr,"\r    Completed %3d%%",pcnt);
+                  fflush(stderr);
+                }
+              qcnt = pcnt;
+            }
+
+          //  skip remainder of cache and T2 entries < T1->cpre
+
+          cpre = T1->cpre;
+          while (T2->cpre < cpre)
+            Next_Kmer_Entry(T2);
+
+#ifdef DEBUG_MERGE
+          Tdp = T2->cidx;
+          printf("Loading %lld %06x ...",Tdp,cpre); fflush(stdout);
+#endif
+
+          //  load cache with T2 entries = T1->cpre
+
+          for (cp = cache; T2->cpre == cpre; cp += kbyte)
+            { memcpy(cp,T2->csuf,kbyte);
+              Next_Kmer_Entry(T2);
+            }
+          ctop = cp;
+          ctop[LBYTE] = 11;
+
+          //  if cache is empty then skip to next T1 entry with a greater prefix than cpre
+
+          if (ctop == cache)
+            { while (T1->cpre == cpre)
+                Next_Kmer_Entry(T1);
+#ifdef DEBUG_MERGE
+              printf(" ... Empty => to %06x in T1\n",T1->cpre);
+#endif
+              GoTo_Kmer_Index(T1,T1->cidx-1);
+              continue;
+            }
+
+          //  start adpatermer merge for prefix cpre
+
+          plen = 12;
+          vlcp[plen] = rcur = rend = cache;
+          eorun = 0;
+
+#ifdef DEBUG_MERGE
+          printf("... to %lld rcur = rend = %lld, eorun = 0, plen = 12\n",
+                 T2->cidx,Tdp+(rcur-cache)/kbyte);
+          fflush(stdout);
+#endif
+        }
+
+      // eorun = 0: rcur <= rend, n[1..plen] = rcur..rend, n[plen+1] < rend[plen+1]
+      // eorun = 1: rcur <  rend, n[1..plen] = rcur..rend-1, lcp(rend) < plen 
+
+      else
+        { int nlcp;
+
+          nlcp = suf1[LBYTE];
+          if (nlcp > plen)
+            goto pairs;
+          else if (nlcp == plen)
+            { if (eorun)
+                goto pairs;
+            }
+          else
+            { if ( ! eorun)
+                rend += kbyte;
+              while (rend[LBYTE] > nlcp)
+                rend += kbyte;
+              plen = rend[LBYTE];
+              if (plen < nlcp)
+                { eorun = 1;
+                  plen  = nlcp;
+                  goto range;
+                }
+              eorun = 0;
+              rcur  = rend;
+            }
+        }
+
+      while (plen < KMER)
+        { int h, m, c, d;
+
+          h = cbyte[plen];
+          m = mbyte[plen];
+          c = suf1[h] & m;
+          for (d = rend[h]&m; d < c; d = rend[h]&m)
+            { rend += kbyte;
+              if (rend[LBYTE] < plen)
+                { eorun = 1;
+                  goto range;
+                }
+            }
+          if (d > c)
+            goto range;
+          plen += 1;
+          vlcp[plen] = rcur = rend;
+        }
+      do rend += kbyte; while (rend[LBYTE] >= KMER);
+      eorun = 1;
+
+    range:                                     //  Find full T2 range
+      low = vlcp[plen];
+      hgh = rend;
+      top = low+kfreq;
+      if (!eorun)
+        { do
+            { hgh += kbyte;
+              if (hgh > top)
+                break;
+            }
+          while (hgh[LBYTE] >= plen);
+        }
+
+#ifdef DEBUG_MERGE
+      fst_in = 1;
+      printf("-> %d[%lld,%lld]",plen,Tdp+(vlcp[plen]-cache)/kbyte,Tdp+(rend-cache)/kbyte);
+      printf(" %d [%lld,%lld]\n",eorun,Tdp+(low-cache)/kbyte,Tdp+(hgh-cache)/kbyte);
+      fflush(stdout);
+#endif
+
+    pairs:                                        //  Push pairs
+      if (hgh >= top)
+        {
+#ifdef DEBUG_MERGE
+          printf("      %lld: Freq %ld\n",T1->cidx,(hgh-low)/kbyte);
+#endif
+          continue;
+        }
+      if (SOFT_MASK)
+        mlen = plen;
+      if (suf1[CBYTE] >= mlen)
+        {
+#ifdef DEBUG_MERGE
+          printf("      %lld: Masked %d\n",T1->cidx,suf1[CBYTE]);
+#endif
+          continue;
+        }
+      if (flip)
+        { int       adest, bsign;
+          IOBuffer *ou;
+          uint8    *p, *pay1, *btop;
+
+          pay1 = suf1+PAYOFF;
+          bsign = (pay1[JSIGN] & 0x80);
+          for (p = low+PAYOFF; p < hgh; p += kbyte)
+            {
+#ifdef DEBUG_MERGE
+              if (fst_in)
+                { int64 ip;
+                  int   ss;
+ 
+                  ss = (p[ISIGN] & 0x80);
+                  p[ISIGN] &= 0x7f;
+                  printf("      %ld: %c",(p-low)/kbyte,ss?'-':'+');
+                  ip = 0;
+                  memcpy((uint8 *) (&ip),p+IPOST,ICONT);
+                  printf(" %4d",Perm1[ip]);
+                  ip = 0;
+                  memcpy((uint8 *) (&ip),p,IPOST);
+                  printf(" %9lld [%d]\n",ip,p[-2]);
+                  fflush(stdout);
+                  if (ss)
+                    p[ISIGN] |= 0x80;
+                }
+#endif
+              if (p[ISIGN] & 0x80 || p[-2] >= mlen)
+                continue;
+              memcpy(aptr,p+IPOST,ICONT);
+              adest = Select[acont];
+              if (bsign)
+                ou = cunit + adest;
+              else
+                ou = nunit + adest;
+              btop = ou->btop;
+              *btop++ = plen;
+              memcpy(btop,p,IBYTE);
+              btop += IBYTE;
+              memcpy(btop,pay1,JBYTE);
+              btop += JBYTE;
+ 
+              nhits += 1;
+              tseed += plen;
+
+              ou->buck[acont] += 1;
+
+              if (btop >= ou->bend)
+                { if (write(ou->file,ou->bufr,btop-ou->bufr) < 0)
+                    { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
+                                     Prog_Name,SORT_PATH,PAIR_NAME,ou->inum,
+                                     bsign ? 'C' : 'N');
+                      Clean_Exit(1);
+                    }
+                  ou->btop = ou->bufr;
+                }
+              else
+                ou->btop = btop;
+            }
+#ifdef DEBUG_MERGE
+          { int64 ip;
+ 
+            if (fst_in)
+              printf("   vs\n");
+            pay1[JSIGN] &= 0x7f;
+            printf("      %lld: %c",T1->cidx,bsign?'-':'+');
+            ip = 0;
+            memcpy((uint8 *) (&ip),pay1+JPOST,JCONT);
+            printf(" %4d",Perm2[ip]);
+            ip = 0;
+            memcpy((uint8 *) (&ip),pay1,JPOST);
+            printf(" %9lld [%d]\n",ip,suf1[CBYTE]);
+            fflush(stdout);
+            if (bsign)
+              pay1[JSIGN] |= 0x80;
+            fst_in = 0;
+          }
+#endif
+        }
+
+      else
+
+        { int       asign, adest, bsign;
+          IOBuffer *ou;
+          uint8    *p, *pay1, *btop;
+    
+          pay1  = suf1+PAYOFF;
+          asign = (pay1[ISIGN] & 0x80);
+          if (asign)
+            {
+#ifdef DEBUG_MERGE
+              printf("      %lld: -\n",T1->cidx);
+#endif
+              continue;
+            }
+          memcpy(aptr,pay1+IPOST,ICONT);
+  
+          adest = Select[acont];
+  
+          for (p = low+PAYOFF; p < hgh; p += kbyte)
+            {
+#ifdef DEBUG_MERGE
+              if (fst_in)
+                { int64 ip;
+                  int   ss;
+  
+                  ss = (p[JSIGN] & 0x80);
+                  p[JSIGN] &= 0x7f;
+                  printf("      %ld: %c",(p-low)/kbyte,ss?'-':'+');
+                  ip = 0;
+                  memcpy((uint8 *) (&ip),p+JPOST,JCONT);
+                  printf(" %4d",Perm2[ip]);
+                  ip = 0;
+                  memcpy((uint8 *) (&ip),p,JPOST);
+                  printf(" %9lld [%d]\n",ip,p[-2]);
+                  fflush(stdout);
+                  if (ss)
+                    p[JSIGN] |= 0x80;
+                }
+#endif
+              if (p[-2] >= mlen)
+                continue;
+              bsign = (p[JSIGN] & 0x80);
+              if (bsign)
+                ou = cunit + adest;
+              else
+                ou = nunit + adest;
+              btop = ou->btop;
+              *btop++ = plen;
+              memcpy(btop,pay1,IBYTE);
+              btop += IBYTE;
+              memcpy(btop,p,JBYTE);
+              btop += JBYTE;
+
+              nhits += 1;
+              tseed += plen;
+  
+              ou->buck[acont] += 1;
+  
+              if (btop >= ou->bend)
+                { if (write(ou->file,ou->bufr,btop-ou->bufr) < 0)
+                    { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
+                                     Prog_Name,SORT_PATH,PAIR_NAME,ou->inum,
+                                     bsign ? 'C' : 'N');
+                      Clean_Exit(1);
+                    }
+                  ou->btop = ou->bufr;
+                }
+              else
+                ou->btop = btop;
+            }
+#ifdef DEBUG_MERGE
+          { int64 ip;
+  
+            if (fst_in)
+              printf("   vs\n");
+            printf("      %lld: +",T1->cidx);
+            ip = 0;
+            memcpy((uint8 *) (&ip),pay1+IPOST,ICONT);
+            printf(" %4d",Perm1[ip]);
+            ip = 0;
+            memcpy((uint8 *) (&ip),pay1,IPOST);
+            printf(" %9lld [%d]\n",ip,suf1[CBYTE]);
+            fflush(stdout);
+            fst_in = 0;
+          }
+#endif
+        }
+    }
+
+  { int j;
+
+    for (j = 0; j < NPARTS; j++)
+      { if (nunit[j].btop > nunit[j].bufr)
+          if (write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr) < 0)
+            { fprintf(stderr,"%s: IO write to file %s/%s.%d.N failed\n",
+                             Prog_Name,SORT_PATH,PAIR_NAME,nunit[j].inum);
+              Clean_Exit(1);
+            }
+        if (cunit[j].btop > cunit[j].bufr)
+          if (write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr) < 0)
+            { fprintf(stderr,"%s: IO write to file %s/%s.%d.C failed\n",
+                             Prog_Name,SORT_PATH,PAIR_NAME,cunit[j].inum);
+              Clean_Exit(1);
+            }
+      }
+  }
+
+  parm->nhits = nhits;
+  parm->tseed = tseed;
+  return (NULL);
+}
+
+static void *old_merge_thread(void *args)
 { SP *parm = (SP *) args;
   int tid          = parm->tid;
   int flip         = parm->flip;
@@ -827,6 +1261,9 @@ static void *merge_thread(void *args)
         IOBuffer *ou;
         uint8    *l, *vcp, *jptr, *btop;
         int       m, n, k, b;
+#ifdef DEBUG_MERGE
+        int       fst_in;
+#endif
         
         freq = 0;
         vcp = vlcp[plen];
@@ -895,6 +1332,9 @@ static void *merge_thread(void *args)
               post[POST_BUF_LEN+m] = post[m];
           }
 
+#ifdef DEBUG_MERGE
+        fst_in = 1;
+#endif
         if (flip)
 
           for (n = suf1[CBYTE]; n > 0; n--)
@@ -904,7 +1344,7 @@ static void *merge_thread(void *args)
               for (k = 0; k < freq; k++)
                 {
 #ifdef DEBUG_MERGE
-                  if (n == suf1[CBYTE])
+                  if (fst_in)
                     { int64 ip;
                       int   ss;
   
@@ -962,8 +1402,10 @@ static void *merge_thread(void *args)
 #ifdef DEBUG_MERGE
               { int64 ip;
   
-                if (n == suf1[CBYTE])
-                  printf("   vs\n");
+                if (fst_in)
+                  { printf("   vs\n");
+                    fst_in = 1;
+                  }
                 aptr[JSIGN] &= 0x7f;
                 printf("      %lld: %c",P1->cidx,bsign?'-':'+');
                 ip = 0;
@@ -991,6 +1433,7 @@ static void *merge_thread(void *args)
                   continue;
                 }
               nhits += freq;
+// printf(" %lld\n",nhits);
               tseed += freq * plen;
               acont = (apost >> ESHIFT);
               adest = Select[acont];
@@ -1010,7 +1453,7 @@ static void *merge_thread(void *args)
                   ou->buck[acont] += 1;
   
 #ifdef DEBUG_MERGE
-                  if (n == suf1[CBYTE])
+                  if (fst_in)
                     { int64 ip;
                       int   ss;
   
@@ -1046,8 +1489,10 @@ static void *merge_thread(void *args)
 #ifdef DEBUG_MERGE
               { int64 ip;
   
-                if (n == suf1[CBYTE])
-                  printf("   vs\n");
+                if (fst_in)
+                  { printf("   vs\n");
+                    fst_in = 0;
+                  }
                 printf("      %lld: +",P1->cidx);
                 ip = 0;
                 memcpy((uint8 *) (&ip),aptr+IPOST,ICONT);
@@ -1094,6 +1539,7 @@ static void *merge_thread(void *args)
 }
 
 #ifdef DEBUG_MERGE
+#endif
 
 static char dna[4] = { 'a', 'c', 'g', 't' };
 
@@ -1164,10 +1610,303 @@ char *Current_Cachmer(Kmer_Stream *S, uint8 *csuf, char *seq)
   return (seq);
 }
 
+
+static void *new_self_merge_thread(void *args)
+{ SP *parm = (SP *) args;
+  int tid          = parm->tid;
+  uint8 *cache     = parm->cache;
+  IOBuffer  *nunit = parm->nunit;
+  IOBuffer  *cunit = parm->cunit;
+  Kmer_Stream *T1  = parm->T1;
+
+  int64   tbeg, tend;
+
+  int     cpre;
+  uint8  *ctop, *suf1;
+  int     kbyte, kfreq;
+
+  int     eorun, plen, mlen;
+  uint8  *rcur, *rend;
+  uint8  *vlcp[KMER+1];
+  uint8 *low, *hgh, *top;
+
+  int64  icont;
+  uint8 *iptr = (uint8 *) (&icont);
+
+  int     qcnt, pcnt;
+  int64   nhits, tseed;
+
+#ifdef DEBUG_MERGE
+  int64   Tdp;
+  char   *tbuffer;
+  int     fst_in;
 #endif
 
+  { int j;
 
-static void *self_merge_thread(void *args)
+    for (j = 0; j < NPARTS; j++)
+      { nunit[j].bend = nunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
+        nunit[j].btop = nunit[j].bufr;
+        cunit[j].bend = cunit[j].bufr + (1000000-(IBYTE+JBYTE+1));
+        cunit[j].btop = cunit[j].bufr;
+      }
+  }
+
+  ctop  = cache;
+#ifdef DEBUG_MERGE
+  tbuffer = Current_Kmer(T1,NULL);
+#endif
+
+  nhits = 0;
+  tseed = 0;
+  kbyte = T1->pbyte;
+  kfreq = FREQ * kbyte;
+
+  icont = 0;
+  First_Kmer_Entry(T1);
+
+  if (tid != 0)
+    GoTo_Kmer_Index(T1,T1->index[(parm->pbeg<<8) | 0xff]);
+  tend = T1->index[(parm->pend<<8) | 0xff];
+  tbeg = T1->cidx;
+
+  mlen = 0;
+  plen = 12;
+  vlcp[12] = rcur = rend = cache;
+  eorun = 0;
+
+  qcnt = -1;
+  for (suf1 = ctop; 1; suf1 += kbyte)
+    { if (suf1 >= ctop)
+        { uint8 *cp;
+          int    i;
+
+          if (VERBOSE && tid == 0)
+            { if (tbeg == tend)
+                pcnt = 100;
+              else
+                pcnt = ((T1->cidx - tbeg) * 100) / (tend-tbeg); 
+              if (pcnt > qcnt)
+                { fprintf(stderr,"\r    Completed %3d%%",pcnt);
+                  fflush(stderr);
+                }
+              qcnt = pcnt;
+            }
+
+          if (T1->cidx >= tend)
+            break;
+
+#ifdef DEBUG_MERGE
+          Tdp = T1->cidx;
+          printf("Loading %lld %06x ...",Tdp,cpre); fflush(stdout);
+#endif
+
+          //  load cahce with all T1 entries with T1->cpre
+
+          cpre = T1->cpre;
+          for (cp = cache; T1->cpre == cpre; cp += kbyte)
+            { memcpy(cp,T1->csuf,kbyte);
+              Next_Kmer_Entry(T1);
+            }
+          ctop = cp;
+          ctop[LBYTE] = 11;
+
+          //  start adpatermer merge for prefix cpre
+
+          plen = 12;
+          vlcp[plen] = rcur = rend = suf1 = cache;
+
+          rend += kbyte;
+          plen = rend[LBYTE];
+          for (i = rcur[LBYTE]; i <= plen; i++)
+            vlcp[i] = rcur;
+          eorun = (plen <= 11);
+
+#ifdef DEBUG_MERGE
+          printf("... to %lld\n",T1->cidx);
+          fflush(stdout);
+          printf("Doing %s (%lld)\n",Current_Cachmer(T1,suf1,tbuffer),(suf1-cache)/KBYTE+Tdp);
+          fflush(stdout);
+#endif
+        }
+
+      // suf1 = rend-1
+      // eorun = 0: rcur <= rend, suf1[1..plen] = rcur..rend, suf1[plen+1] < rend[plen+1]
+      // eorun = 1: rcur <  rend, suf1[1..plen] = rcur..rend-1, lcp(rend) < plen 
+
+      else
+        { int i;
+
+#ifdef DEBUG_MERGE
+          printf("Doing %s (%lld)\n",Current_Cachmer(T1,suf1,tbuffer),(suf1-cache)/KBYTE+Tdp);
+          fflush(stdout);
+#endif
+
+          if (eorun)
+            plen = suf1[LBYTE];
+          rend += kbyte;
+          if (rend[LBYTE] < plen)
+            eorun = 1;
+          else if (rend[LBYTE] == plen)
+            eorun = 0;
+          else
+            { rcur = rend-KBYTE;
+              for (i = plen+1; i <= rend[LBYTE]; i++)
+                vlcp[i] = rcur;
+              eorun = 0;
+              plen = rend[LBYTE];
+            }
+        }
+
+      //  Get pairs;
+
+      low = vlcp[plen];
+      hgh = rend;
+      top = low+kfreq;
+      if (!eorun)
+        { do
+            { hgh += kbyte;
+              if (hgh > top)
+                break;
+            }
+          while (hgh[LBYTE] >= plen);
+        }
+
+#ifdef DEBUG_MERGE
+      fst_in = 1;
+      printf("-> %d[%lld,%lld]",plen,Tdp+(vlcp[plen]-cache)/kbyte,Tdp+(rend-cache)/kbyte);
+      printf(" %d [%lld,%lld]\n",eorun,Tdp+(low-cache)/kbyte,Tdp+(hgh-cache)/kbyte);
+      fflush(stdout);
+#endif
+
+      if (hgh >= top)
+        {
+#ifdef DEBUG_MERGE
+          printf("      %lld: Freq %ld\n",T1->cidx,(hgh-low)/kbyte);
+#endif
+          continue;
+        }
+      if (SOFT_MASK)
+        mlen = plen;
+      if (suf1[CBYTE] >= mlen)
+        {
+#ifdef DEBUG_MERGE
+          printf("      %lld: Masked %d\n",T1->cidx,suf1[CBYTE]);
+#endif
+          continue;
+        }
+
+      { int       idest, isign, jsign;
+        IOBuffer *ou;
+        uint8    *p, *pay1, *btop;
+
+        pay1 = suf1+PAYOFF;
+        isign = (pay1[ISIGN] & 0x80);
+        if (isign)
+          pay1[ISIGN] &= 0x7f;
+        memcpy(iptr,pay1+IPOST,ICONT);
+        idest = Select[icont];
+
+        for (p = low+PAYOFF; p < hgh; p += kbyte)
+          { if (p == pay1)
+              continue;
+#ifdef DEBUG_MERGE
+            if (fst_in)
+              { int64 ip;
+                int   ss;
+  
+                ss = (p[JSIGN] & 0x80);
+                p[JSIGN] &= 0x7f;
+                printf("      %ld: %c",(p-cache)/kbyte,ss?'-':'+');
+                ip = 0;
+                memcpy((uint8 *) (&ip),p+JPOST,JCONT);
+                printf(" %4d",Perm2[ip]);
+                ip = 0;
+                memcpy((uint8 *) (&ip),p,JPOST);
+                printf(" %9lld [%d]\n",ip,p[-2]);
+                fflush(stdout);
+                if (ss)
+                  p[JSIGN] |= 0x80;
+              }
+#endif
+            if (p[-2] >= mlen)
+              continue;
+            jsign = (p[ISIGN] & 0x80);
+            if (isign == jsign)
+              ou = nunit + idest;
+            else
+              ou = cunit + idest;
+            btop = ou->btop;
+            *btop++ = plen;
+            memcpy(btop,pay1,IBYTE);
+            btop += IBYTE;
+            memcpy(btop,p,JBYTE);
+            btop += JBYTE;
+
+            nhits += 1;
+            tseed += plen;
+  
+            ou->buck[icont] += 1;
+  
+            if (btop >= ou->bend)
+              { if (write(ou->file,ou->bufr,btop-ou->bufr) < 0)
+                  { fprintf(stderr,"%s: IO write to file %s/%s.%d.%c failed\n",
+                                   Prog_Name,SORT_PATH,PAIR_NAME,
+                                   ou->inum,(isign == jsign) ? 'N' : 'C');
+                    Clean_Exit(1);
+                  }
+                ou->btop = ou->bufr;
+              }
+            else
+              ou->btop = btop;
+          }
+
+#ifdef DEBUG_MERGE
+        { int64 ip;
+  
+          if (fst_in)
+            printf("   vs\n");
+          printf("      %ld: %c",(suf1-cache)/kbyte,isign?'-':'+');
+          ip = 0;
+          memcpy((uint8 *) (&ip),pay1+IPOST,ICONT);
+          printf(" %4d",Perm1[ip]);
+          ip = 0;
+          memcpy((uint8 *) (&ip),pay1,IPOST);
+          printf(" %9lld [%d]\n",ip,suf1[CBYTE]);
+          fflush(stdout);
+          fst_in = 0;
+        }
+#endif
+
+        if (isign)
+          pay1[ISIGN] |= 0x80;
+      }
+    }
+
+  { int j;
+
+    for (j = 0; j < NPARTS; j++)
+      { if (nunit[j].btop > nunit[j].bufr)
+          if (write(nunit[j].file,nunit[j].bufr,nunit[j].btop-nunit[j].bufr) < 0)
+            { fprintf(stderr,"%s: IO write to file %s/%s.%d.N failed\n",
+                             Prog_Name,SORT_PATH,PAIR_NAME,nunit[j].inum);
+              Clean_Exit(1);
+            }
+        if (cunit[j].btop > cunit[j].bufr)
+          if (write(cunit[j].file,cunit[j].bufr,cunit[j].btop-cunit[j].bufr) < 0)
+            { fprintf(stderr,"%s: IO write to file %s/%s.%d.C failed\n",
+                             Prog_Name,SORT_PATH,PAIR_NAME,cunit[j].inum);
+              Clean_Exit(1);
+            }
+      }
+  }
+
+  parm->nhits = nhits/2;
+  parm->tseed = tseed/2;
+  return (NULL);
+}
+
+static void *old_self_merge_thread(void *args)
 { SP *parm = (SP *) args;
   int tid          = parm->tid;
   uint8 *cache     = parm->cache;
@@ -1186,7 +1925,7 @@ static void *self_merge_thread(void *args)
   uint8  *vlcp[KMER+1];
 
   uint8  *vlow, *vhgh;
-  int     pdx, cdx, odx;
+  int     pdx, cdx, odx, pspan;
   int64   post[POST_BUF_LEN + FREQ];
 
   int     qcnt, pcnt;
@@ -1211,6 +1950,7 @@ static void *self_merge_thread(void *args)
 
   ctop  = cache;
   vhgh  = cache;
+  pspan = POST_BUF_LEN * sizeof(int64);
 #ifdef DEBUG_MERGE
   tbuffer = Current_Kmer(T1,NULL);
 #endif
@@ -1260,7 +2000,7 @@ static void *self_merge_thread(void *args)
 
 #ifdef DEBUG_MERGE
           Tdp = T1->cidx;
-          printf("Loading %lld %06x ...",Tdp,cpre); fflush(stdout);
+          printf("Loading %lld %06x ...",Tdp,T1->cpre); fflush(stdout);
 #endif
 
           //  load cahce with all T1 entries with T1->cpre
@@ -1291,7 +2031,6 @@ static void *self_merge_thread(void *args)
 #ifdef DEBUG_MERGE
           printf("... to %lld\n",T1->cidx);
           fflush(stdout);
-
           printf("Doing %s (%lld)\n",Current_Cachmer(T1,suf1,tbuffer),(suf1-cache)/KBYTE+Tdp);
           fflush(stdout);
 #endif
@@ -1422,7 +2161,7 @@ static void *self_merge_thread(void *args)
           }
 
         nhits += suf1[CBYTE] * (freq-1);
-        tseed += suf1[CBYTE] * (freq-1) * plen;
+        tseed += suf1[CBYTE] * (freq-1) * mlen;
 
         iptr = (uint8 *) (post+odx);
         for (n = suf1[CBYTE]; n > 0; n--, iptr += sizeof(int64))
@@ -1459,7 +2198,7 @@ static void *self_merge_thread(void *args)
                       jptr[JSIGN] |= 0x80;
                   }
 #endif
-                if (jptr == iptr)
+                if (jptr == iptr || jptr == iptr + pspan)
                   continue;
 
                 jsign = (jptr[JSIGN] & 0x80);
@@ -1508,7 +2247,8 @@ static void *self_merge_thread(void *args)
             if (isign)
               iptr[ISIGN] |= 0x80;
           }
- empty: continue;
+ empty:
+        continue;
       }
     }
 
@@ -1585,8 +2325,14 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
   for (i = 1; i < NTHREADS; i++)
     { parm[i].T1 = Clone_Kmer_Stream(T1);
       parm[i].T2 = Clone_Kmer_Stream(T2);
-      parm[i].P1 = Clone_Post_List(P1);
-      parm[i].P2 = Clone_Post_List(P2);
+      if (NEW_GIX)
+        { parm[i].P1 = P1;
+          parm[i].P2 = P2;
+        }
+      else
+        { parm[i].P1 = Clone_Post_List(P1);
+          parm[i].P2 = Clone_Post_List(P2);
+        }
     }
 
   if (SYMMETRIC && P1->maxp > P2->maxp)
@@ -1617,18 +2363,37 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
     { fprintf(stderr,"\n  Starting adaptive seed merge for G1\n");
       fflush(stderr);
     }
+  if (LOG_FILE)
+    fprintf(LOG_FILE,"\n  Adaptive seed merge for G1\n");
 
+  if (NEW_GIX)
+    {
 #ifdef DEBUG_MERGE
-  for (i = 0; i < NTHREADS; i++)
-    merge_thread(parm+i);
+      for (i = 0; i < NTHREADS; i++)
+        new_merge_thread(parm+i);
 #else
-  for (i = 1; i < NTHREADS; i++)
-    pthread_create(threads+i,NULL,merge_thread,parm+i);
-  merge_thread(parm);
+      for (i = 1; i < NTHREADS; i++)
+        pthread_create(threads+i,NULL,new_merge_thread,parm+i);
+      new_merge_thread(parm);
 
-  for (i = 1; i < NTHREADS; i++)
-    pthread_join(threads[i],NULL);
+      for (i = 1; i < NTHREADS; i++)
+        pthread_join(threads[i],NULL);
 #endif
+    }
+  else
+    {
+#ifdef DEBUG_MERGE
+      for (i = 0; i < NTHREADS; i++)
+        old_merge_thread(parm+i);
+#else
+      for (i = 1; i < NTHREADS; i++)
+        pthread_create(threads+i,NULL,old_merge_thread,parm+i);
+      old_merge_thread(parm);
+
+      for (i = 1; i < NTHREADS; i++)
+        pthread_join(threads[i],NULL);
+#endif
+    }
 
   if (VERBOSE)
     { fprintf(stderr,"\r    Completed 100%%\n");
@@ -1645,6 +2410,8 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
         { fprintf(stderr,"\n  Starting adaptive seed merge for G2\n");
           fflush(stderr);
         }
+      if (LOG_FILE)
+        fprintf(LOG_FILE,"\n  Adaptive seed merge for G2\n");
 
       for (i = 0; i < NTHREADS; i++)
         { Kmer_Stream *u;
@@ -1660,17 +2427,34 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
           parm[i].flip = 1;
         }
 
+      if (NEW_GIX)
+        {
 #ifdef DEBUG_MERGE
-      for (i = 0; i < NTHREADS; i++)
-        merge_thread(parm+i);
+          for (i = 0; i < NTHREADS; i++)
+            new_merge_thread(parm+i);
 #else
-      for (i = 1; i < NTHREADS; i++)
-        pthread_create(threads+i,NULL,merge_thread,parm+i);
-      merge_thread(parm);
+          for (i = 1; i < NTHREADS; i++)
+            pthread_create(threads+i,NULL,new_merge_thread,parm+i);
+          new_merge_thread(parm);
 
-      for (i = 1; i < NTHREADS; i++)
-        pthread_join(threads[i],NULL);
+          for (i = 1; i < NTHREADS; i++)
+            pthread_join(threads[i],NULL);
 #endif
+        }
+      else
+        {
+#ifdef DEBUG_MERGE
+          for (i = 0; i < NTHREADS; i++)
+            old_merge_thread(parm+i);
+#else
+          for (i = 1; i < NTHREADS; i++)
+            pthread_create(threads+i,NULL,old_merge_thread,parm+i);
+          old_merge_thread(parm);
+
+          for (i = 1; i < NTHREADS; i++)
+            pthread_join(threads[i],NULL);
+#endif
+        }
 
       if (VERBOSE)
         { fprintf(stderr,"\r    Completed 100%%\n");
@@ -1688,8 +2472,10 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
   for (i = NTHREADS-1; i >= 1; i--)
     { Free_Kmer_Stream(parm[i].T1);
       Free_Kmer_Stream(parm[i].T2);
-      Free_Post_List(parm[i].P1);
-      Free_Post_List(parm[i].P2);
+      if (!NEW_GIX)
+        { Free_Post_List(parm[i].P1);
+          Free_Post_List(parm[i].P2);
+        }
     }
   Free_Kmer_Stream(T1);
   Free_Kmer_Stream(T2);
@@ -1699,6 +2485,9 @@ static void adaptamer_merge(Kmer_Stream *T1, Kmer_Stream *T2,
                      nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
       fflush(stderr);
     }
+  if (LOG_FILE)
+    fprintf(LOG_FILE,"\n  Total seeds = %lld, ave. len = %.1f, seeds per genome position = %.1f\n",
+                     nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
 }
 
 
@@ -1747,7 +2536,10 @@ static void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len)
   parm[0].P1 = P1;
   for (i = 1; i < NTHREADS; i++)
     { parm[i].T1 = Clone_Kmer_Stream(T1);
-      parm[i].P1 = Clone_Post_List(P1);
+      if (NEW_GIX)
+        parm[i].P1 = P1;
+      else
+        parm[i].P1 = Clone_Post_List(P1);
     }
 
   cache = Malloc(NTHREADS*(P1->maxp+1)*KBYTE,"Allocating cache");
@@ -1765,17 +2557,34 @@ static void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len)
       bzero(cu[0].buck,sizeof(int64)*NCONTS);
     }
 
+  if (NEW_GIX)
+    {
 #ifdef DEBUG_MERGE
-  for (i = 0; i < NTHREADS; i++)
-    self_merge_thread(parm+i);
+      for (i = 0; i < NTHREADS; i++)
+        new_self_merge_thread(parm+i);
 #else
-  for (i = 1; i < NTHREADS; i++)
-    pthread_create(threads+i,NULL,self_merge_thread,parm+i);
-  self_merge_thread(parm);
+      for (i = 1; i < NTHREADS; i++)
+        pthread_create(threads+i,NULL,new_self_merge_thread,parm+i);
+      new_self_merge_thread(parm);
 
-  for (i = 1; i < NTHREADS; i++)
-    pthread_join(threads[i],NULL);
+      for (i = 1; i < NTHREADS; i++)
+        pthread_join(threads[i],NULL);
 #endif
+    }
+  else
+    {
+#ifdef DEBUG_MERGE
+      for (i = 0; i < NTHREADS; i++)
+        old_self_merge_thread(parm+i);
+#else
+      for (i = 1; i < NTHREADS; i++)
+        pthread_create(threads+i,NULL,old_self_merge_thread,parm+i);
+      old_self_merge_thread(parm);
+
+      for (i = 1; i < NTHREADS; i++)
+        pthread_join(threads[i],NULL);
+#endif
+    }
 
   if (VERBOSE)
     { fprintf(stderr,"\r    Completed 100%%\n");
@@ -1786,7 +2595,8 @@ static void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len)
 
   for (i = NTHREADS-1; i >= 1; i--)
     { Free_Kmer_Stream(parm[i].T1);
-      Free_Post_List(parm[i].P1);
+      if (!NEW_GIX)
+        Free_Post_List(parm[i].P1);
     }
   Free_Kmer_Stream(T1);
 
@@ -1801,6 +2611,9 @@ static void self_adaptamer_merge(Kmer_Stream *T1, Post_List *P1, int64 g1len)
                      nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
       fflush(stderr);
     }
+  if (LOG_FILE)
+    fprintf(LOG_FILE,"\n  Total seeds = %lld, ave. len = %.1f, seeds per G1 position = %.1f\n",
+                     nhits,(1.*tseed)/nhits,(1.*nhits)/g1len);
 }
 
 
@@ -3334,6 +4147,8 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
     { fprintf(stderr,"\n  Starting seed sort and alignment search, %d parts\n",2*NPARTS);
       fflush(stderr);
     }
+  if (LOG_FILE)
+    fprintf(LOG_FILE,"\n  Seed sort and alignment search, %d parts\n",2*NPARTS);
 
   unit[0] = N_Units;
   unit[1] = C_Units;
@@ -3498,7 +4313,7 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
             fflush(stderr);
           }
 
-        nused = rmsd_sort(sarray,nels,swide,swide-2,NCONTS,panel,NTHREADS,range);
+        nused = rmsd_sort(sarray,nels,swide,swide/*-2*/,NCONTS,panel,NTHREADS,range);
 
 #ifdef DEBUG_SORT
         print_seeds(sarray,swide,range,panel,gdb1,gdb2,u);
@@ -3536,10 +4351,11 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
         fclose(tarm[p].gdb1.seqs);
     }
 
-  if (VERBOSE)
+  if (VERBOSE || LOG_FILE)
     { int64 nhit, nlas, nliv, ncov;
 
-      fprintf(stderr,"\r    Done                        \n");
+      if (VERBOSE)
+        fprintf(stderr,"\r    Done                        \n");
 
       nhit = nlas = nliv = ncov = 0;
       for (p = 0; p < NTHREADS; p++)
@@ -3548,21 +4364,32 @@ static void pair_sort_search(GDB *gdb1, GDB *gdb2)
           nliv += tarm[p].nlive;
           ncov += tarm[p].nlcov;
         }
-      if (nliv == 0)
-        fprintf(stderr,
-           "\n  Total hits over %dbp = %lld, %lld aln's, 0 non-redundant aln's of ave len 0\n",
-                       CHAIN_MIN/2,nhit,nlas);
-      else
-        fprintf(stderr,
-          "\n  Total hits over %dbp = %lld, %lld aln's, %lld non-redundant aln's of ave len %lld\n",
-                       CHAIN_MIN/2,nhit,nlas,nliv,ncov/nliv);
-      fflush(stderr);
+
+      if (VERBOSE)
+        { if (nliv == 0)
+            fprintf(stderr,"\n  Total hits over %dbp = %lld, %lld aln's, 0 %s\n",
+                           CHAIN_MIN/2,nhit,nlas,"non-redundant aln's of ave len 0");
+          else
+            fprintf(stderr,"\n  Total hits over %dbp = %lld, %lld aln's, %lld %s %lld\n",
+                           CHAIN_MIN/2,nhit,nlas,nliv,"non-redundant aln's of ave len",ncov/nliv);
+          fflush(stderr);
+        }
+      if (LOG_FILE)
+        { if (nliv == 0)
+            fprintf(LOG_FILE,"\n  Total hits over %dbp = %lld, %lld aln's, 0 %s\n",
+                             CHAIN_MIN/2,nhit,nlas,"non-redundant aln's of ave len 0");
+          else
+            fprintf(LOG_FILE,"\n  Total hits over %dbp = %lld, %lld aln's, %lld %s %lld\n",
+                             CHAIN_MIN/2,nhit,nlas,nliv,"non-redundant aln's of ave len",ncov/nliv);
+        }
     }
 
   if (VERBOSE)
     { fprintf(stderr,"\n  Sorting and merging alignments\n");
       fflush(stderr);
     }
+  if (LOG_FILE)
+    fprintf(LOG_FILE,"\n  Sorting and merging alignments\n");
 
 #ifdef DEBUG_LASORT
   for (p = 0; p < NTHREADS; p++)
@@ -3629,13 +4456,15 @@ int main(int argc, char *argv[])
     OUT_OPT     = 0;
     ONE_PATH    = NULL;
     ONE_ROOT    = NULL;
+    LOG_PATH    = NULL;
+    LOG_FILE    = NULL;
 
     j = 1;
     for (i = 1; i < argc; i++)
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("vkS")
+            ARG_FLAGS("vkMS")
             break;
           case '1':
             if (strncmp(argv[i]+1,"1:",2) == 0)
@@ -3709,6 +4538,18 @@ int main(int argc, char *argv[])
             ARG_NON_NEGATIVE(CHAIN_BREAK,"seed chain break threshold");
             CHAIN_BREAK <<= 1;
             break;
+          case 'L':
+            if (argv[i][2] != ':')
+              { fprintf (stderr,"%s: option -L must be followed by :<filename>\n",Prog_Name);
+                exit (1);
+              }
+            LOG_PATH = argv[i]+3;
+            LOG_FILE = fopen (LOG_PATH, "a");
+            if (LOG_FILE == NULL)
+              { fprintf (stderr,"%s: Cannot open logfile %s for output\n",Prog_Name,LOG_PATH);
+                exit(1);
+              }
+            break;
           case 'P':
             SORT_PATH = argv[i]+2;
             break;
@@ -3722,6 +4563,7 @@ int main(int argc, char *argv[])
 
     VERBOSE   = flags['v'];
     KEEP      = flags['k'];
+    SOFT_MASK = flags['M'];
     SYMMETRIC = flags['S'];
 
     if (argc != 3 && argc != 2)
@@ -3738,15 +4580,17 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
         fprintf(stderr,"      -k: Keep any generated .1gdb's and .gix's.\n");
-        // fprintf(stderr,"      -S: Use both A- and B adaptamer seeds\n");
+        fprintf(stderr,"      -M: Use soft mask information if available.\n");
+        fprintf(stderr,"      -S: Use symmetric seeding (not recommended).\n");
+        fprintf(stderr,"      -L: Output log to specified file.\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -paf: Stream PAF output\n");
-        fprintf(stderr,"        -pafx: Stream PAF output with CIGAR sring with X's\n");
-        fprintf(stderr,"        -pafm: Stream PAF output with CIGAR sring with ='s\n");
-        fprintf(stderr,"        -pafs: Stream PAF output with CS sring in short form\n");
-        fprintf(stderr,"        -pafS: Stream PAF output with CS sring in long form\n");
+        fprintf(stderr,"        -pafx: Stream PAF output with CIGAR string with X's\n");
+        fprintf(stderr,"        -pafm: Stream PAF output with CIGAR string with ='s\n");
+        fprintf(stderr,"        -pafs: Stream PAF output with CS string in short form\n");
+        fprintf(stderr,"        -pafS: Stream PAF output with CS string in long form\n");
         fprintf(stderr,"      -psl: Stream PSL output\n");
         fprintf(stderr,"      -1: Generate 1-code output to specified file\n");
         fprintf(stderr,"\n");
@@ -3882,22 +4726,33 @@ int main(int argc, char *argv[])
         command = Malloc(strlen(SPATH1)+100,"Allocating command string");
         if (command == NULL)
           exit (1);
+        if (LOG_FILE)
+          fclose(LOG_FILE);
 
         if (TYPE1 < IS_GDB)
-          { sprintf(command,"FAtoGDB%s %s",VERBOSE?" -v":"",SPATH1);
+          { if (LOG_FILE)
+              sprintf(command,"FAtoGDB%s -L:%s %s",VERBOSE?" -v":"",LOG_PATH,SPATH1);
+            else
+              sprintf(command,"FAtoGDB%s %s",VERBOSE?" -v":"",SPATH1);
             if (system(command) != 0)
               { fprintf(stderr,"\n%s: Call to FAtoGDB failed\n",Prog_Name);
                 exit (1);
               }
           }
 
-        sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",
-                        VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath1);
+        if (LOG_FILE)
+          sprintf(command,"GIXmake%s -L:%s -T%d -P%s -f%d %s",
+                  VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,FREQ,tpath1);
+        else
+          sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",
+                          VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath1);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
           }
 
+        if (LOG_PATH)
+          LOG_FILE = fopen(LOG_PATH, "a");
         free(command);
         free(tpath1);
       }
@@ -3908,27 +4763,43 @@ int main(int argc, char *argv[])
         command = Malloc(strlen(SPATH2)+100,"Allocating command string");
         if (command == NULL)
           exit (1);
+        if (LOG_FILE)
+          fclose(LOG_FILE);
 
         if (TYPE2 < IS_GDB)
-          { sprintf(command,"FAtoGDB%s %s",VERBOSE?" -v":"",SPATH2);
+          { if (LOG_FILE)
+              sprintf(command,"FAtoGDB%s -L:%s %s",VERBOSE?" -v":"",LOG_PATH,SPATH2);
+            else
+              sprintf(command,"FAtoGDB%s %s",VERBOSE?" -v":"",SPATH2);
             if (system(command) != 0)
               { fprintf(stderr,"\n%s: Call to FAtoGDB failed\n",Prog_Name);
                 Clean_Exit(1);
               }
           }
-        sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",
-                        VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath2);
+
+        if (LOG_FILE)
+          sprintf(command,"GIXmake%s -L:%s -T%d -P%s -f%d %s",
+                  VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,FREQ,tpath2);
+        else
+          sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",
+                          VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath2);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
           }
+
+        if (LOG_PATH)
+          LOG_FILE = fopen(LOG_PATH, "a");
         free(command);
         free(tpath2);
       }
   }
 
-  if (VERBOSE)
+  if (VERBOSE || LOG_FILE)
     StartTime();
+
+  if (LOG_FILE)
+    fprintf(LOG_FILE,"\n%s\n",Command_Line);
 
   //  Get full path string for sorting subdirectory (in variable SORT_PATH)
 
@@ -3964,20 +4835,6 @@ int main(int argc, char *argv[])
   }
 
   SELF = (argc == 2);
-
-  T1 = Open_Kmer_Stream(Catenate(PATH1,"/",ROOT1,".gix"));
-  if (SELF)
-    T2 = T1;
-  else
-    T2 = Open_Kmer_Stream(Catenate(PATH2,"/",ROOT2,".gix"));
-  if (T1 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,PATH1,ROOT1);
-      Clean_Exit(1);
-    }
-  if (T2 == NULL)
-    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,PATH2,ROOT2);
-      Clean_Exit(1);
-    }
   
   P1 = Open_Post_List(Catenate(PATH1,"/",ROOT1,".gix"));
   if (SELF)
@@ -3989,6 +4846,36 @@ int main(int argc, char *argv[])
       Clean_Exit(1);
     }
   if (P2 == NULL)
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,PATH2,ROOT2);
+      Clean_Exit(1);
+    }
+  if ((P1->nels == 0) != (P2->nels == 0))
+    { fprintf(stderr,"%s: genome indices are from different versions, %s.gix is old\n",
+                     Prog_Name,(P1->nels > 0)?ROOT1:ROOT2);
+      Clean_Exit(1);
+    }
+
+  if (P1->nels == 0)
+    { NEW_GIX = 1;
+      T1 = Open_Kmer_Stream(Catenate(PATH1,"/",ROOT1,".gix"),P1->pbyte+2);
+      if (SELF)
+        T2 = T1;
+      else
+        T2 = Open_Kmer_Stream(Catenate(PATH2,"/",ROOT2,".gix"),P2->pbyte+2);
+    }
+  else
+    { NEW_GIX = 0;
+      T1 = Open_Kmer_Stream(Catenate(PATH1,"/",ROOT1,".gix"),2);
+      if (SELF)
+        T2 = T1;
+      else
+        T2 = Open_Kmer_Stream(Catenate(PATH2,"/",ROOT2,".gix"),2);
+    }
+  if (T1 == NULL)
+    { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,PATH1,ROOT1);
+      Clean_Exit(1);
+    }
+  if (T2 == NULL)
     { fprintf(stderr,"%s: Cannot find genome index for %s/%s.gix\n",Prog_Name,PATH2,ROOT2);
       Clean_Exit(1);
     }
@@ -4090,6 +4977,8 @@ int main(int argc, char *argv[])
   CBYTE = T2->hbyte;
   LBYTE = CBYTE+1;
 
+  PAYOFF = LBYTE+1;
+  
   ESHIFT = 8*IPOST;
 
   { int64 cum;      // DBYTE accommodates the sum of the largest contig positions in each GDB !
@@ -4126,6 +5015,8 @@ int main(int argc, char *argv[])
     { fprintf(stderr,"\n  Using %d threads\n",NTHREADS);
       fflush(stderr);
     }
+  if (LOG_FILE)
+    fprintf(LOG_FILE,"\n  Using %d threads\n",NTHREADS);
 
   { int64 npost, cum, t;   //  Compute GDB split into NTHREADS parts
     int   p, r, x;
@@ -4226,7 +5117,9 @@ int main(int argc, char *argv[])
       adaptamer_merge(T1,T2,P1,P2,gdb1->seqtot);
 
     if (VERBOSE)
-      TimeTo(stderr,0);
+      TimeTo(stderr,0,LOG_FILE==NULL);
+    if (LOG_FILE)
+      TimeTo(LOG_FILE,0,1);
 
     //  Transpose N_unit & C_unit matrices
 
@@ -4271,7 +5164,9 @@ int main(int argc, char *argv[])
     pair_sort_search(gdb1,gdb2);
 
     if (VERBOSE)
-      TimeTo(stderr,0);
+      TimeTo(stderr,0,LOG_FILE==NULL);
+    if (LOG_FILE)
+      TimeTo(LOG_FILE,0,1);
 
     free(N_Units->buck);
     free(N_Units->bufr);
@@ -4285,6 +5180,8 @@ int main(int argc, char *argv[])
           { fprintf(stderr,"\n  Converting aln's to %s-format\n",OUT_TYPE==0?"PAF":"PSL");
             fflush(stderr);
           }
+        if (LOG_FILE)
+          fprintf(LOG_FILE,"\n  Converting aln's to %s-format\n",OUT_TYPE==0?"PAF":"PSL");
 
         command = Malloc(strlen(ONE_ROOT)+strlen(ONE_PATH)+100,"Allocating command buffer");
         if (command == NULL)
@@ -4321,12 +5218,18 @@ int main(int argc, char *argv[])
         unlink(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"));
 
         if (VERBOSE)
-          TimeTo(stderr,0);
+          TimeTo(stderr,0,LOG_FILE==NULL);
+        if (LOG_FILE)
+          TimeTo(LOG_FILE,0,1);
       }
   }
 
   if (VERBOSE)
-    TimeTo(stderr,1);
+    TimeTo(stderr,1,0);
+  if (LOG_FILE)
+    { TimeTo(LOG_FILE,1,0);
+      fclose(LOG_FILE);
+    }
 
   free(Select);
   free(IDBsplit);

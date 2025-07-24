@@ -26,10 +26,16 @@ OneSchema *make_Seq_Schema();  //  Make a .1seq schema
  ********************************************************************************************/
 
 typedef struct
+  { int64  beg;     //  [beg,end] soft mask of contig
+    int64  end;
+  } GDB_MASK;
+
+typedef struct
   { int64   clen;   //  Length of the contig's sequence
     int64   sbeg;   //  Left index of the contig's sequence in its' scaffold
     int64   boff;   //  Offset (in bytes) of the contig sequence either in memory
                     //     or in the .bps file (see seqstate of GB)
+    int64   moff;   //  Offset (in MASK items) of the contig's mask list in memory
     int     scaf;   //  Index/# of scaffold contig is in
   } GDB_CONTIG;
 
@@ -52,6 +58,10 @@ typedef struct
     int           ncontig;    //  # of contigs
     int64         maxctg;     //  length of maximum contig
     GDB_CONTIG   *contigs;    //  array [0..ncontig) of contig records
+
+    int           iscaps;     //  display with caps, with soft masks in lower case
+    int           nmasks;     //  # of mask intervals
+    GDB_MASK     *masks;      //  array [0..nmasks) of mask records
 
     int           hdrtot;     //  total bytes in header block
     char         *headers;    //  memory block of all headers, '\0'-terminated.

@@ -21,7 +21,7 @@
 extern bool addProvenance(OneFile *of, OneProvenance *from, int n) ; // backdoor - clean up some day
 
 static char *Usage =
-         "[-vU] [-w<int(80)>] <source:path>[.1gdb] [ @ | <target:path>[<fa_extn>|.1seq] ]";
+         "[-v] [-w<int(80)>] <source:path>[.1gdb] [ @ | <target:path>[<fa_extn>|.1seq] ]";
 
 int main(int argc, char *argv[])
 { GDB        _gdb, *gdb = &_gdb;
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
   int         gzip;
   void       *output;
 
-  int UPPER;   // -U
+  int UPPER;
   int WIDTH;   // -w
   int VERBOSE; // -v
 
@@ -65,10 +65,6 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
     argc = j;
 
-    if (flags['U'])
-      UPPER = UPPER_CASE;
-    else
-      UPPER = LOWER_CASE;
     VERBOSE = flags['v'];
 
     if (argc < 2 || argc > 3)
@@ -76,7 +72,6 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"           <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
         fprintf(stderr,"\n");
-        fprintf(stderr,"      -U: Use upper case for DNA (default is lower case).\n");
         fprintf(stderr,"      -w: Print -w bp per line (default is 80).\n");
         exit (1);
       }
@@ -176,11 +171,22 @@ int main(int argc, char *argv[])
 
   { GDB_CONTIG   *ctg;
     GDB_SCAFFOLD *scf;
+    GDB_MASK     *msk;
+    char         *hdr;
+    int           nctg, nscf;
     char         *contig, *header;
 
     scf    = gdb->scaffolds;
     ctg    = gdb->contigs;
+    msk    = gdb->masks;
+    hdr    = gdb->headers;
+    nctg   = gdb->ncontig;
+    nscf   = gdb->nscaff;
     contig = New_Contig_Buffer(gdb);
+    if (gdb->iscaps)
+      UPPER = UPPER_CASE;
+    else
+      UPPER = LOWER_CASE;
 
     if (is_one)
 
@@ -212,22 +218,26 @@ int main(int argc, char *argv[])
         addProvenance(outone,gdb->prov,gdb->nprov);
         oneAddProvenance(outone,Prog_Name,"0.1",Command_Line);
 
+        oneAddReference(outone,gdb->srcpath,1);
+
         if (!outone->isBinary)
           { int64 seqcnt, seqmax, seqtot;
             int64 gapcnt, gapmax, gaptot;
             int64 scfcnt, scfmax, scftot;
-            int64 seqgrpcnt, gapgrpcnt, scnt, gcnt;
-            int64 seqgrptot, gapgrptot, stot, gtot;
+            int64 mskcnt, mskmax, msktot;
+            int64 seqgrpcnt, gapgrpcnt, mskgrpcnt, scnt, gcnt, mcnt;
+            int64 seqgrptot, gapgrptot, mskgrptot, stot, gtot, mtot;
             OneStat *s;
 
             seqcnt = seqmax = seqtot = 0;
             gapcnt = gapmax = gaptot = 0;
             scfcnt = scfmax = scftot = 0;
-            seqgrpcnt = gapgrpcnt = 0;
-            seqgrptot = gapgrptot = 0;
+            mskcnt = mskmax = msktot = 0;
+            seqgrpcnt = gapgrpcnt = mskgrpcnt = 0;
+            seqgrptot = gapgrptot = mskgrptot = 0;
 
-            for (i = 0; i < gdb->nscaff; i++)
-              { len = strlen(gdb->headers + scf[i].hoff);
+            for (i = 0; i < nscf; i++)
+              { len = strlen(hdr + scf[i].hoff);
                 if (len > scfmax)
                   scfmax = len;
                 scfcnt += 1;
@@ -235,6 +245,7 @@ int main(int argc, char *argv[])
 
                 gtot = gcnt = 0;
                 stot = scnt = 0;
+                mtot = mcnt = 0;
                 spos = 0;
                 for (k = scf[i].fctg; k < scf[i].ectg; k++)
                   { if (ctg[k].sbeg > spos)
@@ -252,6 +263,15 @@ int main(int argc, char *argv[])
                     stot += len;
                     scnt += 1;
                     spos += len;
+
+                    if (k == nctg-1)
+                      len = gdb->nmasks - ctg[k].moff;
+                    else
+                      len = ctg[k+1].moff - ctg[k].moff;
+                    if (len > mskmax)
+                      mskmax = len;
+                    mtot += len;
+                    mcnt += 1;
                   }
                 if (spos < scf[i].slen)
                   { len = scf[i].slen-spos;
@@ -273,6 +293,12 @@ int main(int argc, char *argv[])
                   gapgrpcnt = gcnt;
                 gapcnt += gcnt;
                 gaptot += gtot;
+                if (mtot > mskgrptot)
+                  mskgrptot = mtot;
+                if (mcnt > mskgrpcnt)
+                  mskgrpcnt = mcnt;
+                mskcnt += mcnt;
+                msktot += mtot;
               }
 
             outone->info['S']->given.count = seqcnt;
@@ -284,6 +310,9 @@ int main(int argc, char *argv[])
             outone->info['s']->given.count = scfcnt;
             outone->info['s']->given.max   = scfmax;
             outone->info['s']->given.total = scftot;
+            outone->info['M']->given.count = mskcnt;
+            outone->info['M']->given.max   = mskmax;
+            outone->info['M']->given.total = msktot;
             for (s = outone->info['s']->stats; s->type != '\0'; s++)
               { if (s->type == 'S')
                   { s->maxCount = seqgrpcnt;
@@ -293,11 +322,30 @@ int main(int argc, char *argv[])
                   { s->maxCount = gapgrpcnt;
                     s->maxTotal = gapgrptot;
                   }
+                if (s->type == 'M')
+                  { s->maxCount = mskgrpcnt;
+                    s->maxTotal = mskgrptot;
+                  }
               }
+            outone->info['u']->given.count = gdb->iscaps;
+            outone->info['u']->given.max   = 0;
+            outone->info['u']->given.total = 0;
+            outone->info['f']->given.count = 1;
+            outone->info['f']->given.max   = 0;
+            outone->info['f']->given.total = 0;
           }
+ 
+        oneReal(outone,0) = gdb->freq[0];
+        oneReal(outone,1) = gdb->freq[1];
+        oneReal(outone,2) = gdb->freq[2];
+        oneReal(outone,3) = gdb->freq[3];
+        oneWriteLine(outone,'f',0,0);
 
-        for (i = 0; i < gdb->nscaff; i++)
-          { header = gdb->headers + scf[i].hoff;
+        if (gdb->iscaps)
+          oneWriteLine(outone,'u',0,0);
+
+        for (i = 0; i < nscf; i++)
+          { header = hdr + scf[i].hoff;
 
             oneInt(outone,0) = scf[i].slen;
             oneWriteLine(outone,'s',strlen(header),header);
@@ -315,6 +363,13 @@ int main(int argc, char *argv[])
                   goto clean_up2;
                 oneWriteLine(outone,'S',ctg[k].clen,contig);
                 spos += ctg[k].clen;
+
+                if (k == nctg-1)
+                  len = gdb->nmasks - ctg[k].moff;
+                else
+                  len = ctg[k+1].moff - ctg[k].moff;
+                if (len > 0)
+                  oneWriteLine(outone,'M',2*len,(int64 *) (msk + ctg[k].moff));
               }
             if (spos < scf[i].slen)
               { oneChar(outone,0) = 'n';

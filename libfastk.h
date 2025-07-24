@@ -73,7 +73,7 @@ typedef struct
                    //  Other useful parameters
     int    ibyte;      //  # of bytes in prefix
     int    kbyte;      //  Kmer encoding in bytes
-    int    tbyte;      //  Kmer+count entry in bytes
+    int    tbyte;      //  Kmer+payload entry in bytes
     int    hbyte;      //  Kmer suffix in bytes (= kbyte - ibyte)
     int    pbyte;      //  Kmer,count suffix in bytes (= tbyte - ibyte)
                    //  Hidden parts
@@ -92,7 +92,7 @@ typedef struct
     int    clone;      //  Is this a clone?
   } Kmer_Stream;
 
-Kmer_Stream *Open_Kmer_Stream(char *name);
+Kmer_Stream *Open_Kmer_Stream(char *name, int csize);
 Kmer_Stream *Clone_Kmer_Stream(Kmer_Stream *S);
 void         Free_Kmer_Stream(Kmer_Stream *S);
 

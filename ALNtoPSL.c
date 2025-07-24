@@ -34,6 +34,38 @@ static int TSPACE;   // Trace spacing
 
 //  THREAD ROUTINE TO GENERATE A SECTION OF THE DESIRED .PAF FILE
 
+
+static inline void itoa(int x, char *buf, FILE *out)
+{ char *s;
+
+  s = buf;
+  while (x >= 10)
+    { *s++ = '0' + (x % 10);
+      x /= 10;
+    }
+  fputc('0' + x, out);
+  while (s > buf)
+    fputc(*--s, out);
+}
+
+static inline void ltoa(int64 x, char *buf, FILE *out)
+{ char *s;
+
+  s = buf;
+  while (x >= 10)
+    { *s++ = '0' + (x % 10);
+      x /= 10;
+    }
+  fputc('0' + x, out);
+  while (s > buf)
+    fputc(*--s, out);
+}
+
+static inline void stoa(char *s, FILE *out)
+{ while (*s != '\0')
+    fputc(*s++,out);
+}
+
 typedef struct
   { int64    beg;
     int64    end;
@@ -67,6 +99,7 @@ void *gen_psl(void *args)
   int           plen;
   int          *parr, *aarr, *barr;
   char         *aseq, *bseq, *bact;
+  char          buf[32];
   int64         aoff, boff;
   Path         *path;
   Work_Data    *work;
@@ -221,18 +254,45 @@ void *gen_psl(void *args)
         //X = (M+N - (I+D+2*S))/2;
         X = M - D - S; // N - I - S
 
-        fprintf(out,"%d\t%d\t0\t0\t%d\t%d\t%d\t%d\t%c",X,S,DB,D,IB,I,COMP(ovl->flags)?'-':'+');
-        fprintf(out,"\t%s\t%lld\t%lld\t%lld",
-                  ahead+scaff1[ascaff].hoff,scaff1[ascaff].slen,aoff+path->abpos,aoff+path->aepos);
+        itoa(X,buf,out);
+        fputc('\t',out);
+        itoa(S,buf,out);
+        stoa("\t0\t0\t",out);
+        itoa(DB,buf,out);
+        fputc('\t',out);
+        itoa(D,buf,out);
+        fputc('\t',out);
+        itoa(IB,buf,out);
+        fputc('\t',out);
+        itoa(I,buf,out);
+        fputc('\t',out);
+        fputc(COMP(ovl->flags)?'-':'+',out);
+
+        fputc('\t',out);
+        stoa(ahead+scaff1[ascaff].hoff,out);
+        fputc('\t',out);
+        ltoa(scaff1[ascaff].slen,buf,out);
+        fputc('\t',out);
+        ltoa(aoff+path->abpos,buf,out);
+        fputc('\t',out);
+        ltoa(aoff+path->aepos,buf,out);
+
+        fputc('\t',out);
+        stoa(bhead+scaff2[bscaff].hoff,out);
+        fputc('\t',out);
+        ltoa(scaff2[bscaff].slen,buf,out);
+        fputc('\t',out);
         if (COMP(aln->flags))
           { boff = contig2[bcontig].sbeg + contig2[bcontig].clen;
-            fprintf(out,"\t%s\t%lld\t%lld\t%lld",bhead+scaff2[bscaff].hoff,scaff2[bscaff].slen,
-                                                 boff-path->bepos,boff-path->bbpos);
+            ltoa(boff-path->bepos,buf,out);
+            fputc('\t',out);
+            ltoa(boff-path->bbpos,buf,out);
           }
         else
           { boff = contig2[bcontig].sbeg;
-            fprintf(out,"\t%s\t%lld\t%lld\t%lld",bhead+scaff2[bscaff].hoff,scaff2[bscaff].slen,
-                                                 boff+path->bbpos,boff+path->bepos);
+            ltoa(boff+path->bbpos,buf,out);
+            fputc('\t',out);
+            ltoa(boff+path->bepos,buf,out);
           }
         bcnt = 0;
         i = path->abpos+1;
@@ -299,31 +359,43 @@ void *gen_psl(void *args)
         
         if (COMP(aln->flags))
           for (i = bcnt-1; i >= 0; i--)
-            fprintf(out,"%d,", parr[i]);
+            { itoa(parr[i],buf,out);
+              fputc(',',out);
+            }
         else
           for (i = 0; i < bcnt; i++)
-            fprintf(out,"%d,",parr[i]);
-        fprintf(out,"\t");
+            { itoa(parr[i],buf,out);
+              fputc(',',out);
+            }
+        fputc('\t',out);
 
         if (COMP(aln->flags))
           for (i = bcnt-1; i >= 0; i--)
-            fprintf(out,"%lld,", scaff1[ascaff].slen-(aoff+aarr[i]+parr[i]));
+            { ltoa(scaff1[ascaff].slen-(aoff+aarr[i]+parr[i]),buf,out);
+              fputc(',',out);
+            }
         else
           for (i = 0; i < bcnt; i++)
-            fprintf(out,"%lld,",aoff+aarr[i]);
-        fprintf(out,"\t");
+            { ltoa(aoff+aarr[i],buf,out);
+              fputc(',',out);
+            }
+        fputc('\t',out);
         
         if (COMP(aln->flags))
           { boff = contig2[bcontig].sbeg + contig2[bcontig].clen;
             for (i = bcnt-1; i >= 0; i--)
-              fprintf(out,"%lld,", boff-(barr[i]+parr[i]));
+              { ltoa(boff-(barr[i]+parr[i]),buf,out);
+                fputc(',',out);
+              }
           }
         else
           { boff = contig2[bcontig].sbeg;
             for (i = 0; i < bcnt; i++)
-              fprintf(out,"%lld,",boff+barr[i]);
+              { ltoa(boff+barr[i],buf,out);
+                fputc(',',out);
+              }
           }
-        fprintf(out,"\n");
+        fputc('\n',out);
       }
     }
 

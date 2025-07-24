@@ -134,12 +134,12 @@ int main(int argc, char *argv[])
       }
     ofIn = oneFileOpenRead(inFileName,schema,"aln",NTHREADS);
     if (ofIn == NULL)
-      { fprintf(stderr,"%s: Failed to open .1aln file %s\n",Prog_Name,inFileName);
+      { fprintf(stderr,"%s: Failed to open .1aln file %s for reading\n",Prog_Name,inFileName);
         exit (1);
       }
     ofOut = oneFileOpenWriteFrom(tmpFileName,ofIn,true,NTHREADS);
     if (ofOut == NULL)
-      { fprintf(stderr,"%s: Failed to open .1aln file %s\n",Prog_Name,tmpFileName);
+      { fprintf(stderr,"%s: Failed to open .1aln file %s for writing\n",Prog_Name,tmpFileName);
         exit (1);
       }
     oneAddProvenance(ofOut,Prog_Name,"0.1",Command_Line);

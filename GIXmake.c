@@ -1567,7 +1567,8 @@ void k_sort(GDB *gdb)
         goto remove_parts;
       }
     if (write(tab,&KMER,sizeof(int)) < 0) goto gix_error;
-    if (write(tab,&NTHREADS,sizeof(int)) < 0) goto gix_error;
+    //if (write(tab,&NTHREADS,sizeof(int)) < 0) goto gix_error;
+    if (write(tab,&NPARTS,sizeof(int)) < 0) goto gix_error;
     x = 1;
     if (write(tab,&x,sizeof(int)) < 0) goto gix_error;
     x = 3;

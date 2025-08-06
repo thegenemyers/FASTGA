@@ -469,7 +469,14 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
   bases = NULL;
   if (bps != 0)
     { if (tpath == NULL)
-        seqpath = Numbered_Suffix("._gdb.",getpid(),".bps");
+        { seqpath = Numbered_Suffix("._gdb.",getpid(),".bps.XXXXXX");
+          int fd = mkstemp(seqpath);
+          if (fd == -1)
+            { free(seqpath);
+              EXIT (NULL);
+            }
+          close(fd);
+        }
       else
         { char *path = PathTo(tpath);
           char *root = Root(tpath,".1gdb");
@@ -925,6 +932,9 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
                           contigs[ncontig].moff = mpos;
                           contigs[ncontig].scaf = nscaff;
                           ncontig += 1;
+
+                          if (clen > maxctg)
+                            maxctg = clen;
 
                           if (s < 0)    //  At end of scaffold
                             { spos += clen;

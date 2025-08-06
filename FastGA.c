@@ -4723,7 +4723,8 @@ int main(int argc, char *argv[])
     if (TYPE1 <= IS_GDB)
       { char *command;
 
-        command = Malloc(strlen(SPATH1)+100,"Allocating command string");
+        command = Malloc(strlen(SPATH1)+strlen(tpath1)+strlen(SORT_PATH)+
+                         (LOG_PATH?strlen(LOG_PATH):0)+100,"Allocating command string");
         if (command == NULL)
           exit (1);
         if (LOG_FILE)
@@ -4760,7 +4761,8 @@ int main(int argc, char *argv[])
     if (TYPE2 <= IS_GDB)
       { char *command;
 
-        command = Malloc(strlen(SPATH2)+100,"Allocating command string");
+        command = Malloc(strlen(SPATH2)+strlen(tpath2)+strlen(SORT_PATH)+
+                         (LOG_PATH?strlen(LOG_PATH):0)+100,"Allocating command string");
         if (command == NULL)
           exit (1);
         if (LOG_FILE)

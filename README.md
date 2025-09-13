@@ -465,7 +465,7 @@ of selections.
 The command must have access to the one or two source files from which the ALN file was derived.
 This can be either a Fasta file, a ONEcode SEQ file, or a GDB depending on how the ALN file was created.
 For example, if FastGA is run on two FASTA files without the -k option then the recorded sources
-will be the FASTA file.  But with the -k option, then the GDB's (that are kept) are recorded.
+will be the FASTA files.  But with the -k option, then the GDB's (that are kept) are recorded.
 The path, both relative and absolute, of these sources is recorded within the ALN file at the time
 it is created.  So one should be careful not to move, rename, or remove the sources, the one exception being
 if you move them so that when you call ALNshow they are at the same relative location from the
@@ -477,7 +477,9 @@ The -a option puts exactly -w columns per segment of the display, whereas the -r
 puts exactly -w a-read symbols in each segment of the display.  The -r display mode is
 useful when one wants to visually compare two alignments involving the same a-read.
 If both the -a, and -r flags are set, then the -a alignment comes first followed by the
--r alignment.  The -i option sets the indent for the alignment displays,
+-r alignment.  If the -n option is set while either of -a or -r is set, then the scaffold names
+are used instead of scaffold numbers in the disply.
+The -i option sets the indent for the alignment displays,
 if they are requested.  The -b option sets the number of symbols on
 either side of the aligned segments in an alignment display, and -U specifies that
 uppercase should be used for DNA sequence instead of the default lowercase.
@@ -522,8 +524,8 @@ the highest base down to the lowest base in the descending direction on B, compl
 the characters as you go.  Further note that in the alignment display the coordinates at
 the start of each line follow this orientation convention and give the coordinate of the
 "tick mark" just left of the first character in each line.  It is useful to know if an
-interval reaches the beginning or end of a read, and to signal this we use an angle-bracket \<\> instead
-of a square bracket [].
+interval reaches the beginning or end of a read, and to signal this we use angle-brackets \<\> instead
+of square brackets [].
 
 <a name="ALNplot"></a>
 

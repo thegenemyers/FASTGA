@@ -28,7 +28,7 @@
 #include "alncode.h"
 
 static char *Usage[] =
-    { "[-arU] [-i<int(4)>] [-w<int(100)>] [-b<int(10)>] ",
+    { "[-anrU] [-i<int(4)>] [-w<int(100)>] [-b<int(10)>] ",
       "    <alignments:path>[.1aln] [<selection>|<FILE> [<selection>|<FILE>]]"
     };
 
@@ -45,7 +45,7 @@ int main(int argc, char *argv[])
   int64    novl;
   int      tspace;
 
-  int     ALIGN, REFERENCE;
+  int     ALIGN, REFERENCE, USE_NAMES;
   int     INDENT, WIDTH, BORDER, UPPERCASE;
   int     ISTWO;
 
@@ -54,6 +54,9 @@ int main(int argc, char *argv[])
 
   GDB_CONTIG   *acontigs;
   GDB_CONTIG   *bcontigs;
+
+  char         *aheaders;
+  char         *bheaders;
 
   Hash_Table   *ahash;
   Hash_Table   *bhash;
@@ -81,7 +84,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("arU")
+            ARG_FLAGS("anrU")
             break;
           case 'i':
             ARG_NON_NEGATIVE(INDENT,"Indent")
@@ -100,6 +103,7 @@ int main(int argc, char *argv[])
     ALIGN     = flags['a'];
     REFERENCE = flags['r'];
     UPPERCASE = flags['U'];
+    USE_NAMES = flags['n'];
 
     if (argc < 2 || argc > 4)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage[0]);
@@ -119,6 +123,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"      -a: Show the alignment of each LA with -w columns in each row.\n");
         fprintf(stderr,"      -r: Show the alignment of each LA with -w bp's of A in each row.\n");
+        fprintf(stderr,"      -n: Use scaffold names (-a or -r only)\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -U: Show alignments in upper case.\n");
         fprintf(stderr,"      -i: Indent alignments by -i spaces.\n");
@@ -163,7 +168,7 @@ int main(int argc, char *argv[])
   //  Set up scaffold name dictionaries
 
   { int   s;
-    char *head, *sptr, *eptr;
+    char *sptr, *eptr;
 
     nacontig = gdb1->ncontig;
     nbcontig = gdb2->ncontig;
@@ -173,13 +178,14 @@ int main(int argc, char *argv[])
     bscaffs  = gdb2->scaffolds;
     acontigs = gdb1->contigs;
     bcontigs = gdb2->contigs;
+    aheaders = gdb1->headers;
+    bheaders = gdb2->headers;
 
     ahash = New_Hash_Table(nascaff,0);
-    head  = gdb1->headers;
     amaxlen = 0;
     actgmax = 0;
     for (s = 0; s < nascaff; s++)
-      { sptr = head + ascaffs[s].hoff;
+      { sptr = aheaders + ascaffs[s].hoff;
         for (eptr = sptr; *eptr != '\0'; eptr++)
           if (isspace(*eptr))
             break;
@@ -198,11 +204,10 @@ int main(int argc, char *argv[])
 
     if (ISTWO)
       { bhash = New_Hash_Table(nbscaff,0);
-        head  = gdb2->headers;
         bmaxlen = 0;
         bctgmax = 0;
         for (s = 0; s < nbscaff; s++)
-          { sptr = head + bscaffs[s].hoff;
+          { sptr = bheaders + bscaffs[s].hoff;
             for (eptr = sptr; *eptr != '\0'; eptr++)
               if (isspace(*eptr))
                 break;
@@ -286,36 +291,40 @@ int main(int argc, char *argv[])
       exit (1);
     ovl->path.trace = (void *) trace;
 
-    ar_wide = Number_Digits((int64) nascaff);
-    ai_wide = Number_Digits((int64) amaxlen);
-    ac_wide = Number_Digits((int64) actgmax+1);
-
-    br_wide = Number_Digits((int64) nbscaff);
-    bi_wide = Number_Digits((int64) bmaxlen);
-    bc_wide = Number_Digits((int64) bctgmax+1);
-
-    if (gdb1->maxctg < gdb2->maxctg)
-      { mn_wide = Number_Digits((int64) gdb1->maxctg);
-        mx_wide = bi_wide;
-        if (tspace > 0)
-          tp_wide = Number_Digits((int64) gdb1->maxctg/tspace+2);
-        else
-          tp_wide = 0;
-      }
+    if (ALIGN || REFERENCE)
+      ar_wide = br_wide = ai_wide = bi_wide = ac_wide = bc_wide = mn_wide = mx_wide = tp_wide = 0;
     else
-      { mn_wide = Number_Digits((int64) gdb2->maxctg);
-        mx_wide = ai_wide;
-        if (tspace > 0)
-          tp_wide = Number_Digits((int64) gdb2->maxctg/tspace+2);
+      { ar_wide = Number_Digits((int64) nascaff);
+        ai_wide = Number_Digits((int64) amaxlen);
+        ac_wide = Number_Digits((int64) actgmax+1);
+
+        br_wide = Number_Digits((int64) nbscaff);
+        bi_wide = Number_Digits((int64) bmaxlen);
+        bc_wide = Number_Digits((int64) bctgmax+1);
+
+        if (gdb1->maxctg < gdb2->maxctg)
+          { mn_wide = Number_Digits((int64) gdb1->maxctg);
+            mx_wide = bi_wide;
+            if (tspace > 0)
+              tp_wide = Number_Digits((int64) gdb1->maxctg/tspace+2);
+            else
+              tp_wide = 0;
+          }
         else
-          tp_wide = 0;
+          { mn_wide = Number_Digits((int64) gdb2->maxctg);
+            mx_wide = ai_wide;
+            if (tspace > 0)
+              tp_wide = Number_Digits((int64) gdb2->maxctg/tspace+2);
+            else
+              tp_wide = 0;
+          }
+        ar_wide += (ar_wide-1)/3;
+        br_wide += (br_wide-1)/3;
+        ai_wide += (ai_wide-1)/3;
+        bi_wide += (bi_wide-1)/3;
+        mn_wide += (mn_wide-1)/3;
+        tp_wide += (tp_wide-1)/3;
       }
-    ar_wide += (ar_wide-1)/3;
-    br_wide += (br_wide-1)/3;
-    ai_wide += (ai_wide-1)/3;
-    bi_wide += (bi_wide-1)/3;
-    mn_wide += (mn_wide-1)/3;
-    tp_wide += (tp_wide-1)/3;
 
     root  = Root(argv[1],".1aln");
     printf("\n%s: ",root);
@@ -392,10 +401,16 @@ int main(int argc, char *argv[])
         if (ALIGN || REFERENCE)
           printf("\n");
 
-        Print_Number((int64) ascaf+1,ar_wide+1,stdout);
+        if (USE_NAMES)
+          printf("%s",aheaders+ascaffs[ascaf].hoff);
+        else
+          Print_Number((int64) ascaf+1,ar_wide+1,stdout);
         printf(".%0*d%c",ac_wide,(aread - ascaffs[ascaf].fctg)+1,reverse?'c':'n');
         printf("  ");
-        Print_Number((int64) bscaf+1,br_wide+1,stdout);
+        if (USE_NAMES)
+          printf("%s",bheaders+bscaffs[bscaf].hoff);
+        else
+          Print_Number((int64) bscaf+1,br_wide+1,stdout);
         printf(".%0*d%c",bc_wide,(bread - bscaffs[bscaf].fctg)+1,
                          ((COMP(ovl->flags) == 0) == reverse)?'c':'n');
 
@@ -442,8 +457,6 @@ int main(int argc, char *argv[])
           printf(">");
         else
           printf("]");
-
-fflush(stdout);
 
         if (ALIGN || REFERENCE)
           { char *aseq, *bseq;

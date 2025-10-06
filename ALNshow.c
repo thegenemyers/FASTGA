@@ -507,7 +507,7 @@ int main(int argc, char *argv[])
             else
               aln->bseq = bseq - bmin;
 
-            Compute_Trace_PTS(aln,work,tspace,GREEDIEST);
+            Compute_Trace_PTS(aln,work,tspace,GREEDIEST,1,-1);
 
             Gap_Improver(aln,work);
 

@@ -38,11 +38,10 @@
 #define SOFF  4        //  TMER-SMER
 
 static char *Usage[] =
-    { "[-v] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [-k<int(40)] [-f<int(10)>]",
+    { "[-v] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [-k<int(40)]",
       "( <source:path>[.1gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )"
     };
 
-static int   FREQ;       //  -f
 static int   VERBOSE;    //  -v
 static char *LOG_PATH;   //  -L path name for log file
 static FILE *LOG_FILE;   //     file handle for log
@@ -1189,7 +1188,6 @@ typedef struct
     int64    span;
   } RP;
 
-static int64 NELIM[NUM_BUCK];
 static int64 NKMER[NUM_BUCK];
 
 static pthread_mutex_t TMUTEX;
@@ -1201,7 +1199,7 @@ static pthread_cond_t  TCOND;
 static int *Tstack;
 static int  Tavail;
 
-//  for 1st k-mer byte range [beg,end), find each group of equal k-mers and if < FREQ, then
+//  for 1st k-mer byte range [beg,end), find each group of equal k-mers, then
 //    overwrite to the bottom of the range.  K-mer payloads contain the prefix mask, count,
 //    and then the contig/position location.
 
@@ -1214,13 +1212,13 @@ static void *compress_thread(void *args)
   int64   off    = parm->off;
   int64   span   = parm->span;
 
-  int64   nelim, nkmer;
+  int64   nkmer;
   int64   x, e, y;
   int     w, k, z;
   int     lcp, idx, flc;
   uint8  *b;
 
-  nelim = nkmer = 0;
+  nkmer = 0;
   x = off;
   b = (sarray + x) + 1;
   lcp = sarray[x];
@@ -1238,16 +1236,7 @@ static void *compress_thread(void *args)
         }
 
       //  sorted w entries in [x,y) are all equal
-
-      if (w >= FREQ)
-        { x = y;
-          if (sarray[x] < lcp)
-            lcp = sarray[x];
-          nelim += w;
-          continue;
-        }
-
-      //  if < FREQ then output to k-mer table and post list
+      //  output to k-mer table
 
       idx = ((sarray[x+1] << 8) | sarray[x+2]);
       prefix[idx] += w;
@@ -1268,7 +1257,6 @@ static void *compress_thread(void *args)
   if (z)
     lcp = sarray[e] = 0;
 
-  NELIM[beg] = nelim;
   NKMER[beg] = nkmer;
 
 #ifndef DEBUG_THREADS
@@ -1314,7 +1302,7 @@ void k_sort(GDB *gdb)
   SP     sarm[NTHREADS];
   RP     rarm[NTHREADS];
   int    kbeg, kend;
-  int64  nelim, nkmer;
+  int64  nkmer;
   int64 *prefix;
 #ifndef DEBUG_THREADS
   pthread_t threads[NTHREADS];
@@ -1383,7 +1371,7 @@ void k_sort(GDB *gdb)
       rarm[p].prefix = prefix;
     }
 
-  nelim = nkmer = 0;
+  nkmer = 0;
 
   Tstack = tstack;
   for (p = 0; p < NTHREADS; p++)
@@ -1499,9 +1487,7 @@ void k_sort(GDB *gdb)
 
         nents = 0;
         for (p = kbeg; p < kend; p++)
-          { nelim += NELIM[p];
-            nents += NKMER[p];
-          }
+          nents += NKMER[p];
         nkmer += nents;
 
         if (VERBOSE)
@@ -1538,26 +1524,18 @@ void k_sort(GDB *gdb)
 
       fprintf(stderr,"\r    Done                                           \n");
       fprintf(stderr,"\n  Sampled:   %11lld (%5.1f%%) kmers/positions\n",
-                     nkmer+nelim,(100.*(nkmer+nelim))/ktot);
-      fprintf(stderr,"  Kept:      %11lld (%5.1f%%) kmers/positions\n",
-                     nkmer,(100.*nkmer)/(nkmer+nelim));
-      fprintf(stderr,"  Dropped:   %11lld (%5.1f%%) /kmers/positions\n",
-                     nelim,(nelim*100.)/(nkmer+nelim));
+                     nkmer,(100.*nkmer)/ktot);
       fflush(stderr);
     }
   if (LOG_FILE)
     { int64 ktot = gdb->seqtot - (KMER-1)*gdb->ncontig;
 
       fprintf(LOG_FILE,"\n  Sampled:   %11lld (%5.1f%%) kmers/positions\n",
-                       nkmer+nelim,(100.*(nkmer+nelim))/ktot);
-      fprintf(LOG_FILE,"  Kept:      %11lld (%5.1f%%) kmers/positions\n",
-                       nkmer,(100.*nkmer)/(nkmer+nelim));
-      fprintf(LOG_FILE,"  Dropped:   %11lld (%5.1f%%) /kmers/positions\n",
-                       nelim,(nelim*100.)/(nkmer+nelim));
+                       nkmer,(100.*nkmer)/ktot);
     }
 
   { int   tab;
-    int   x;
+    int   x, freq;
     int64 y;
     int64 maxpre;
 
@@ -1581,11 +1559,12 @@ void k_sort(GDB *gdb)
       }
     if (write(tab,prefix,sizeof(int64)*0x1000000) < 0) goto gix_error;
 
+    freq = 0;
     if (write(tab,&PostBytes,sizeof(int)) < 0) goto gix_error;
     if (write(tab,&ContBytes,sizeof(int)) < 0) goto gix_error;
     if (write(tab,&NPARTS,sizeof(int)) < 0) goto gix_error;
     if (write(tab,&maxpre,sizeof(int64)) < 0) goto gix_error;
-    if (write(tab,&FREQ,sizeof(int)) < 0) goto gix_error;
+    if (write(tab,&freq,sizeof(int)) < 0) goto gix_error;
     if (write(tab,&(gdb->ncontig),sizeof(int)) < 0) goto gix_error;
     if (write(tab,Perm,sizeof(int)*gdb->ncontig) < 0) goto gix_error;
 
@@ -1661,7 +1640,6 @@ int main(int argc, char *argv[])
 
     ARG_INIT("GIXmake");
 
-    FREQ = 10;
     KMER = 40;
     LOG_PATH = NULL;
     LOG_FILE = NULL;
@@ -1676,9 +1654,6 @@ int main(int argc, char *argv[])
         switch (argv[i][1])
         { default:
             ARG_FLAGS("v")
-            break;
-          case 'f':
-            ARG_NON_NEGATIVE(FREQ,"maximum seed frequency");
             break;
           case 'k':
             ARG_NON_NEGATIVE(KMER,"index k-mer size");
@@ -1722,14 +1697,9 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -k: index k-mer size\n");
-        fprintf(stderr,"      -f: adaptive seed count cutoff\n");
         exit (1);
       }
 
-    if (FREQ > 255)
-      { fprintf(stderr,"%s: The maximum allowable frequency cutoff is 255\n",Prog_Name);
-        exit (1);
-      }
     if ((KMER & 0x3) != 0)
       { fprintf(stderr,"%s: K-mer size must be a multiple of 4\n",Prog_Name);
         exit (1);

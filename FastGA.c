@@ -3289,7 +3289,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                                     Complement_Seq(align->bseq+(blen-path->bepos),
                                                    path->bepos-path->bbpos);
                                   }
-                                Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);
+                                Compute_Trace_PTS(align,work,TSPACE,GREEDIEST,1,-1);
                                 Print_Alignment(stdout,align,work,4,100,10,0,8,0);
                                 fflush(stdout);
                                 if (comp)
@@ -3617,7 +3617,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                 for (nn = tpath.tlen-1; nn >= 0; nn--)
                   t16[nn] = t8[nn];
               }
-              Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);
+              Compute_Trace_PTS(align,work,TSPACE,GREEDIEST,1,-1);
               Print_Reference(stdout,align,work,4,100,10,0,8,0);
               fflush(stdout);
               free(tcopy);
@@ -3634,7 +3634,7 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                 for (nn = tpath.tlen-1; nn >= 0; nn--)
                   t16[nn] = t8[nn];
               }
-              Compute_Trace_PTS(align,work,TSPACE,GREEDIEST);
+              Compute_Trace_PTS(align,work,TSPACE,GREEDIEST,1,-1);
               Print_Reference(stdout,align,work,4,100,10,0,8,0);
               fflush(stdout);
               free(tcopy);
@@ -4742,11 +4742,11 @@ int main(int argc, char *argv[])
           }
 
         if (LOG_FILE)
-          sprintf(command,"GIXmake%s -L:%s -T%d -P%s -f%d %s",
-                  VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,FREQ,tpath1);
+          sprintf(command,"GIXmake%s -L:%s -T%d -P%s %s",
+                  VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,tpath1);
         else
-          sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",
-                          VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath1);
+          sprintf(command,"GIXmake%s -T%d -P%s %s",
+                          VERBOSE?" -v":"",NTHREADS,SORT_PATH,tpath1);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
@@ -4780,11 +4780,11 @@ int main(int argc, char *argv[])
           }
 
         if (LOG_FILE)
-          sprintf(command,"GIXmake%s -L:%s -T%d -P%s -f%d %s",
-                  VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,FREQ,tpath2);
+          sprintf(command,"GIXmake%s -L:%s -T%d -P%s %s",
+                  VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,tpath2);
         else
-          sprintf(command,"GIXmake%s -T%d -P%s -f%d %s",
-                          VERBOSE?" -v":"",NTHREADS,SORT_PATH,FREQ,tpath2);
+          sprintf(command,"GIXmake%s -T%d -P%s %s",
+                          VERBOSE?" -v":"",NTHREADS,SORT_PATH,tpath2);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
@@ -4928,15 +4928,17 @@ int main(int argc, char *argv[])
   if (ALGN_UNIQ == NULL || PAIR_NAME == NULL || ALGN_PAIR == NULL)
     Clean_Exit(1);
 
-  if (P1->freq < FREQ)
-    { fprintf(stderr,"%s: Genome index %s/%s.gix cutoff of %d < requested cutoff\n",
-                     Prog_Name,PATH1,ROOT1,P1->freq);
-      Clean_Exit(1);
-    }
-  if (P2->freq < FREQ)
-    { fprintf(stderr,"%s: Genome index %s/%s.gix cutoff %d < requested cutoff\n",
-                     Prog_Name,PATH2,ROOT2,P2->freq);
-      Clean_Exit(1);
+  if (!NEW_GIX)
+    { if (P1->freq < FREQ)
+        { fprintf(stderr,"%s: Genome index %s/%s.gix cutoff of %d < requested cutoff\n",
+                         Prog_Name,PATH1,ROOT1,P1->freq);
+          Clean_Exit(1);
+        }
+      if (P2->freq < FREQ)
+        { fprintf(stderr,"%s: Genome index %s/%s.gix cutoff %d < requested cutoff\n",
+                         Prog_Name,PATH2,ROOT2,P2->freq);
+          Clean_Exit(1);
+        }
     }
   if (T1->kmer != T2->kmer)
     { fprintf(stderr,"%s: Indices not made with the same k-mer size (%d vs %d)\n",

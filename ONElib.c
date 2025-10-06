@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Cambridge University and Eugene Myers 2019-
  *
  * HISTORY:
- * Last edited: Dec  8 16:30 2024 (rd109)
+ * Last edited: Dec 10 00:04 2024 (rd109)
  * * May  1 00:23 2024 (rd109): moved to OneInfo->index and multiple objects/groups
  * * Apr 16 18:59 2024 (rd109): major change to object and group indexing: 0 is start of data
  * * Mar 11 02:49 2024 (rd109): fixed group bug found by Gene
@@ -90,7 +90,7 @@ static inline I64 ltfRead (FILE *f) ;
 
 // error handling
 
-static char errorString[1024] = "" ;
+static char errorString[1024] ;
 
 char *oneErrorString (void) { return errorString ; }
 
@@ -1658,7 +1658,7 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vsArg, const char *fileTy
       if (strcmp (path, "-") == 0) die ("ONE error: parallel input incompatible with stdin as input");
 
       for (i = 1 ; i < nthreads ; ++i) files[i] = fopen (path, "r") ;
-vf->share = nthreads ;
+      vf->share = nthreads ;
       vf = readThreadMake (vf, vs0, files) ;
       free (files) ;
     }
@@ -1906,6 +1906,7 @@ OneFile *oneFileOpenWriteNew (const char *path, OneSchema *vs, const char *fileT
 	}
     }
 
+  free (tempPath) ;
   return vf;
 }
 
@@ -1997,7 +1998,7 @@ bool oneFileCheckSchema (OneFile *vf, OneSchema *vs, bool isRequired)
 	{ snprintf (errorString, 1024, "OneSchema mismatch: record type %c missing in file schema\n", i) ;
 	  isMatch = false ;
 	}
-      else if (vis && vif)
+      else if (vis && vif && vif->given.count > 0)
 	{ if (vif->isObject != vis->isObject)
 	    { snprintf (errorString, 1024, "OneSchema mismatch: object type %c file %d != schema %d\n",
 		       i, vif->isObject, vis->isObject) ;
@@ -2931,7 +2932,7 @@ OneCodec *vcCreate()
 { _OneCodec *v;
   int i;
 
-  v = (_OneCodec *) malloc(sizeof(_OneCodec));
+  v = (_OneCodec *) calloc(1, sizeof(_OneCodec)); // need calloc not malloc for valgrind happiness
   if (v == NULL) die ("vcCreate: Could not allocate compressor") ;
 
   v->state = EMPTY;

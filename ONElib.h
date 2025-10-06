@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Gene Myers, 2019-
  *
  * HISTORY:
- * Last edited: Dec  1 00:28 2024 (rd109)
+ * Last edited: Dec  1 01:00 2024 (rd109)
  * * Dec  3 06:01 2022 (rd109): remove oneWriteHeader(), switch to stdarg for oneWriteComment etc.
  *   * Dec 27 09:46 2019 (gene): style edits
  *   * Created: Sat Feb 23 10:12:43 2019 (rd109)
@@ -204,6 +204,11 @@ typedef struct
  *
  **********************************************************************************/
 
+char* oneErrorString  (void) ;
+
+  // Gives information on errors for routines that fail, e.g. if oneFileOpenRead() or
+  //   oneFileOpenWrite() returns NULL, or oneFileCheckSchema*() returns false.
+
 //  CREATING AND DESTROYING SCHEMAS
 
 OneSchema *oneSchemaCreateFromFile (const char *path) ;
@@ -246,10 +251,6 @@ bool oneFileWriteSchema (OneFile *of, char *filename) ;
 
 //  READING ONE FILES:
 
-char* oneErrorString  (void) ; // gives information on errors for routines that fail
-                               // e.g. if oneFileOpenRead() or oneFileOpenWrite() return NULL
-                               // or oneFileCheckSchema*() returns false.
-
 OneFile *oneFileOpenRead (const char *path, OneSchema *schema, const char *type, int nthreads) ;
 
   // Open ONE file 'path', either binary or ascii encoded, for reading.
@@ -277,19 +278,6 @@ bool oneFileCheckSchemaText (OneFile *of, const char *textSchema) ;
   // This is provided to enable a program to ensure that its assumptions about data layout
   // are satisfied.
   // It is also used by oneFileOpenRead() with isRequired false to check consistency.
-
-// ACCESSING GENERAL INFORMATION ABOUT THE CONTENTS OF A FILE:
- 
-bool  oneStats (OneFile *of, char lineType, I64 *count, I64 *max, I64 *total) ;
-
-  // Report number of lines of specified lineType, maximum list length, total list length
-
-bool  oneStatsContains (OneFile *of, char objectType, char lineType, I64 *maxCount, I64 *maxTotal) ;
-
-  // Report the largest count of lineType within an objectType, and the highest total list length
-
-#define oneFileName(of)         ((of)->fileName)
-#define oneReferenceCount(of)   ((of)->info['<'] ? (of)->info['<']->accum.count : 0)
 
 // READING DATA:
 
@@ -404,7 +392,43 @@ void oneFileClose (OneFile *of);
   // Close of (opened either for reading or writing). Finalizes counts, merges theaded files,
   // and writes footer if binary. Frees all non-user memory associated with of.
 
-//  GOTO & BUFFER MANAGEMENT:
+//  FILE INFORMATION, GOTO & BUFFER MANAGEMENT:
+
+#define oneFileName(of) ((of)->fileName)
+
+  // The name of an open OneFile.
+
+bool  oneStats (OneFile *of, char lineType, I64 *count, I64 *max, I64 *total) ;
+
+  // Report number of lines of specified lineType, maximum list length, total list length.
+
+bool  oneStatsContains (OneFile *of, char objectType, char lineType, I64 *maxCount, I64 *maxTotal) ;
+
+  // Report the largest count of lineType within an objectType, and the highest total list length.
+
+#define oneObject(of,i)  ((of) && (of)->info[i] ? (of)->info[i]->accum.count : -1)
+
+  // Returns the number of the object of type lineType currently in.  Works in read
+  // or write mode. 0 if no objects of this type read/written yet. -1 if lineType illegal.
+
+bool oneGoto (OneFile *of, char lineType, I64 i);
+
+  // Goto just before the i'th object of type lineType in the file, so that the next oneReadLine()
+  // call will read its first line. This only works on binary files, which have an index.
+  // The first object is numbered 1. Setting i == 0 goes to the start of the data, i.e. the first
+  // data line of the file after the header. NB oneObject(of,lineType) will return (i-1) immediately
+  // after this call, and will only return i after a call to oneReadLine().
+
+I64 oneCountUntilNext (OneFile *of, char countType, char nextType) ;
+
+  // Returns the number of countType object lines before the next nextType object line.
+  // This can in most cases be used to find how many subobjects there are in a higher level
+  // group object, although the semantics do not precisely match those of oneStatsContains().
+  // Returns -1 on error, e.g. not reading a binary file, types are not object types.
+
+#define oneReferenceCount(of)   ((of)->info['<'] ? (of)->info['<']->accum.count : 0)
+
+  // Report how many references there are for this OneFile.
 
 void oneUserBuffer (OneFile *of, char lineType, void *buffer);
 
@@ -413,22 +437,6 @@ void oneUserBuffer (OneFile *of, char lineType, void *buffer);
   //   to revert to a default system buffer if 'buffer' = NULL.  The previous buffer
   //   (if any) is freed.  The user must ensure that a buffer they supply is large
   //   enough. BTW, this buffer is overwritten with each new line read of the given type.
-
-#define oneObject(of,i)  ((of) && (of)->info[i] ? (of)->info[i]->accum.count : -1)
-
-  // Returns the number of the object of type lineType currently in.  Works in read
-  // or write mode.  0 if no objects of this type read/written yet. -1 if lineType illegal.
-
-bool oneGoto (OneFile *of, char lineType, I64 i);
-
-  // Goto i'th object in the file. This only works on binary files, which have an index.
-  // The first object is numbered 1. Setting i == 0 goes to the first data line of the file
-  // after the header.
-
-I64 oneCountUntilNext (OneFile *of, char countType, char nextType) ;
-
-  // returns the number of countType object lines before the next nextType object line
-  // returns -1 on error, e.g. not reading a binary file, types are not object types
 
 /***********************************************************************************
  *

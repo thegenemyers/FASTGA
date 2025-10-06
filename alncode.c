@@ -27,6 +27,12 @@ static char *alnSchemaText =
   ".\n"
   "P 3 aln                     ALIGNMENTS\n"
   "D t 1 3 INT                 trace point spacing in a - global\n"
+  ".                           GDB skeleton (may not be presend)\n"
+  "O S 1 6 STRING              id for a scaffold\n"
+  "D G 1 3 INT                 gap of given length\n"
+  "D C 1 3 INT                 contig of given length\n"
+  "D M 1 8 INT_LIST            mask pair list for a contig\n"
+  ".\n"
   "O a 0                       groups A's into a colinear chain\n"
   "G A                         chains (a) group alignment objects (A)\n"
   "D p 2 3 INT 3 INT           spacing in a,b between end of previous alignment and start of next\n"
@@ -34,12 +40,12 @@ static char *alnSchemaText =
   "O A 6 3 INT 3 INT 3 INT 3 INT 3 INT 3 INT\n"
   "D L 2 3 INT 3 INT           lengths of sequences a and b\n"
   "D R 0                       flag: reverse-complement sequence b\n"
-  "D Q 1 3 INT                 quality: alignment confidence in phred units\n"
-  "D M 1 3 INT                 match: number of matching bases\n"
   "D D 1 3 INT                 differences: number of diffs = substitions + indels\n"
-  "D C 1 6 STRING              cigar string: encodes precise alignment\n"
   "D T 1 8 INT_LIST            trace points in b\n"
   "D X 1 8 INT_LIST            number of differences in alignment per trace interval\n"
+  "D Q 1 3 INT                 quality: alignment confidence in phred units (currently unused)\n"
+  "D E 1 3 INT                 match: number of equal bases (currently unused)\n"
+  "D Z 1 6 STRING              cigar string: encodes precise alignment (currently unused)\n"
 ;
 
 OneSchema *make_Aln_Schema ()

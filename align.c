@@ -4546,7 +4546,8 @@ static int ToA[4] = { 'a', 'c', 'g', 't' };
 static char *TP_Align =
          "Bad alignment between trace points (Compute_Trace), source DB likely incorrect";
 
-static int iter_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode, int dmax)
+static int iter_np(char *A, int M, char *B, int N, Trace_Waves *wave,
+                    int mode, int dmax, int posl, int posh)
 { int  **PVF = wave->PVF; 
   int  **PHF = wave->PHF;
   int    D;
@@ -4555,7 +4556,6 @@ static int iter_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode, 
   { int  *F0, *F1, *F2;
     int  *HF;
     int   low, hgh;
-    int   posl, posh;
 
 #ifdef DEBUG_ALIGN
     printf("\n    BASE %ld,%ld: %d vs %d\n",A-wave->Aabs,B-wave->Babs,M,N);
@@ -4576,23 +4576,6 @@ static int iter_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode, 
     else
       { low = del;
         hgh = 0;
-      }
-
-    posl = -dmax;
-    posh =  dmax;
-    if (wave->Aabs == wave->Babs)
-      { if (B == A)
-          { fprintf(stderr,"%s: self comparison starts on diagonal 0 (Compute_Trace)\n",Prog_Name);
-            return (-1);
-          }
-        else if (B < A)
-          { if ((B-A)+1 > posl)
-              posl = (B-A)+1;
-          }
-        else
-          { if ((B-A)-1 < posh)
-              posh = (B-A)-1;
-          }
       }
 
     F1 = PVF[-2];
@@ -4884,7 +4867,8 @@ static int iter_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode, 
   return (D + abs(del));
 }
 
-static int middle_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode, int dmax)
+static int middle_np(char *A, int M, char *B, int N, Trace_Waves *wave,
+                      int mode, int dmax, int posl, int posh)
 { int  **PVF = wave->PVF; 
   int  **PHF = wave->PHF;
   int    D;
@@ -4893,7 +4877,6 @@ static int middle_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode
   { int  *F0, *F1, *F2;
     int  *HF;
     int   low, hgh;
-    int   posl, posh;
 
 #ifdef DEBUG_ALIGN
     printf("\n%*s BASE %ld,%ld: %d vs %d\n",depth,"",A-wave->Aabs,B-wave->Babs,M,N);
@@ -4914,23 +4897,6 @@ static int middle_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode
     else
       { low = del;
         hgh = 0;
-      }
-
-    posl = -dmax;
-    posh =  dmax;
-    if (wave->Aabs == wave->Babs)
-      { if (B == A)
-          { fprintf(stderr,"%s: self comparison starts on diagonal 0 (Compute_Trace)\n",Prog_Name);
-            return (1);
-          }
-        else if (B < A)
-          { if ((B-A)+1 > posl)
-              posl = (B-A)+1;
-          }
-        else
-          { if ((B-A)-1 < posh)
-              posh = (B-A)-1;
-          }
       }
 
     F1 = PVF[-2];
@@ -5167,7 +5133,8 @@ static int middle_np(char *A, int M, char *B, int N, Trace_Waves *wave, int mode
 
 static char *TP_Error = "Trace point out of bounds (Compute_Trace), source DB likely incorrect";
 
-int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int mode)
+int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing,
+                      int mode, int dlow, int dhgh)
 { _Work_Data *work = (_Work_Data *) ework;
   Trace_Waves wave;
 
@@ -5178,6 +5145,7 @@ int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int
   int     tlen;
   int     ab, bb;
   int     ae, be;
+  int     db, de;
   int     diffs, dmax;
 
   alen   = align->alen;
@@ -5239,12 +5207,37 @@ int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int
   wave.Aabs = aseq;
   wave.Babs = bseq;
 
+  db = path->abpos - path->bbpos;
+  de = path->aepos - path->bepos;
+  if (dlow <= dhgh)
+    { if (db < dlow || db > dhgh || de < dlow || de > dhgh)
+        { fprintf(stderr,"%s: Alignment endpoints not in band (Compute_Trace)\n",Prog_Name);
+          return (-1);
+        }
+    }
+  else
+    { dlow = -0x7fffffff;
+      dhgh =  0x7fffffff;
+      if (aseq == bseq)
+        { if (db == 0 || de == 0 || (db > 0) != (de > 0))
+            { fprintf(stderr,"%s: self comparison can cross main diagonal (Compute_Trace)\n",
+                             Prog_Name);
+              return (-1);
+            }
+          else if (db < 0)
+            dhgh = -1;
+          else
+            dlow = 1;
+        }
+    }
+
   { int i, d;
 
     diffs = 0;
     ab = path->abpos;
     ae = (ab/trace_spacing)*trace_spacing;
     bb = path->bbpos;
+    db = ab-bb;
     tlen -= 2;
     for (i = 1; i < tlen; i += 2)
       { ae = ae + trace_spacing;
@@ -5253,12 +5246,13 @@ int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int
           { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
             return (1);
           }
-        d  = iter_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax);
+        d = iter_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax,dlow-db,dhgh-db);
         if (d < 0)
           return (1);
         diffs += d;
         ab = ae;
         bb = be;
+        db = ab-bb;
       }
     ae = path->aepos;
     be = path->bepos;
@@ -5266,7 +5260,7 @@ int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int
       { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
         return (1);
       }
-    d  = iter_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax);
+    d = iter_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax,dlow-db,dhgh-db);
     if (d < 0)
       return (1);
     diffs += d;
@@ -5279,7 +5273,8 @@ int Compute_Trace_PTS(Alignment *align, Work_Data *ework, int trace_spacing, int
   return (0);
 }
 
-int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int mode)
+int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing,
+                      int mode, int dlow, int dhgh)
 { _Work_Data *work = (_Work_Data *) ework;
   Trace_Waves wave;
 
@@ -5290,6 +5285,7 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
   int     tlen;
   int     ab, bb;
   int     ae, be;
+  int     db, de, ds;
   int     diffs, dmax;
 
   alen   = align->alen;
@@ -5351,6 +5347,30 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
   wave.Aabs = aseq;
   wave.Babs = bseq;
 
+  db = path->abpos - path->bbpos;
+  de = path->aepos - path->bepos;
+  if (dlow <= dhgh)
+    { if (db < dlow || db > dhgh || de < dlow || de > dhgh)
+        { fprintf(stderr,"%s: Alignment endpoints not in band (Compute_Trace)\n",Prog_Name);
+          return (-1);
+        }
+    }
+  else
+    { dlow = -0x7fffffff;
+      dhgh =  0x7fffffff;
+      if (aseq == bseq)
+        { if (db == 0 || de == 0 || (db > 0) != (de > 0))
+            { fprintf(stderr,"%s: self comparison can cross main diagonal (Compute_Trace)\n",
+                             Prog_Name);
+              return (-1);
+            }
+          else if (db < 0)
+            dhgh = -1;
+          else
+            dlow = 1;
+        }
+    }
+
   { int i, d;
     int as, bs;
     int af, bf;
@@ -5359,6 +5379,7 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
     ab = as = af = path->abpos;
     ae = (ab/trace_spacing)*trace_spacing;
     bb = bs = bf = path->bbpos;
+    db = ds = ab-bb;
     tlen -= 2;
     for (i = 1; i < tlen; i += 2) 
       { ae = ae + trace_spacing;
@@ -5367,11 +5388,11 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
           { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
             return (1);
           }
-        if (middle_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax))
+        if (middle_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax,dlow-db,dhgh-db))
           return (1);
         af = wave.mida;
         bf = wave.midb;
-        d  = iter_np(aseq+as,af-as,bseq+bs,bf-bs,&wave,mode,dmax);
+        d  = iter_np(aseq+as,af-as,bseq+bs,bf-bs,&wave,mode,dmax,dlow-ds,dhgh-ds);
         if (d < 0)
           return (1);
         diffs += d;
@@ -5379,6 +5400,8 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
         bb = be;
         as = af;
         bs = bf;
+        db = ab-bb;
+        ds = as-bs;
       }
 
     ae = path->aepos;
@@ -5388,18 +5411,19 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
       { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
         return (1);
       }
-    if (middle_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax))
+    if (middle_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax,dlow-db,dhgh-db))
       return (1);
     af = wave.mida;
     bf = wave.midb;
-    d  = iter_np(aseq+as,af-as,bseq+bs,bf-bs,&wave,mode,dmax);
+    d  = iter_np(aseq+as,af-as,bseq+bs,bf-bs,&wave,mode,dmax,dlow-ds,dhgh-ds);
     if (d < 0)
       return (1);
     diffs += d;
     as = af;
     bs = bf;
+    ds = as-bs;
     
-    d += iter_np(aseq+af,ae-as,bseq+bf,be-bs,&wave,mode,dmax);
+    d += iter_np(aseq+af,ae-as,bseq+bf,be-bs,&wave,mode,dmax,dlow-ds,dhgh-ds);
     if (d < 0)
       return (1);
     diffs += d;
@@ -5412,7 +5436,7 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing, int
   return (0);
 }
 
-int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
+int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode, int dlow, int dhgh)
 { _Work_Data *work = (_Work_Data *) ework;
   Trace_Waves wave;
 
@@ -5423,6 +5447,7 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
   int     tlen;
   int     ab, bb;
   int     ae, be;
+  int     db, de;
   int     diffs, dmax;
 
   alen   = align->alen;
@@ -5487,11 +5512,36 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
   wave.Aabs = aseq;
   wave.Babs = bseq;
 
+  db = path->abpos - path->bbpos;
+  de = path->aepos - path->bepos;
+  if (dlow <= dhgh)
+    { if (db < dlow || db > dhgh || de < dlow || de > dhgh)
+        { fprintf(stderr,"%s: Alignment endpoints not in band (Compute_Trace)\n",Prog_Name);
+          return (-1);
+        }
+    }
+  else
+    { dlow = -0x7fffffff;
+      dhgh =  0x7fffffff;
+      if (aseq == bseq)
+        { if (db == 0 || de == 0 || (db > 0) != (de > 0))
+            { fprintf(stderr,"%s: self comparison can cross main diagonal (Compute_Trace)\n",
+                             Prog_Name);
+              return (-1);
+            }
+          else if (db < 0)
+            dhgh = -1;
+          else
+            dlow = 1;
+        }
+    }
+
   { int i, d;
 
     diffs = 0;
     ab = path->abpos;
     bb = path->bbpos;
+    db = ab-bb;
     for (i = 0; i < tlen; i += 2)
       { ae = ab + points[i];
         be = bb + points[i+1];
@@ -5499,12 +5549,13 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
           { fprintf(stderr,"%s: %s\n",Prog_Name,TP_Error);
             return (1);
           }
-        d = iter_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax);
+        d = iter_np(aseq+ab,ae-ab,bseq+bb,be-bb,&wave,mode,dmax,dlow-db,dhgh-db);
         if (d < 0)
           return (1);
         diffs += d;
         ab = ae;
         bb = be;
+        db = ab-bb;
       }
   }
 
@@ -5515,10 +5566,10 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode)
   return (0);
 }
 
-#undef  DEBUG_BOX
-#undef  DEBUG_DP
-#undef  DEBUG_BACK
-#undef  BOX_STATS
+#undef DEBUG_BOX
+#undef DEBUG_DP
+#undef DEBUG_BACK
+#undef BOX_STATS
 
 #define LONG_SNAKE 50
 

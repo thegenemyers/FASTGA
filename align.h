@@ -243,6 +243,9 @@ void Complement_Seq(char *a, int n);
      and managed by the caller.
 
      Compute_Trace_PTS computes a trace by computing the trace between successive trace points.
+     If dlow <= dhgh then the alignment is restricted to be between diagonals dlow and dhgh,
+     inclusive.  Otherwise the alignment is unrestricted.
+
      It is much, much faster than Compute_Alignment below but at the tradeoff of not necessarily
      being optimal as trace points are not all perfect.  Compute_Trace_MID computes a trace
      by computing the trace between the mid-points of alignments between two adjacent pairs of trace
@@ -254,8 +257,10 @@ void Complement_Seq(char *a, int n);
 #define GREEDIEST  0
 #define UPPERMOST  1
 
-  int Compute_Trace_PTS(Alignment *align, Work_Data *work, int trace_spacing, int mode);
-  int Compute_Trace_MID(Alignment *align, Work_Data *work, int trace_spacing, int mode);
+  int Compute_Trace_PTS(Alignment *align, Work_Data *work, int trace_spacing,
+                        int mode, int dlow, int dhgh);
+  int Compute_Trace_MID(Alignment *align, Work_Data *work, int trace_spacing,
+                        int mode, int dlow, int dhgh);
 
   /* Compute_Trace_IRR (IRR for IRRegular) computes a trace for the given alignment where
      it assumes the spacing between trace points between both the A and B read varies, and
@@ -264,7 +269,8 @@ void Complement_Seq(char *a, int n);
      and may not persist in later versions of the code.
   */
 
-  int Compute_Trace_IRR(Alignment *align, Work_Data *work, int mode);   //  experimental !!
+  int Compute_Trace_IRR(Alignment *align, Work_Data *work,   //  experimental !!
+                        int mode, int dlow, int dhgh);
 
   /* Compute Alignment determines the best alignment between the substrings specified by align.
      If the task is DIFF_ONLY, then only the difference of this alignment is computed and placed

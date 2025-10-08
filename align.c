@@ -5356,8 +5356,8 @@ int Compute_Trace_MID(Alignment *align, Work_Data *ework, int trace_spacing,
         }
     }
   else
-    { dlow = -0x7fffffff;
-      dhgh =  0x7fffffff;
+    { dlow = -0x3fffffff;
+      dhgh =  0x3fffffff;
       if (aseq == bseq)
         { if (db == 0 || de == 0 || (db > 0) != (de > 0))
             { fprintf(stderr,"%s: self comparison can cross main diagonal (Compute_Trace)\n",
@@ -5521,8 +5521,8 @@ int Compute_Trace_IRR(Alignment *align, Work_Data *ework, int mode, int dlow, in
         }
     }
   else
-    { dlow = -0x7fffffff;
-      dhgh =  0x7fffffff;
+    { dlow = -0x3fffffff;
+      dhgh =  0x3fffffff;
       if (aseq == bseq)
         { if (db == 0 || de == 0 || (db > 0) != (de > 0))
             { fprintf(stderr,"%s: self comparison can cross main diagonal (Compute_Trace)\n",

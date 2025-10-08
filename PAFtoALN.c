@@ -829,7 +829,9 @@ int main(int argc, char *argv[])
         ISTWO = 1;
       }
     else
-      gdb2 = gdb1;
+      { gdb2 = gdb1;
+        SPATH2 = NULL;
+      }
   }
 
   //  Set up scaffold->contig maps & scaffold name dictionary
@@ -902,8 +904,12 @@ int main(int argc, char *argv[])
 
     cpath = getcwd(NULL,0);
 
-    of = open_Aln_Write(Catenate(APATH,"/",AROOT,".1aln"),NTHREADS,Prog_Name,
-                   VERSION,Command_Line,TSPACE,SPATH1,SPATH2,cpath);
+    if (ISTWO)
+      of = open_Aln_Write(Catenate(APATH,"/",AROOT,".1aln"),NTHREADS,Prog_Name,
+                     VERSION,Command_Line,TSPACE,gdb1,gdb2,SPATH1,SPATH2,cpath);
+    else
+      of = open_Aln_Write(Catenate(APATH,"/",AROOT,".1aln"),NTHREADS,Prog_Name,
+                     VERSION,Command_Line,TSPACE,gdb1,NULL,SPATH1,SPATH2,cpath);
 
     free(cpath);
     free(SPATH1);

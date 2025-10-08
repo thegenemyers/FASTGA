@@ -14,6 +14,7 @@
 #include <stdlib.h>
 
 #include "alncode.h"
+#include "GDB.h"
 
 static char *alnSchemaText =
   "1 3 def 2 1                 schema for aln and FastGA\n"
@@ -28,6 +29,8 @@ static char *alnSchemaText =
   "P 3 aln                     ALIGNMENTS\n"
   "D t 1 3 INT                 trace point spacing in a - global\n"
   ".                           GDB skeleton (may not be presend)\n"
+  "O g 0                       groups scaffolds into a GDB skeleton\n"
+  "G S                         collection of scaffolds constituting a GDB\n"
   "O S 1 6 STRING              id for a scaffold\n"
   "D G 1 3 INT                 gap of given length\n"
   "D C 1 3 INT                 contig of given length\n"
@@ -51,10 +54,187 @@ static char *alnSchemaText =
 OneSchema *make_Aln_Schema ()
 { return (oneSchemaCreateFromText(alnSchemaText)); }
 
+static int Get_Skeleton(OneFile *of, char *db_name, GDB *gdb)
+{ GDB_SCAFFOLD  *scf;
+  GDB_CONTIG    *ctg;
+  GDB_MASK      *msk;
+  OneProvenance *prov;
+  char          *hdr;
+  int64          nscaff, ncontig, nprov, nmasks;
+  int64          len, seqtot, hdrtot, maxctg, boff, spos, iscaps;
+
+  oneStats(of,'S',&nscaff,NULL,&hdrtot);
+  oneStats(of,'C',&ncontig,NULL,NULL);
+  oneStats(of,'M',NULL,NULL,&nmasks);
+  hdrtot += nscaff;
+  nmasks /= 2;
+
+  scf     = malloc(sizeof(GDB_SCAFFOLD)*nscaff);
+  ctg     = malloc(sizeof(GDB_CONTIG)*(ncontig+1));
+  if (nmasks > 0)
+    msk = malloc(sizeof(GDB_MASK)*(nmasks+1));
+  else
+    msk = NULL;
+  hdr   = malloc(hdrtot);
+  nprov = 0;
+  prov  = NULL;
+  if (scf == NULL || ctg == NULL || hdr == NULL)
+    { free(hdr);
+      free(ctg);
+      free(scf);
+      free(msk);
+      return (1);
+    }
+
+  gdb->freq[0] = gdb->freq[1] = gdb->freq[2] = gdb->freq[3] = .25;
+
+  nscaff  = -1;
+  ncontig = 0;
+  nmasks  = 0;
+  hdrtot  = 0;
+  seqtot  = 0;
+  maxctg  = 0;
+  iscaps  = 0;
+  boff = 0;
+  spos = 0;
+  while (oneReadLine(of))
+    switch (of->lineType)
+    { case 'g':
+      case 'A':
+        goto endofsketch;
+      case 'S':
+        if (nscaff >= 0)
+          { scf[nscaff].ectg = ncontig;
+            scf[nscaff].slen = spos;
+            spos = 0;
+          }
+        nscaff += 1;
+        scf[nscaff].hoff = hdrtot;
+        scf[nscaff].fctg = ncontig;
+        len = oneLen(of);
+        memcpy(hdr+hdrtot,oneString(of),len);
+        hdrtot += len;
+        hdr[hdrtot++] = '\0';
+        break;
+      case 'G':
+        spos += oneInt(of,0);
+        break;
+      case 'C':
+        len = oneInt(of,0);
+        ctg[ncontig].boff = boff;
+        ctg[ncontig].moff = nmasks;
+        ctg[ncontig].sbeg = spos;
+        ctg[ncontig].clen = len;
+        ctg[ncontig].scaf = nscaff;
+        ncontig += 1;
+        if (len > maxctg)
+          maxctg = len;
+        seqtot  += len;
+        boff    += COMPRESSED_LEN(len);
+        spos    += len;
+        break;
+      case 'M':
+        { int    i;
+          int64 *list;
+
+          len  = oneInt(of,0);
+          list = oneIntList(of);
+          for (i = 0; i < len; i += 2)
+            { msk[nmasks].beg = list[i];
+              msk[nmasks].end = list[i+1];
+              nmasks += 1;
+            }
+          iscaps = 1;
+        }
+        break;
+    }
+endofsketch:
+  scf[nscaff].ectg = ncontig;
+  scf[nscaff].slen = spos;
+  nscaff += 1;
+
+  ctg[ncontig].moff = nmasks;
+  ctg[ncontig].boff = ctg[ncontig-1].boff + COMPRESSED_LEN(ctg[ncontig-1].clen);
+
+  gdb->nprov = nprov;
+  gdb->prov  = prov;
+
+  gdb->nscaff    = nscaff;
+  gdb->scaffolds = scf;
+
+  gdb->ncontig = ncontig;
+  gdb->maxctg  = maxctg;
+  gdb->contigs = ctg;
+
+  gdb->iscaps  = iscaps;
+  gdb->nmasks  = nmasks;
+  gdb->masks   = msk;
+
+  gdb->srcpath  = strdup(db_name);
+  gdb->seqpath  = NULL;
+
+  gdb->hdrtot  = hdrtot;
+  gdb->headers = hdr;
+
+  gdb->seqtot   = seqtot;
+  gdb->seqstate = EXTERNAL;
+  gdb->seqs     = NULL;
+
+  db_name += strlen(db_name);
+  if (strcmp(db_name-3,".gz") == 0)
+    gdb->seqsrc = IS_FA_GZ;
+  else if (strcmp(db_name-3,".fa") == 0)
+    gdb->seqsrc = IS_FA;
+  else if (strcmp(db_name-4,".fna") == 0)
+    gdb->seqsrc = IS_FA;
+  else if (strcmp(db_name-6,".fasta") == 0)
+    gdb->seqsrc = IS_FA;
+  else
+    gdb->seqsrc = IS_ONE;
+
+  return (0);
+}
+
+static void Put_Skeleton(OneFile *of, GDB *gdb)
+{ int64      spos, len;
+  char      *head;
+  int        s, c;
+
+  oneWriteLine(of,'g',0,0);
+
+  for (s = 0; s < gdb->nscaff; s++)
+    { head = gdb->headers + gdb->scaffolds[s].hoff;
+      oneWriteLine(of,'S',strlen(head),head);
+
+      spos = 0;
+      for (c = gdb->scaffolds[s].fctg; c < gdb->scaffolds[s].ectg; c++)
+        { if (gdb->contigs[c].sbeg > spos)
+            { oneInt(of,0) = gdb->contigs[c].sbeg - spos;
+              oneWriteLine(of,'G',0,0);
+            }
+          len = gdb->contigs[c].clen;
+          oneInt(of,0) = len;
+          oneWriteLine(of,'C',0,0);
+          spos = gdb->contigs[c].sbeg + len;
+          if (c == gdb->ncontig-1)
+            len = 2*(gdb->nmasks - gdb->contigs[c].moff);
+          else
+            len = 2*(gdb->contigs[c+1].moff - gdb->contigs[c].moff);
+          if (len > 0)
+            oneWriteLine(of,'M',len,(int64 *) (gdb->masks + gdb->contigs[c].moff));
+        }
+      if (gdb->scaffolds[s].slen > spos)
+        { oneInt(of,0) = gdb->scaffolds[s].slen - spos;
+          oneWriteLine(of,'G',0,0);
+        }
+    }
+}
+
   // Open the .1aln file for reading and read the header
 
 OneFile *open_Aln_Read (char *filename, int nThreads,
 			int64 *nOverlaps, int *tspace,
+                        GDB   *gdb1, GDB *gdb2,
 			char **db1_name, char **db2_name, char **cpath)
 { OneSchema *schema;
   OneFile   *of;
@@ -109,15 +289,49 @@ OneFile *open_Aln_Read (char *filename, int nThreads,
 
   *tspace = 0;
   while (oneReadLine(of))             // advance to first alignment record
-    if (of->lineType == 'A')
+    if (of->lineType == 'A' || of->lineType == 'g')
       break;
     else if (of->lineType == 't')
       *tspace = oneInt(of,0);
 
   if (*tspace == 0)
-    { fprintf(stderr,"%s: Did not find a t-line before first alignment\n",Prog_Name);
+    { fprintf(stderr,"%s: Did not find a t-line before first alignment or GDB skeleton\n",
+                     Prog_Name);
       goto clean_up;
     }      
+
+  if (gdb1 != NULL)
+    gdb1->nscaff = 0;
+  if (gdb2 != NULL)
+    gdb2->nscaff = 0;
+
+  if (of->lineType == 'g')
+    { if (gdb1 == NULL)
+        { while (oneReadLine(of))
+            if (of->lineType == 'A' || of->lineType == 'g')
+              break;
+        }
+      else
+        { if (Get_Skeleton(of, *db1_name, gdb1))
+            { fprintf(stderr,"%s: Could not allocate GDB skeleton\n",Prog_Name);
+              goto clean_up;
+            }
+        }
+    }
+
+  if (of->lineType == 'g')
+    { if (gdb2 == NULL)
+        { while (oneReadLine(of))
+            if (of->lineType == 'A')
+              break;
+        }
+      else
+        { if (Get_Skeleton(of, *db2_name, gdb2))
+            { fprintf(stderr,"%s: Could not allocate GDB skeleton\n",Prog_Name);
+              goto clean_up;
+            }
+        }
+    }
 
   oneSchemaDestroy(schema);
   return (of);
@@ -227,8 +441,9 @@ void Skip_Aln_Trace(OneFile *of)
   // And these routines write an alignment
 
 OneFile *open_Aln_Write (char *filename, int nThreads,
-			 char *progname, char *version, char *commandLine,
-			 int tspace, char *db1_name, char *db2_name, char *cpath)
+			 char *progname, char *version, char *commandLine, int tspace,
+                         GDB *gdb1, GDB *gdb2,
+			 char *db1_name, char *db2_name, char *cpath)
 { OneSchema *schema;
   OneFile   *of;
 
@@ -254,6 +469,12 @@ OneFile *open_Aln_Write (char *filename, int nThreads,
 
   oneInt(of,0) = tspace;
   oneWriteLine (of,'t',0,0);
+
+  if (gdb1 != NULL)
+    Put_Skeleton(of,gdb1);
+
+  if (gdb2 != NULL)
+    Put_Skeleton(of,gdb2);
 
   oneSchemaDestroy (schema);
   return of;

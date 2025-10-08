@@ -139,8 +139,12 @@ int main(int argc, char *argv[])
 
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
-    input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),1,
-			   &novl,&tspace,&src1_name,&src2_name,&cpath) ;
+    if (ALIGN || REFERENCE)
+      input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),1,&novl,&tspace,
+                            NULL,NULL,&src1_name,&src2_name,&cpath) ;
+    else
+      input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),1,&novl,&tspace,
+                            gdb1,gdb2,&src1_name,&src2_name,&cpath) ;
     if (input == NULL)
       exit (1);
     free(root);
@@ -148,14 +152,14 @@ int main(int argc, char *argv[])
 
     if (ALIGN || REFERENCE)
       Get_GDB(gdb1,src1_name,cpath,1);
-    else
+    else if (gdb1->nscaff == 0)
       Get_GDB(gdb1,src1_name,cpath,0);
 
     ISTWO = 0;
     if (src2_name != NULL)
       { if (ALIGN || REFERENCE)
           Get_GDB(gdb2,src2_name,cpath,1);
-        else
+        else if (gdb2->nscaff == 0)
           Get_GDB(gdb2,src2_name,cpath,0);
         ISTWO = 1;
       }
@@ -292,9 +296,17 @@ int main(int argc, char *argv[])
     ovl->path.trace = (void *) trace;
 
     if (ALIGN || REFERENCE)
-      ar_wide = br_wide = ai_wide = bi_wide = ac_wide = bc_wide = mn_wide = mx_wide = tp_wide = 0;
+      { ar_wide = br_wide = ai_wide = bi_wide = ac_wide = bc_wide = mn_wide = tp_wide = 0;
+
+        if (amaxlen > bmaxlen)
+          mx_wide = Number_Digits((int64) amaxlen);
+        else
+          mx_wide = Number_Digits((int64) bmaxlen);
+      }
     else
-      { ar_wide = Number_Digits((int64) nascaff);
+      { mx_wide = 0;
+
+        ar_wide = Number_Digits((int64) nascaff);
         ai_wide = Number_Digits((int64) amaxlen);
         ac_wide = Number_Digits((int64) actgmax+1);
 
@@ -304,7 +316,6 @@ int main(int argc, char *argv[])
 
         if (gdb1->maxctg < gdb2->maxctg)
           { mn_wide = Number_Digits((int64) gdb1->maxctg);
-            mx_wide = bi_wide;
             if (tspace > 0)
               tp_wide = Number_Digits((int64) gdb1->maxctg/tspace+2);
             else
@@ -312,7 +323,6 @@ int main(int argc, char *argv[])
           }
         else
           { mn_wide = Number_Digits((int64) gdb2->maxctg);
-            mx_wide = ai_wide;
             if (tspace > 0)
               tp_wide = Number_Digits((int64) gdb2->maxctg/tspace+2);
             else

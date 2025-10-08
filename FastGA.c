@@ -4065,8 +4065,9 @@ static int la_merge(TP *parm)
     cpath = getcwd(NULL,0);
 
     of = open_Aln_Write(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"), 1,
-                        Prog_Name, VERSION, Command_Line,
-                        TSPACE, db1_name, db2_name, cpath);
+                        Prog_Name, VERSION, Command_Line,TSPACE,
+                        &parm->gdb1, SELF ? NULL : &parm->gdb2,
+                        db1_name, db2_name, cpath);
 
     free(cpath);
     if (db2_name != NULL)

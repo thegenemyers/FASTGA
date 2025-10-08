@@ -663,8 +663,12 @@ int main(int argc, char *argv[])
 
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
-    input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),NTHREADS,
-                          &novl,&TSPACE,&src1_name,&src2_name,&cpath);
+    if (CIGAR || DIFFS)
+      input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),NTHREADS,&novl,&TSPACE,
+                            NULL,NULL,&src1_name,&src2_name,&cpath);
+    else
+      input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),NTHREADS,&novl,&TSPACE,
+                            gdb1,gdb2,&src1_name,&src2_name,&cpath);
     if (input == NULL)
       exit (1);
     free(root);
@@ -677,13 +681,17 @@ int main(int argc, char *argv[])
     if (CIGAR || DIFFS)
       units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS);
     else
-      Get_GDB(gdb1,src1_name,cpath,0);
+      { if (gdb1->nscaff == 0)
+          Get_GDB(gdb1,src1_name,cpath,0);
+      }
 
     if (ISTWO)
       { if (CIGAR || DIFFS)
           units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS);
         else
-          Get_GDB(gdb2,src2_name,cpath,0);
+          { if (gdb2->nscaff == 0)
+              Get_GDB(gdb2,src2_name,cpath,0);
+          }
       }
     else
       { gdb2   = gdb1;

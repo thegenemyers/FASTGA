@@ -401,7 +401,8 @@ void read_1aln(char *oneAlnFile)
     char      *head;
     int        s, TSPACE;
     
-    input = open_Aln_Read(oneAlnFile,NTHREADS,&novl,&TSPACE,&src1_name,&src2_name,&cpath);
+    input = open_Aln_Read(oneAlnFile,NTHREADS,&novl,&TSPACE,
+                          AGDB,BGDB,&src1_name,&src2_name,&cpath);
     if (input == NULL)
       { fprintf(stderr,"%s: Could not open .1aln file: %s\n",Prog_Name,oneAlnFile);
         exit (1);
@@ -409,9 +410,12 @@ void read_1aln(char *oneAlnFile)
 
     ISTWO = (src2_name != NULL);
 
-    Get_GDB(AGDB,src1_name,cpath,0);
+    if (AGDB->nscaff == 0)
+      Get_GDB(AGDB,src1_name,cpath,0);
     if (ISTWO)
-      Get_GDB(BGDB,src2_name,cpath,0);
+      { if (BGDB->nscaff == 0)
+          Get_GDB(BGDB,src2_name,cpath,0);
+      }
     else
       BGDB = AGDB;
 

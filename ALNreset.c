@@ -61,6 +61,8 @@ int main(int argc, char *argv[])
   char *SPATH2;
   char *APATH, *AROOT;
   int   NTHREADS;
+  GDB   _gdb1, *gdb1 = &_gdb1;
+  GDB   _gdb2, *gdb2 = &_gdb2;
 
   //  Process options
 
@@ -104,11 +106,21 @@ int main(int argc, char *argv[])
   //  Find sources
 
   { char *tpath;
+    int   type;
 
-    Get_GDB_Paths(argv[2],NULL,&SPATH1,&tpath,0);
+    type = Get_GDB_Paths(argv[2],NULL,&SPATH1,&tpath,0);
+    if (type != IS_GDB)
+      Create_GDB(gdb1,SPATH1,type,0,NULL,0);
+    else
+      Read_GDB(gdb1,tpath);
     free(tpath);
+
     if (argc == 4)
-      { Get_GDB_Paths(argv[3],NULL,&SPATH2,&tpath,0);
+      { type = Get_GDB_Paths(argv[3],NULL,&SPATH2,&tpath,0);
+        if (type != IS_GDB)
+          Create_GDB(gdb2,SPATH2,type,0,NULL,0);
+        else
+          Read_GDB(gdb2,tpath);
         free(tpath);
       }
   }
@@ -155,10 +167,18 @@ int main(int argc, char *argv[])
       if (ofIn->info[i] != NULL)
         fieldSize[i] = ofIn->info[i]->nField*sizeof(OneField);
 
-    while (oneReadLine(ofIn) && ofIn->lineType != 'A')         // Transfer any pre-object lines
-      { memcpy(ofOut->field,ofIn->field,fieldSize[(int) ofIn->lineType]);
+    while (oneReadLine(ofIn))                           // Transfer any pre-object lines
+      { if (ofIn->lineType == 'A' || ofIn->lineType == 'g')
+          break;
+        memcpy(ofOut->field,ofIn->field,fieldSize[(int) ofIn->lineType]);
         oneWriteLine(ofOut,ofIn->lineType,oneLen(ofIn),oneString(ofIn));
       }
+
+    Skip_Aln_Skeletons(ofIn);
+
+    Write_Aln_Skeleton(ofOut,gdb1);
+    if (argc == 4)
+      Write_Aln_Skeleton(ofOut,gdb2);
 
     if (ofIn->info['A'])  //  file not empty
       { int64      novl = ofIn->info['A']->given.count;

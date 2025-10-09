@@ -325,6 +325,9 @@ void Complement_Seq(char *a, int n);
   int  Print_Reference(FILE *file, Alignment *align, Work_Data *work,
                        int indent, int block, int border, int upper, int coord, int reverse);
 
+  int  Transmit_Alignment(void (*reciever)(char *), Alignment *align, Work_Data *work,
+                          int width, int border, int upper, int coord, int reverse);
+
   void Flip_Alignment(Alignment *align, int full);
 
 

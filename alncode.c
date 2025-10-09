@@ -54,7 +54,7 @@ static char *alnSchemaText =
 OneSchema *make_Aln_Schema ()
 { return (oneSchemaCreateFromText(alnSchemaText)); }
 
-static int Get_Skeleton(OneFile *of, char *db_name, GDB *gdb)
+int Read_Aln_Skeleton(OneFile *of, char *source, GDB *gdb)
 { GDB_SCAFFOLD  *scf;
   GDB_CONTIG    *ctg;
   GDB_MASK      *msk;
@@ -170,7 +170,7 @@ endofsketch:
   gdb->nmasks  = nmasks;
   gdb->masks   = msk;
 
-  gdb->srcpath  = strdup(db_name);
+  gdb->srcpath  = strdup(source);
   gdb->seqpath  = NULL;
 
   gdb->hdrtot  = hdrtot;
@@ -180,14 +180,14 @@ endofsketch:
   gdb->seqstate = EXTERNAL;
   gdb->seqs     = NULL;
 
-  db_name += strlen(db_name);
-  if (strcmp(db_name-3,".gz") == 0)
+  source += strlen(source);
+  if (strcmp(source-3,".gz") == 0)
     gdb->seqsrc = IS_FA_GZ;
-  else if (strcmp(db_name-3,".fa") == 0)
+  else if (strcmp(source-3,".fa") == 0)
     gdb->seqsrc = IS_FA;
-  else if (strcmp(db_name-4,".fna") == 0)
+  else if (strcmp(source-4,".fna") == 0)
     gdb->seqsrc = IS_FA;
-  else if (strcmp(db_name-6,".fasta") == 0)
+  else if (strcmp(source-6,".fasta") == 0)
     gdb->seqsrc = IS_FA;
   else
     gdb->seqsrc = IS_ONE;
@@ -195,7 +195,15 @@ endofsketch:
   return (0);
 }
 
-static void Put_Skeleton(OneFile *of, GDB *gdb)
+void Skip_Aln_Skeletons(OneFile *of)
+{ if (of->lineType == 'g')
+    { while (oneReadLine(of))
+        if (of->lineType == 'A')
+          break;
+    }
+}
+
+void Write_Aln_Skeleton(OneFile *of, GDB *gdb)
 { int64      spos, len;
   char      *head;
   int        s, c;
@@ -234,7 +242,6 @@ static void Put_Skeleton(OneFile *of, GDB *gdb)
 
 OneFile *open_Aln_Read (char *filename, int nThreads,
 			int64 *nOverlaps, int *tspace,
-                        GDB   *gdb1, GDB *gdb2,
 			char **db1_name, char **db2_name, char **cpath)
 { OneSchema *schema;
   OneFile   *of;
@@ -299,39 +306,6 @@ OneFile *open_Aln_Read (char *filename, int nThreads,
                      Prog_Name);
       goto clean_up;
     }      
-
-  if (gdb1 != NULL)
-    gdb1->nscaff = 0;
-  if (gdb2 != NULL)
-    gdb2->nscaff = 0;
-
-  if (of->lineType == 'g')
-    { if (gdb1 == NULL)
-        { while (oneReadLine(of))
-            if (of->lineType == 'A' || of->lineType == 'g')
-              break;
-        }
-      else
-        { if (Get_Skeleton(of, *db1_name, gdb1))
-            { fprintf(stderr,"%s: Could not allocate GDB skeleton\n",Prog_Name);
-              goto clean_up;
-            }
-        }
-    }
-
-  if (of->lineType == 'g')
-    { if (gdb2 == NULL)
-        { while (oneReadLine(of))
-            if (of->lineType == 'A')
-              break;
-        }
-      else
-        { if (Get_Skeleton(of, *db2_name, gdb2))
-            { fprintf(stderr,"%s: Could not allocate GDB skeleton\n",Prog_Name);
-              goto clean_up;
-            }
-        }
-    }
 
   oneSchemaDestroy(schema);
   return (of);
@@ -442,7 +416,6 @@ void Skip_Aln_Trace(OneFile *of)
 
 OneFile *open_Aln_Write (char *filename, int nThreads,
 			 char *progname, char *version, char *commandLine, int tspace,
-                         GDB *gdb1, GDB *gdb2,
 			 char *db1_name, char *db2_name, char *cpath)
 { OneSchema *schema;
   OneFile   *of;
@@ -469,12 +442,6 @@ OneFile *open_Aln_Write (char *filename, int nThreads,
 
   oneInt(of,0) = tspace;
   oneWriteLine (of,'t',0,0);
-
-  if (gdb1 != NULL)
-    Put_Skeleton(of,gdb1);
-
-  if (gdb2 != NULL)
-    Put_Skeleton(of,gdb2);
 
   oneSchemaDestroy (schema);
   return of;

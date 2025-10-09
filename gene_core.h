@@ -143,8 +143,9 @@ char *Root(char *path, char *suffix);    // Return the root name, excluding suff
 char *Catenate(char *path, char *sep, char *root, char *suffix);
 char *Numbered_Suffix(char *left, int num, char *right);
 
-void Print_Number(int64 num, int width, FILE *out);   //  Print readable big integer
-int  Number_Digits(int64 num);                        //  Return # of digits in printed number
+void Print_Number(int64 num, int width, FILE *out);       //  Print readable big integer
+int  Number_To_String(int64 num, int width, char *where); //  Place # at where, return # of chars
+int  Number_Digits(int64 num);                            //  Return # of digits in printed number
 
 /*******************************************************************************************
  *

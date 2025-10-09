@@ -139,27 +139,29 @@ int main(int argc, char *argv[])
 
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
-    if (ALIGN || REFERENCE)
-      input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),1,&novl,&tspace,
-                            NULL,NULL,&src1_name,&src2_name,&cpath) ;
-    else
-      input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),1,&novl,&tspace,
-                            gdb1,gdb2,&src1_name,&src2_name,&cpath) ;
+    input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),1,&novl,&tspace,
+                          &src1_name,&src2_name,&cpath) ;
     if (input == NULL)
       exit (1);
     free(root);
     free(pwd);
 
     if (ALIGN || REFERENCE)
-      Get_GDB(gdb1,src1_name,cpath,1);
-    else if (gdb1->nscaff == 0)
+      { Skip_Aln_Skeletons(input);
+        Get_GDB(gdb1,src1_name,cpath,1);
+      }
+    else if (input->lineType == 'g')
+      Read_Aln_Skeleton(input,src1_name,gdb1);
+    else
       Get_GDB(gdb1,src1_name,cpath,0);
 
     ISTWO = 0;
     if (src2_name != NULL)
       { if (ALIGN || REFERENCE)
           Get_GDB(gdb2,src2_name,cpath,1);
-        else if (gdb2->nscaff == 0)
+        else if (input->lineType == 'g')
+          Read_Aln_Skeleton(input,src2_name,gdb2);
+        else
           Get_GDB(gdb2,src2_name,cpath,0);
         ISTWO = 1;
       }

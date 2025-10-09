@@ -3969,6 +3969,273 @@ void Alignment_Cartoon(FILE *file, Alignment *align, int indent, int coord)
   fflush(file);
 }
 
+int Transmit_Alignment(void (*reciever)(char *), Alignment *align, Work_Data *ework,
+                             int width, int border, int upper, int coord, int reverse)
+{ _Work_Data *work  = (_Work_Data *) ework;
+  int        *trace = align->path->trace;
+  int         tlen  = align->path->tlen;
+
+  char *Abuf, *Bbuf, *Dbuf;
+  char *Tbuf;
+  int   i, j, o;
+  char *a, *b;
+  char  mtag, dtag;
+  int   prefa, prefb;
+  int   aend, bend;
+  int   bcomp, blen;
+  int   acomp, alen;
+  int   sa, sb;
+  int   match, diff;
+  char *N2A;
+
+  if (trace == NULL) return (0);
+
+#ifdef SHOW_TRACE
+  fprintf(file,"\nTrace:\n");
+  for (i = 0; i < tlen; i++)
+    fprintf(file,"  %3d\n",trace[i]);
+#endif
+
+  o = sizeof(char)*(3*(width+1) + (width+coord+12));
+  if (o > work->vecmax)
+    if (enlarge_vector(work,o))
+      return (1);
+
+  if (upper)
+    N2A = ToU;
+  else
+    N2A = ToL;
+
+  Abuf = (char *) work->vector;
+  Bbuf = Abuf + (width+1);
+  Dbuf = Bbuf + (width+1);
+  Tbuf = Dbuf + (width+1);
+
+  aend = align->path->aepos;
+  bend = align->path->bepos;
+
+  acomp = reverse;
+  bcomp = ((COMP(align->flags) == 0) == reverse);
+  blen  = align->blen;
+  alen  = align->alen;
+
+  Abuf[width] = Bbuf[width] = Dbuf[width] = '\0';
+
+  // buffer/output next column
+
+#define TRANSMIT(x,y)							\
+{ int u, v;								\
+  if (o >= width)							\
+    { sprintf(Tbuf,"\n");						\
+      reciever(Tbuf);				 			\
+      if (coord > 0)							\
+        { if (sa < aend)						\
+            if (acomp)							\
+              sprintf(Tbuf," %*d",coord,alen-sa);			\
+            else							\
+              sprintf(Tbuf," %*d",coord,sa);				\
+          else								\
+            sprintf(Tbuf," %*s",coord,"");				\
+          sprintf(Tbuf+(coord+1)," %s\n",Abuf);				\
+          reciever(Tbuf);						\
+          sprintf(Tbuf," %*s %s\n",coord,"",Dbuf);			\
+          reciever(Tbuf);						\
+          if (sb < bend)						\
+            if (bcomp)							\
+              sprintf(Tbuf," %*d",coord,blen-sb);			\
+            else							\
+              sprintf(Tbuf," %*d",coord,sb);				\
+          else								\
+            sprintf(Tbuf," %*s",coord,"");				\
+          sprintf(Tbuf+(coord+1)," %s",Bbuf);				\
+        }								\
+      else								\
+        { sprintf(Tbuf," %s\n",Abuf);					\
+          sprintf(Tbuf," %s\n",Dbuf);					\
+          sprintf(Tbuf," %s",Bbuf);					\
+        }								\
+      sprintf(Tbuf+(coord+width+2)," %5.1f%%\n",(100.*diff)/(diff+match));	\
+      reciever(Tbuf);							\
+      o  = 0;								\
+      sa = i-1;								\
+      sb = j-1;								\
+      match = diff = 0;							\
+    }									\
+  u = (x);								\
+  v = (y);								\
+  if (u == 4 || v == 4)							\
+    Dbuf[o] = ' ';							\
+  else if (u == v)							\
+    Dbuf[o] = mtag;							\
+  else									\
+    Dbuf[o] = dtag;							\
+  Abuf[o] = N2A[u];							\
+  Bbuf[o] = N2A[v];							\
+  o += 1;								\
+}
+
+  a = align->aseq - 1;
+  b = align->bseq - 1;
+
+  o  = 0;
+  i = align->path->abpos;
+  j = align->path->bbpos;
+
+  prefa = 0;
+  for (prefa = 0; prefa < border && a[i] != 4; prefa++)
+    i -= 1;
+  i += 1;
+
+  prefb = 0;
+  for (prefb = 0; prefb < border && b[j] != 4; prefb++)
+    j -= 1;
+  j += 1;
+
+  sa   = i-1;
+  sb   = j-1;
+  mtag = ':';
+  dtag = ':';
+
+  while (prefa > prefb)
+    { TRANSMIT(a[i],4)
+      i += 1;
+      prefa -= 1;
+    }
+  while (prefb > prefa)
+    { TRANSMIT(4,b[j])
+      j += 1;
+      prefb -= 1;
+    }
+  while (prefa > 0)
+    { TRANSMIT(a[i],b[j])
+      i += 1;
+      j += 1;
+      prefa -= 1;
+    }
+
+  mtag = '[';
+  if (prefb > 0)
+    TRANSMIT(5,5)
+
+  mtag  = '|';
+  dtag  = '*';
+
+  match = diff = 0;
+
+  { int p, c;      /* Output columns of alignment til reach trace end */
+
+    for (c = 0; c < tlen; c++)
+      if ((p = trace[c]) < 0)
+        { p = -p;
+          while (i != p)
+            { TRANSMIT(a[i],b[j])
+              if (a[i] == b[j])
+                match += 1;
+              else
+                diff += 1;
+              i += 1;
+              j += 1;
+            }
+          TRANSMIT(7,b[j])
+          j += 1;
+          diff += 1;
+        }
+      else
+        { while (j != p)
+            { TRANSMIT(a[i],b[j])
+              if (a[i] == b[j])
+                match += 1;
+              else
+                diff += 1;
+              i += 1;
+              j += 1;
+            }
+          TRANSMIT(a[i],7)
+          i += 1;
+          diff += 1;
+        }
+    p = align->path->aepos;
+    while (i <= p)
+      { TRANSMIT(a[i],b[j])
+        if (a[i] == b[j])
+          match += 1;
+        else
+          diff += 1;
+        i += 1;
+        j += 1;
+      }
+  }
+
+  { int c;     /* Output remaining column including unaligned suffix */
+
+    mtag = ']';
+    if (a[i] != 4 && b[j] != 4 && border > 0)
+      TRANSMIT(6,6)
+
+    mtag = ':';
+    dtag = ':';
+
+    c = 0;
+    while (c < border && (a[i] != 4 || b[j] != 4))
+      { if (a[i] != 4)
+          if (b[j] != 4)
+            { TRANSMIT(a[i],b[j])
+              i += 1;
+              j += 1;
+            }
+          else
+            { TRANSMIT(a[i],4)
+              i += 1;
+            }
+        else
+          { TRANSMIT(4,b[j])
+            j += 1;
+          }
+        c += 1;
+      }
+  }
+
+  /* Print remainder of buffered col.s */
+
+  sprintf(Tbuf,"\n");
+  reciever(Tbuf);
+  if (coord > 0)
+    { if (sa < aend)
+        if (acomp)
+          sprintf(Tbuf," %*d",coord,alen-sa);
+        else
+          sprintf(Tbuf," %*d",coord,sa);
+      else
+        sprintf(Tbuf," %*s",coord,"");
+      sprintf(Tbuf+(coord+1)," %.*s\n",o,Abuf);
+      reciever(Tbuf);
+      sprintf(Tbuf," %*s %.*s\n",coord,"",o,Dbuf);
+      reciever(Tbuf);
+      if (sb < bend)
+        if (bcomp)
+          sprintf(Tbuf," %*d",coord,blen-sb);
+        else
+          sprintf(Tbuf," %*d",coord,sb);
+      else
+        sprintf(Tbuf," %*s",coord,"");
+      sprintf(Tbuf+(coord+1)," %.*s",o,Bbuf);
+    }
+  else
+    { sprintf(Tbuf," %.*s\n",o,Abuf);
+      reciever(Tbuf);
+      sprintf(Tbuf," %.*s\n",o,Dbuf);
+      reciever(Tbuf);
+      sprintf(Tbuf," %.*s",o,Bbuf);
+    }
+  if (diff+match > 0)
+    sprintf(Tbuf+strlen(Tbuf)," %5.1f%%\n",(100.*diff)/(diff+match));
+  else
+    sprintf(Tbuf+strlen(Tbuf),"\n");
+  reciever(Tbuf);
+
+  return (0);
+}
+
 
 /****************************************************************************************\
 *                                                                                        *

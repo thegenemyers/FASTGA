@@ -771,7 +771,7 @@ int main(int argc, char *argv[])
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
     path  = Catenate(pwd,"/",root,".1aln");
-    input = open_Aln_Read(path,1,&novl,&TSPACE,AGDB,BGDB,&src1_name,&src2_name,&cpath);
+    input = open_Aln_Read(path,1,&novl,&TSPACE,&src1_name,&src2_name,&cpath);
     if (input == NULL)
       { fprintf(stderr,"%s: Could not open .1aln file: %s\n",Prog_Name,path);
         exit (1);
@@ -806,10 +806,14 @@ int main(int argc, char *argv[])
 
     ISTWO = (src2_name != NULL);
 
-    if (AGDB->nscaff == 0)
+    if (input->lineType == 'g')
+      Read_Aln_Skeleton(input,src1_name,AGDB);
+    else
       Get_GDB(AGDB,src1_name,cpath,0);
     if (ISTWO)
-      { if (BGDB->nscaff == 0)
+      { if (input->lineType == 'g')
+          Read_Aln_Skeleton(input,src2_name,BGDB);
+        else
           Get_GDB(BGDB,src2_name,cpath,0);
       }
     else

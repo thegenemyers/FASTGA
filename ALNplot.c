@@ -402,7 +402,7 @@ void read_1aln(char *oneAlnFile)
     int        s, TSPACE;
     
     input = open_Aln_Read(oneAlnFile,NTHREADS,&novl,&TSPACE,
-                          AGDB,BGDB,&src1_name,&src2_name,&cpath);
+                          &src1_name,&src2_name,&cpath);
     if (input == NULL)
       { fprintf(stderr,"%s: Could not open .1aln file: %s\n",Prog_Name,oneAlnFile);
         exit (1);
@@ -410,10 +410,14 @@ void read_1aln(char *oneAlnFile)
 
     ISTWO = (src2_name != NULL);
 
-    if (AGDB->nscaff == 0)
+    if (input->lineType == 'g')
+      Read_Aln_Skeleton(input,src1_name,AGDB);
+    else
       Get_GDB(AGDB,src1_name,cpath,0);
     if (ISTWO)
-      { if (BGDB->nscaff == 0)
+      { if (input->lineType == 'g')
+          Read_Aln_Skeleton(input,src2_name,BGDB);
+        else
           Get_GDB(BGDB,src2_name,cpath,0);
       }
     else

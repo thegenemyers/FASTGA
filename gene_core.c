@@ -232,6 +232,53 @@ void Print_Number(int64 num, int width, FILE *out)
     }
 }
 
+int Number_To_String(int64 num, int width, char *where)
+{ int nc;
+
+  if (width == 0)
+    { if (num < 1000ll)
+        nc = sprintf(where,"%lld",num);
+      else if (num < 1000000ll)
+        nc = sprintf(where,"%lld%c%03lld",num/1000ll,COMMA,num%1000ll);
+      else if (num < 1000000000ll)
+        nc = sprintf(where,"%lld%c%03lld%c%03lld",num/1000000ll,
+                                           COMMA,(num%1000000ll)/1000ll,COMMA,num%1000ll);
+      else
+        nc = sprintf(where,"%lld%c%03lld%c%03lld%c%03lld",num/1000000000ll,
+                                                   COMMA,(num%1000000000ll)/1000000ll,
+                                                   COMMA,(num%1000000ll)/1000ll,COMMA,num%1000ll);
+    }
+  else
+    { if (num < 1000ll)
+        nc = sprintf(where,"%*lld",width,num);
+      else if (num < 1000000ll)
+        { if (width <= 4)
+            nc = sprintf(where,"%lld%c%03lld",num/1000ll,COMMA,num%1000ll);
+          else
+            nc = sprintf(where,"%*lld%c%03lld",width-4,num/1000ll,COMMA,num%1000ll);
+        }
+      else if (num < 1000000000ll)
+        { if (width <= 8)
+            nc = sprintf(where,"%lld%c%03lld%c%03lld",num/1000000ll,COMMA,(num%1000000ll)/1000ll,
+                                               COMMA,num%1000ll);
+          else
+            nc = sprintf(where,"%*lld%c%03lld%c%03lld",width-8,num/1000000ll,COMMA,
+                                                       (num%1000000ll)/1000ll,COMMA,num%1000ll);
+        }
+      else
+        { if (width <= 12)
+            nc = sprintf(where,"%lld%c%03lld%c%03lld%c%03lld",num/1000000000ll,COMMA,
+                                                       (num%1000000000ll)/1000000ll,COMMA,
+                                                       (num%1000000ll)/1000ll,COMMA,num%1000ll);
+          else
+            nc = sprintf(where,"%*lld%c%03lld%c%03lld%c%03lld",width-12,num/1000000000ll,COMMA,
+                                                        (num%1000000000ll)/1000000ll,COMMA,
+                                                        (num%1000000ll)/1000ll,COMMA,num%1000ll);
+        }
+    }
+  return (nc);
+}
+
 //  Return the number of symbols to print num, base 10 (without commas as above)
 
 int  Number_Digits(int64 num)

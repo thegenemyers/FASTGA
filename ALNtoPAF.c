@@ -663,12 +663,8 @@ int main(int argc, char *argv[])
 
     pwd   = PathTo(argv[1]);
     root  = Root(argv[1],".1aln");
-    if (CIGAR || DIFFS)
-      input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),NTHREADS,&novl,&TSPACE,
-                            NULL,NULL,&src1_name,&src2_name,&cpath);
-    else
-      input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),NTHREADS,&novl,&TSPACE,
-                            gdb1,gdb2,&src1_name,&src2_name,&cpath);
+    input = open_Aln_Read(Catenate(pwd,"/",root,".1aln"),NTHREADS,&novl,&TSPACE,
+                          &src1_name,&src2_name,&cpath);
     if (input == NULL)
       exit (1);
     free(root);
@@ -679,9 +675,13 @@ int main(int argc, char *argv[])
     units1 = units2 = NULL;
     
     if (CIGAR || DIFFS)
-      units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS);
+      { Skip_Aln_Skeletons(input);
+        units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS);
+      }
     else
-      { if (gdb1->nscaff == 0)
+      { if (input->lineType == 'g')
+          Read_Aln_Skeleton(input,src1_name,gdb1);
+        else
           Get_GDB(gdb1,src1_name,cpath,0);
       }
 
@@ -689,7 +689,9 @@ int main(int argc, char *argv[])
       { if (CIGAR || DIFFS)
           units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS);
         else
-          { if (gdb2->nscaff == 0)
+          { if (input->lineType == 'g')
+              Read_Aln_Skeleton(input,src1_name,gdb2);
+            else
               Get_GDB(gdb2,src2_name,cpath,0);
           }
       }

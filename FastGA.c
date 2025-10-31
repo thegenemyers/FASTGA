@@ -4067,7 +4067,7 @@ static int la_merge(TP *parm)
     of = open_Aln_Write(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"), 1,
                         Prog_Name, VERSION, Command_Line, TSPACE, db1_name, db2_name, cpath);
     Write_Aln_Skeleton(of,&parm->gdb1);
-    if (SELF)
+    if (!SELF)
       Write_Aln_Skeleton(of,&parm->gdb2);
 
     free(cpath);

@@ -5,27 +5,6 @@
 #include <stdio.h>
 #include <time.h>
 
-//  For interactive applications where it is inappropriate to simply exit with an error
-//    message to standard error, define the constant INTERACTIVE.  If set, then error
-//    messages are put in the global variable Ebuffer and the caller of a core routine
-//    can decide how to deal with the error.
-
-#ifdef INTERACTIVE
-
-#define EPRINTF sprintf
-#define EPLACE  Ebuffer
-#define EXIT(x) return (x)
-
-extern char Ebuffer[];
-
-#else // BATCH
-
-#define EPRINTF fprintf
-#define EPLACE  stderr
-#define EXIT(x) exit (1)
-
-#endif
-
 /*******************************************************************************************
  *
  *  MY STANDARD TYPE DECLARATIONS
@@ -48,6 +27,8 @@ typedef double             float64;
  *  MACROS TO HELP PARSE COMMAND LINE
  *
  ********************************************************************************************/
+
+extern char *Error_Buffer;   //  If non-NULL place error messages here
 
 extern char *Prog_Name;   //  Name of program, available everywhere
 
@@ -74,6 +55,7 @@ extern char *Command_Line;   //  Name of program, available everywhere
     *c = '\0';							\
   }								\
 								\
+  Error_Buffer = NULL;  	        			\
   Prog_Name = Strdup(name,"");          			\
   for (i = 0; i < 128; i++)             			\
     flags[i] = 0;
@@ -118,6 +100,22 @@ extern char *Command_Line;   //  Name of program, available everywhere
                      Prog_Name,argv[i][1],argv[i]+2);      				\
       exit (1);                                                                         \
     }
+
+/*******************************************************************************************
+ *
+ *  ERROR HANDLING
+ *
+ ********************************************************************************************/
+
+#define EXIT(x)			\
+{ if (Error_Buffer == NULL)	\
+    exit (1);			\
+  return (x);			\
+}
+
+int EPRINTF(char *format, ...);
+int WPRINTF(char *format, ...);
+
 
 /*******************************************************************************************
  *

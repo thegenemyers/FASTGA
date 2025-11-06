@@ -39,6 +39,8 @@
 //  Read next line into a buffer and return a pointer to the buffer
 //    the length of the line.  NB: replaces '\n' with '\0'.
 
+static char *RE = "RE";
+
 static char *read_line(void *input, int gzipd, int nline, char *spath)
 { static char *buffer;
   static int   bmax = 0;
@@ -48,8 +50,8 @@ static char *read_line(void *input, int gzipd, int nline, char *spath)
     { bmax = 500;
       buffer = (char *) malloc(bmax);
       if (buffer == NULL)
-        { fprintf(stderr,"%s: Out of memory reading %s\n",Prog_Name,spath);
-          exit (1);
+        { EPRINTF("Out of memory reading %s",spath);
+          EXIT(RE);
         }
     }
 
@@ -60,8 +62,8 @@ static char *read_line(void *input, int gzipd, int nline, char *spath)
               bmax = 0;
               return (NULL);
             }
-          fprintf(stderr,"%s: Could not read next line, %d, of file %s\n",Prog_Name,nline,spath);
-          exit (1);
+          EPRINTF("Could not read next line, %d, of file %s",nline,spath);
+          EXIT(RE);
         }
     }
   else
@@ -71,8 +73,8 @@ static char *read_line(void *input, int gzipd, int nline, char *spath)
               bmax = 0;
               return (NULL);
             }
-          fprintf(stderr,"%s: Could not read next line, %d, of file %s\n",Prog_Name,nline,spath);
-          exit (1);
+          EPRINTF("Could not read next line, %d, of file %s",nline,spath);
+          EXIT(RE);
         }
     }
 
@@ -81,29 +83,29 @@ static char *read_line(void *input, int gzipd, int nline, char *spath)
     { bmax = ((int) (1.4*bmax)) + 100;
       buffer = (char *) realloc(buffer,bmax);
       if (buffer == NULL)
-        { fprintf(stderr,"%s: Out of memory reading %s\n",Prog_Name,spath);
-          exit (1);
+        { EPRINTF("Out of memory reading %s",spath);
+          EXIT(RE);
         }
       if (gzipd)
         { if (gzgets(input,buffer+len,bmax-len) == NULL)
             { if (gzeof(input))
-                fprintf(stderr,"%s: Last line %d of file %s does not end with new-line\n",
-                               Prog_Name,nline,spath);
+                EPRINTF("Last line %d of file %s does not end with new-line",
+                        nline,spath);
               else
-                fprintf(stderr,"%s: Could not read next line, %d, of file %s\n",
-                               Prog_Name,nline,spath);
-              exit (1);
+                EPRINTF("Could not read next line, %d, of file %s",
+                        nline,spath);
+              EXIT(RE);
             }
         }
       else
         { if (fgets(buffer+len,bmax-len,input) == NULL)
             { if (feof(input))
-                fprintf(stderr,"%s: Last line %d of file %s does not end with new-line\n",
-                               Prog_Name,nline,spath);
+                EPRINTF("Last line %d of file %s does not end with new-line",
+                        nline,spath);
               else
-                fprintf(stderr,"%s: Could not read next line, %d, of file %s\n",
-                               Prog_Name,nline,spath);
-              exit (1);
+                EPRINTF("Could not read next line, %d, of file %s",
+                        nline,spath);
+              EXIT(RE);
             }
         }
       len += strlen(buffer+len);
@@ -173,7 +175,7 @@ static char *get_bps(char *x, int64 *v)
       if (isdigit(*x))
         x = get_int(x,&p,&n);
       else
-        { EPRINTF(EPLACE,"Location . not followed by integer\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+        { EPRINTF("Location . not followed by integer\n\t%.*s ^ %s",(int) (x-src),src,x);
           EXIT(NULL);
         }
       x = white(x);
@@ -194,9 +196,8 @@ static char *get_bps(char *x, int64 *v)
       x -= 1;
     }
   if (p >= m)
-    { EPRINTF(EPLACE,
-        "Location precision has more digits than multiplier %c\n\t%.*s ^ %s\n",
-        (int) a,(int) (x-src),src,x);
+    { EPRINTF("Location precision has more digits than multiplier %c\n\t%.*s ^ %s",
+              (int) a,(int) (x-src),src,x);
       EXIT(NULL);
     }
   m /= n;
@@ -221,7 +222,7 @@ static char *get_location(char *x, int64 *v, Hash_Table *hash)
       else if (isdigit(*x))
         { x = get_int(x,v,&a);
           if (v[0] == 0)
-            { EPRINTF(EPLACE,"Scaffold index cannot be 0\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+            { EPRINTF("Scaffold index cannot be 0\n\t%.*s ^ %s",(int) (x-src),src,x);
               EXIT(NULL);
             }
         }
@@ -234,7 +235,7 @@ static char *get_location(char *x, int64 *v, Hash_Table *hash)
           i = Hash_Lookup(hash,y);
           *x = a;
           if (i < 0)
-            { EPRINTF(EPLACE,"Could not parse scaffold item\n\t%.*s ^ %s\n",(int) (y-src),src,y);
+            { EPRINTF("Could not parse scaffold item\n\t%.*s ^ %s",(int) (y-src),src,y);
               EXIT(NULL);
             }
           v[0] = i+1;
@@ -250,12 +251,12 @@ static char *get_location(char *x, int64 *v, Hash_Table *hash)
       else if (isdigit(*x))
         { x = get_int(x,v+1,&a);
           if (v[1] == 0)
-            { EPRINTF(EPLACE,"Contig index cannot be 0\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+            { EPRINTF("Contig index cannot be 0\n\t%.*s ^ %s",(int) (x-src),src,x);
               EXIT(NULL);
             }
         }
       else
-        { EPRINTF(EPLACE,"Contig is not an integer or #-sign\n\t%*s ^ %.s\n",(int) (x-src),src,x);
+        { EPRINTF("Contig is not an integer or #-sign\n\t%*s ^ %.s",(int) (x-src),src,x);
           EXIT(NULL);
         }
       x = white(x);
@@ -270,7 +271,7 @@ static char *get_location(char *x, int64 *v, Hash_Table *hash)
           else if (isdigit(*x))
             x = get_bps(x,v+2);
           else
-            { EPRINTF(EPLACE,"Position is not an integer or #-sign\n\t%.*s ^ %s\n",
+            { EPRINTF("Position is not an integer or #-sign\n\t%.*s ^ %s",
                               (int) (x-src),src,x);
               EXIT(NULL);
             }
@@ -283,7 +284,7 @@ static char *get_location(char *x, int64 *v, Hash_Table *hash)
   else if (isdigit(*x))
     x = get_bps(x,v+2);
   else
-    { EPRINTF(EPLACE,"Empty location\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+    { EPRINTF("Empty location\n\t%.*s ^ %s",(int) (x-src),src,x);
       EXIT(NULL);
     }
 
@@ -298,12 +299,12 @@ static int get_focus(char *x, int64 *v, Hash_Table *hash1, Hash_Table *hash2)
   if (x == NULL)
     return (1);
   if (v[2] < -1)
-    { EPRINTF(EPLACE,"Focus location must give a position\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+    { EPRINTF("Focus location must give a position\n\t%.*s ^ %s",(int) (x-src),src,x);
       EXIT(1);
     }
   x = white(x);
   if (*x != DLIM_SYMBOL)
-    { EPRINTF(EPLACE,"Focus locations must be separatd by a '%c'\n\t%.*s ^ %s\n",
+    { EPRINTF("Focus locations must be separatd by a '%c'\n\t%.*s ^ %s",
                      DLIM_SYMBOL,(int) (x-src),src,x);
       EXIT(1);
     }
@@ -311,12 +312,12 @@ static int get_focus(char *x, int64 *v, Hash_Table *hash1, Hash_Table *hash2)
   if (x == NULL)
     return (1);
   if (v[6] < -1)
-    { EPRINTF(EPLACE,"Focus location must give a position\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+    { EPRINTF("Focus location must give a position\n\t%.*s ^ %s",(int) (x-src),src,x);
       EXIT(1);
     }
   x = white(x);
   if (*x != '\0')
-    { EPRINTF(EPLACE,"Focus syntax is not complete\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+    { EPRINTF("Focus syntax is not complete\n\t%.*s ^ %s",(int) (x-src),src,x);
       EXIT(1);
     }
 
@@ -357,7 +358,7 @@ static int get_range(char *x, int64 *v, Hash_Table *hash)
     v[4] = v[5] = v[6] = -2;
 
   if (*x != '\0')
-    { EPRINTF(EPLACE,"Range syntax is not complete\n\t%.*s ^ %s\n",(int) (x-src),src,x);
+    { EPRINTF("Range syntax is not complete\n\t%.*s ^ %s",(int) (x-src),src,x);
       EXIT(1);
     }
 
@@ -396,7 +397,7 @@ static int complete_address(int64 *v, GDB *gdb, int first)
                 else
                   break;
               if (s >= nscaff && p > v[3])
-                { EPRINTF(EPLACE,"Position %lld is larger than genome",q);
+                { EPRINTF("Position %lld is larger than genome",q);
                   EXIT(1);
                 }
               fc = scaff[s].fctg;
@@ -415,7 +416,7 @@ static int complete_address(int64 *v, GDB *gdb, int first)
             }
           else
             { if (c > ncontig)
-                { EPRINTF(EPLACE,"Contig %lld is > %d, the # of contigs",c,ncontig);
+                { EPRINTF("Contig %lld is > %d, the # of contigs",c,ncontig);
                   EXIT(1);
                 }
               c = c-1;
@@ -434,7 +435,7 @@ static int complete_address(int64 *v, GDB *gdb, int first)
             p = cl;
           else
             { if (p > cl+v[3])
-                { EPRINTF(EPLACE,"Position %lld beyond contig %lld of length %lld",p,c,cl);
+                { EPRINTF("Position %lld beyond contig %lld of length %lld",p,c,cl);
                   EXIT(1);
                 }
             }
@@ -469,7 +470,7 @@ static int complete_address(int64 *v, GDB *gdb, int first)
               c -= 1;
               p -= contig[c].sbeg;
               if (c == ec-1 && p > contig[c].clen + v[3])
-                { EPRINTF(EPLACE,"Position %lld is beyond scaffold %lld of length %lld",
+                { EPRINTF("Position %lld is beyond scaffold %lld of length %lld",
                                  q,s,scaff[s].slen);
                   EXIT(1);
                 }
@@ -480,7 +481,7 @@ static int complete_address(int64 *v, GDB *gdb, int first)
             c = ec-1;
           else
             { if (c > ec-fc)
-                { EPRINTF(EPLACE,"Contig %lld is > %d, the # of contigs in scaffold %lld",
+                { EPRINTF("Contig %lld is > %d, the # of contigs in scaffold %lld",
                                  c,ec-fc,s);
                   EXIT(1);
                 }
@@ -497,7 +498,7 @@ static int complete_address(int64 *v, GDB *gdb, int first)
             p = cl;
           else
             { if (p > cl+v[3])
-                { EPRINTF(EPLACE,"Position %lld beyond contig %lld of length %lld",p,c,cl);
+                { EPRINTF("Position %lld beyond contig %lld of length %lld",p,c,cl);
                   EXIT(1);
                 }
             }
@@ -607,7 +608,7 @@ int interpret_range(Selection *s, char *x, GDB *gdb, Hash_Table *hash)
 
       if (v[4] < -1 && v[5] < -1 && v[6] < -1)
         { if (v[2] >= -1)
-            { EPRINTF(EPLACE,"Must specify a range, not a point");
+            { EPRINTF("Must specify a range, not a point");
               EXIT(1);
             }
           v[4] = v[0];
@@ -641,8 +642,8 @@ int interpret_range(Selection *s, char *x, GDB *gdb, Hash_Table *hash)
   return (0);
 }
 
-static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash,
-                                            Contig_Range *chord, char *filename, int ordered)
+static int get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash,
+                                           Contig_Range *chord, char *filename, int ordered)
 { char       c, *p, *q, *line;
   int        i, pbeg, pend, pfst, plst, ori;
   int        nline, order;
@@ -651,7 +652,9 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
   order = 1;
   nline = 1;
   while ((line = read_line(fp,0,nline++,filename)) != NULL)
-    { p = q = white(line);
+    { if (line == RE)
+        EXIT(1);
+      p = q = white(line);
       while (*q != '\0' && !isspace(*q))
         q += 1;
       if (p == q)      // empty line
@@ -659,14 +662,8 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
 
       c = *q;
       *q = '\0';
-#ifdef INTERACTIVE
       if (interpret_range(s,p,gdb,hash))
-        { fprintf(stderr,"%s: %s\n",Prog_Name,EPLACE);
-          exit (1);
-        }
-#else
-      interpret_range(s,p,gdb,hash);
-#endif
+        EXIT(1);
       *q = c;
       pbeg = s->c1;
       pend = s->c2;
@@ -680,16 +677,15 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
       if (ordered)
         { for (i = pbeg; i <= pend; i++)
             if (chord[i].order)
-              { fprintf(stderr,"%s: Overlapping contigs in selection ranges\n",Prog_Name);
-                exit (1);
+              { EPRINTF("Overlapping contigs in selection ranges");
+                EXIT(1);
               }
         }
       else if (ori != 0)
         { for (i = pbeg; i <= pend; i++)
             if (chord[i].order && ori*chord[i].orient < 0)
-              { fprintf(stderr,"%s: Conflicting sign for contig in selection expression\n",
-                               Prog_Name);
-                exit (1);
+              { EPRINTF("Conflicting sign for contig in selection expression");
+                EXIT(1);
               }
         }
 
@@ -740,6 +736,7 @@ static void get_selection_contigs_from_file(FILE *fp, GDB *gdb, Hash_Table *hash
     }
 
   fclose(fp);
+  return (0);
 }
 
 Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ordered)
@@ -763,8 +760,8 @@ Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ord
   else
     { x = white(x);
       if (*x == '\0')
-        { fprintf(stderr,"%s: Empty range\n",Prog_Name);
-          exit (1);
+        { EPRINTF("Empty range");
+          EXIT(NULL);
         }
 
       for (i = 0; i < gdb->ncontig; i++)
@@ -780,14 +777,8 @@ Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ord
               if (e != NULL)
                 *e = '\0';
               
-#ifdef INTERACTIVE
               if (interpret_range(s,x,gdb,hash))
-                { fprintf(stderr,"%s: %s\n",Prog_Name,EPLACE);
-                  exit (1);
-                }
-#else
-              interpret_range(s,x,gdb,hash);
-#endif
+                EXIT(NULL);
               pbeg = s->c1;
               pend = s->c2;
               pfst = s->p1;
@@ -801,16 +792,15 @@ Contig_Range *get_selection_contigs(char *x, GDB *gdb, Hash_Table *hash, int ord
               if (ordered)
                 { for (i = pbeg; i < pend; i++)
                     if (chord[i].order)
-                      { fprintf(stderr,"%s: Overlapping contigs in selection ranges\n",Prog_Name);
-                        exit (1);
+                      { EPRINTF("Overlapping contigs in selection ranges");
+                        EXIT(NULL);
                       }
                 }
               else if (ori != 0)
                 { for (i = pbeg; i <= pend; i++)
                     if (chord[i].order && ori*chord[i].orient < 0)
-                      { fprintf(stderr,"%s: Conflicting sign for contig in selection expression\n",
-                                       Prog_Name);
-                        exit (1);
+                      { EPRINTF("Conflicting sign for contig in selection expression");
+                        EXIT(NULL);
                       }
                 }
 
@@ -887,7 +877,10 @@ static Selection *get_selection_list_from_file(FILE *fp, GDB *gdb, Hash_Table *h
 
   nline = 1;
   while ((line = read_line(fp,0,nline,filename)) != NULL)
-    nline += 1;
+    { if (line == RE)
+        EXIT(NULL);
+      nline += 1;
+    }
 
   list = (Selection *) Malloc(sizeof(Selection)*(nline-1),"Allocating sequence array");
 
@@ -903,14 +896,8 @@ static Selection *get_selection_list_from_file(FILE *fp, GDB *gdb, Hash_Table *h
 
       c = *q;
       *q = '\0';
-#ifdef INTERACTIVE
       if (interpret_range(list+len,p,gdb,hash))
-        { fprintf(stderr,"%s: %s\n",Prog_Name,EPLACE);
-          exit (1);
-        }
-#else
-      interpret_range(list+len,p,gdb,hash);
-#endif
+        EXIT(NULL);
       *q = c;
 #ifdef DEBUG_PARSE_SEQ
       fprintf(stderr, "%s: %c %d,%d,%lld  %d,%d,%lld (%d)\n",
@@ -947,8 +934,8 @@ Selection *get_selection_list(char *x, GDB *gdb, Hash_Table *hash, int *nlen)
 
   x = white(x);
   if (*x == '\0')
-    { fprintf(stderr,"%s: Empty range\n",Prog_Name);
-      exit (1);
+    { EPRINTF("Empty range");
+      EXIT(NULL);
     }
 
   fp = fopen(x,"r");
@@ -967,14 +954,8 @@ Selection *get_selection_list(char *x, GDB *gdb, Hash_Table *hash, int *nlen)
      { e = index(x,DLIM_SYMBOL);
        if (e != NULL)
          *e = '\0';
-#ifdef INTERACTIVE
        if (interpret_range(list+len,x,gdb,hash))
-         { fprintf(stderr,"%s: %s\n",Prog_Name,EPLACE);
-           exit (1);
-         }
-#else
-       interpret_range(list+len,x,gdb,hash);
-#endif
+         EXIT(NULL);
 #ifdef DEBUG_PARSE_SEQ
       fprintf(stderr, "%s: %c %d,%d,%lld  %d,%d,%lld (%d)\n",
               Prog_Name,list[len].type ? '@' : '.',list[len].s1,list[len].c1,list[len].p1,

@@ -27,9 +27,9 @@ void Skip_Aln_Skeletons(OneFile *of);
 
 // next two routines read the records from the file
 
-void Read_Aln_Overlap(OneFile *of, Overlap *ovl);
+int  Read_Aln_Overlap(OneFile *of, Overlap *ovl);
 int  Read_Aln_Trace  (OneFile *of, uint8 *trace);
-void Skip_Aln_Trace  (OneFile *of);
+int  Skip_Aln_Trace  (OneFile *of);
 
 // and equivalents for writing
 

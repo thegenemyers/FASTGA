@@ -9,30 +9,55 @@
 
 #include "gene_core.h"
 
-#ifdef INTERACTIVE
-
-char Ebuffer[1000];
-
-#endif
-
 /*******************************************************************************************
  *
  *  GENERAL UTILITIES
  *
  ********************************************************************************************/
 
+char *Error_Buffer;
+
 char *Prog_Name;
 
 char *Command_Line;
+
+int EPRINTF(char *format, ...)
+{ va_list args;
+  int     rval;
+
+  va_start(args,format);
+  if (Error_Buffer == NULL)
+    { fprintf(stderr,"%s: ",Prog_Name);
+      rval = vfprintf(stderr,format,args);
+      fprintf(stderr,"\n");
+    }
+  else
+    rval = vsprintf(Error_Buffer,format,args);
+  va_end(args);
+  return (rval);
+}
+
+int WPRINTF(char *format, ...)
+{ va_list args;
+  int     rval;
+
+  va_start(args,format);
+  if (Error_Buffer == NULL)
+    rval = vfprintf(stderr,format,args);
+  else
+    rval = vsprintf(Error_Buffer,format,args);
+  va_end(args);
+  return (rval);
+}
 
 void *Malloc(int64 size, char *mesg)
 { void *p;
 
   if ((p = malloc(size)) == NULL)
     { if (mesg == NULL)
-        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
+        EPRINTF("Out of memory");
       else
-        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        EPRINTF("Out of memory (%s)",mesg);
       EXIT(NULL);
     }
   // printf("Alloc %10lld / %12lld: %s\n",size,(int64) p,mesg);
@@ -44,9 +69,9 @@ void *Realloc(void *p, int64 size, char *mesg)
     size = 1;
   if ((p = realloc(p,size)) == NULL)
     { if (mesg == NULL)
-        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
+        EPRINTF("Out of memory");
       else
-        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        EPRINTF("Out of memory (%s)",mesg);
       EXIT(NULL);
     }
   // printf("Alloc %10lld / %12lld: %s\n",size,(int64) p,mesg);
@@ -60,9 +85,9 @@ char *Strdup(char *name, char *mesg)
     return (NULL);
   if ((s = strdup(name)) == NULL)
     { if (mesg == NULL)
-        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
+        EPRINTF("Out of memory");
       else
-        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        EPRINTF("%s: Out of memory (%s)",mesg);
       EXIT(NULL);
     }
   return (s);
@@ -75,9 +100,9 @@ char *Strndup(char *name, int len, char *mesg)
     return (NULL);
   if ((s = strndup(name,len)) == NULL)
     { if (mesg == NULL)
-        EPRINTF(EPLACE,"%s: Out of memory\n",Prog_Name);
+        EPRINTF("%s: Out of memory");
       else
-        EPRINTF(EPLACE,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+        EPRINTF("%s: Out of memory (%s)",mesg);
       EXIT(NULL);
     }
   return (s);
@@ -89,7 +114,7 @@ FILE *Fopen(char *name, char *mode)
   if (name == NULL || mode == NULL)
     return (NULL);
   if ((f = fopen(name,mode)) == NULL)
-    { EPRINTF(EPLACE,"%s: Cannot open %s for '%s'\n",Prog_Name,name,mode);
+    { EPRINTF("%s: Cannot open %s for '%s'",name,mode);
       EXIT(NULL);
     }
   return (f);
@@ -152,7 +177,7 @@ char *Catenate(char *path, char *sep, char *root, char *suffix)
   if (len > max)
     { max = ((int) (1.2*len)) + 100;
       if ((cat = (char *) realloc(cat,max+1)) == NULL)
-        { EPRINTF(EPLACE,"%s: Out of memory (Cat'ing 4 strings)\n",Prog_Name);
+        { EPRINTF("Out of memory (Cat'ing 4 strings)");
           EXIT(NULL);
         }
     }
@@ -175,7 +200,7 @@ char *Numbered_Suffix(char *left, int num, char *right)
   if (len > max)
     { max = ((int) (1.2*len)) + 100;
       if ((suffix = (char *) realloc(suffix,max+1)) == NULL)
-        { EPRINTF(EPLACE,"%s: Out of memory (Making number suffix for %d)\n",Prog_Name,num);
+        { EPRINTF("Out of memory (Making number suffix for %d)",num);
           EXIT(NULL);
         }
     }

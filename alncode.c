@@ -69,16 +69,16 @@ int Read_Aln_Skeleton(OneFile *of, char *source, GDB *gdb)
   hdrtot += nscaff;
   nmasks /= 2;
 
-  scf     = malloc(sizeof(GDB_SCAFFOLD)*nscaff);
-  ctg     = malloc(sizeof(GDB_CONTIG)*(ncontig+1));
+  scf     = Malloc(sizeof(GDB_SCAFFOLD)*nscaff,"Reading GDB Skeleton");
+  ctg     = Malloc(sizeof(GDB_CONTIG)*(ncontig+1),"Reading GDB Skeleton");
   if (nmasks > 0)
-    msk = malloc(sizeof(GDB_MASK)*(nmasks+1));
+    msk = Malloc(sizeof(GDB_MASK)*(nmasks+1),"Reading GDB Skeleton");
   else
     msk = NULL;
-  hdr   = malloc(hdrtot);
+  hdr   = Malloc(hdrtot,"Reading GDB Skeleton");
   nprov = 0;
   prov  = NULL;
-  if (scf == NULL || ctg == NULL || hdr == NULL)
+  if (scf == NULL || ctg == NULL || hdr == NULL || (nmasks > 0 && msk == NULL))
     { free(hdr);
       free(ctg);
       free(scf);
@@ -250,19 +250,19 @@ OneFile *open_Aln_Read (char *filename, int nThreads,
 
   schema = oneSchemaCreateFromText(alnSchemaText);
   if (schema == NULL) 
-    { fprintf (stderr, "failed to create 1aln schema\n");
-      return (NULL);
+    { EPRINTF("Failed to create 1aln schema");
+      EXIT(NULL);
     }
 
   of = oneFileOpenRead(filename,schema,"aln",nThreads);
   if (of == NULL)
-    { fprintf (stderr,"%s: Failed to open .1aln file %s\n",Prog_Name,filename);
+    { EPRINTF("Failed to open .1aln file %s",filename);
       oneSchemaDestroy(schema);
-      return (NULL);
+      EXIT(NULL);
     }
 
   if (of->info['A'] == NULL)
-    { fprintf(stderr,"%s: No alignments found in aln file\n",Prog_Name);
+    { EPRINTF("No alignments found in aln file");
       goto clean_up;
     }
   *nOverlaps = of->info['A']->given.count;
@@ -272,7 +272,7 @@ OneFile *open_Aln_Read (char *filename, int nThreads,
   *cpath    = NULL;
   refInfo = of->info['<'];
   if (refInfo == NULL)
-    { fprintf(stderr,"%s: No references in aln file",Prog_Name);
+    { EPRINTF("No references in aln file");
       goto clean_up;
     }      
   for (i = 0; i < refInfo->accum.count; ++i)
@@ -302,8 +302,7 @@ OneFile *open_Aln_Read (char *filename, int nThreads,
       *tspace = oneInt(of,0);
 
   if (*tspace == 0)
-    { fprintf(stderr,"%s: Did not find a t-line before first alignment or GDB skeleton\n",
-                     Prog_Name);
+    { EPRINTF("Did not find a t-line before first alignment or GDB skeleton");
       goto clean_up;
     }      
 
@@ -313,15 +312,15 @@ OneFile *open_Aln_Read (char *filename, int nThreads,
 clean_up:
   oneFileClose(of);
   oneSchemaDestroy(schema);
-  return (NULL);
+  EXIT(NULL);
 }
 
   // Next two routines read the records from the file
 
-void Read_Aln_Overlap(OneFile *of, Overlap *ovl)
+int Read_Aln_Overlap(OneFile *of, Overlap *ovl)
 { if (of->lineType != 'A')
-    { fprintf(stderr,"%s: Failed to be at start of alignment in Read_Aln_Overlap()\n",Prog_Name);
-      exit (1);
+    { EPRINTF("Failed to be at start of alignment in Read_Aln_Overlap()");
+      EXIT(1);
     }
     
   ovl->flags = 0;
@@ -343,10 +342,11 @@ void Read_Aln_Overlap(OneFile *of, Overlap *ovl)
        break;
 
   if (of->lineType != 'T')
-    { fprintf(stderr,"%s: Failed to find trace record in .1aln object %lld\n",
-                     Prog_Name,of->info['A']->accum.count);
-      exit (1);
+    { EPRINTF("Failed to find trace record in .1aln object %lld",
+                     of->info['A']->accum.count);
+      EXIT(1);
     }
+  return (0);
 }
 
 int Read_Aln_Trace(OneFile *of, uint8 *trace)
@@ -355,8 +355,8 @@ int Read_Aln_Trace(OneFile *of, uint8 *trace)
   int    j, x;
   
   if (of->lineType != 'T')
-    { fprintf(stderr,"%s: Failed to be at start of trace in Read_Aln_Trace()\n",Prog_Name);
-      exit (1);
+    { EPRINTF("Failed to be at start of trace in Read_Aln_Trace()");
+      EXIT(1);
     }
     
   tlen    = 2*oneLen(of);
@@ -367,12 +367,12 @@ int Read_Aln_Trace(OneFile *of, uint8 *trace)
 
   oneReadLine(of);
   if (of->lineType != 'X')
-    { fprintf(stderr,"%s: No X-line following a T-line in 1aln file\n",Prog_Name);
-      exit (1);
+    { EPRINTF("No X-line following a T-line in 1aln file");
+      EXIT(1);
     }
   if (2*oneLen(of) != tlen)
-    { fprintf(stderr,"%s: X-line and T-lines should have the same length\n",Prog_Name);
-      exit (1);
+    { EPRINTF("X-line and T-lines should have the same length");
+      EXIT(1);
     }
 
   trace64 = oneIntList(of);
@@ -387,29 +387,31 @@ int Read_Aln_Trace(OneFile *of, uint8 *trace)
   return (tlen);
 }
 
-void Skip_Aln_Trace(OneFile *of)
+int Skip_Aln_Trace(OneFile *of)
 { int    tlen;
   
   if (of->lineType != 'T')
-    { fprintf(stderr,"%s: Failed to be at start of trace in Read_Aln_Trace()\n",Prog_Name);
-      exit (1);
+    { EPRINTF("Failed to be at start of trace in Read_Aln_Trace()");
+      EXIT(1);
     }
     
   tlen = oneLen(of);
 
   oneReadLine(of);
   if (of->lineType != 'X')
-    { fprintf(stderr,"%s: No X-line following a T-line in 1aln file\n",Prog_Name);
-      exit (1);
+    { EPRINTF("No X-line following a T-line in 1aln file");
+      EXIT(1);
     }
   if (oneLen(of) != tlen)
-    { fprintf(stderr,"%s: X-line and T-lines should have the same length\n",Prog_Name);
-      exit (1);
+    { EPRINTF("X-line and T-lines should have the same length");
+      EXIT(1);
     }
 
   while (oneReadLine(of))       // move to start of next alignment
     if (of->lineType == 'A')
       break;
+
+  return (0);
 }
 
   // And these routines write an alignment
@@ -422,14 +424,14 @@ OneFile *open_Aln_Write (char *filename, int nThreads,
 
   schema = oneSchemaCreateFromText(alnSchemaText);
   if (schema == NULL) 
-    { fprintf(stderr,"%s: Failed to create 1aln schema\n",Prog_Name);
-      return 0;
+    { EPRINTF("Failed to create 1aln schema");
+      EXIT(NULL);
     }
 
   of = oneFileOpenWriteNew(filename,schema,"aln",true,nThreads);
   if (of == NULL)
-    { fprintf(stderr,"%s: Failed to open .1aln file %s\n",Prog_Name,filename);
-      return 0;
+    { EPRINTF("Failed to open .1aln file %s",filename);
+      EXIT(NULL);
     }
 
   oneAddProvenance(of,progname,version,commandLine);

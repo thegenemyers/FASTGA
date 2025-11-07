@@ -1788,7 +1788,7 @@ int main(int argc, char *argv[])
   char      *cigar, *cstag;
   int       *indel;
 
-  ARG_INIT("ONEtest");
+  ARG_INIT("ONEalnTEST");
 
   if (argc != 2)
     exit (1);

@@ -43,7 +43,7 @@
 has been added.  The interface is described [here](#ONEaln). This library of routines is in ONEaln.c
 with the interface declared in ONEaln.h.
 **Caution:** several of the modules used by FastGA must also be compiled in, namely, GDB.[ch],
-ONElib.[ch], alncode.[ch], align.[ch], and gene_core.[ch].  See the make command for ONEtest in
+ONElib.[ch], alncode.[ch], align.[ch], and gene_core.[ch].  See the make command for ONEalnTEST in
 the Makefile.
 </font>
 
@@ -739,7 +739,7 @@ A simple use pattern for reading all the alignment records in a file is as follo
 This library of routines is in ONEaln.c
 with the interface declared in ONEaln.h.
 Several of the modules used by FastGA must also be compiled in, namely, GDB.[ch],
-ONElib.[ch], alncode.[ch], align.[ch], and gene_core.[ch].  See the make command for ONEtest in
+ONElib.[ch], alncode.[ch], align.[ch], and gene_core.[ch].  See the make command for ONEalnTEST in
 the Makefile for an example.
 
 

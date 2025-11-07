@@ -49,6 +49,7 @@ static char *alnSchemaText =
   "D Q 1 3 INT                 quality: alignment confidence in phred units (currently unused)\n"
   "D E 1 3 INT                 match: number of equal bases (currently unused)\n"
   "D Z 1 6 STRING              cigar string: encodes precise alignment (currently unused)\n"
+  "D U 1 3 INT                 putative unit size of a TR alignment (FASTAN)\n"
 ;
 
 OneSchema *make_Aln_Schema ()

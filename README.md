@@ -36,20 +36,16 @@
   - [Alignment Records](#arecord)
   - [Error Messages](#emessage)
 
-## <font color="red">Version 1.4 (November 1, 2025) Notes</font>
+## Version 1.4 (November 1, 2025) Notes
 
-<font color="red">
 **COMING SOON**: A C-library of routines that should make it easy to read and access the contents of a .1aln file
 has been added.  The interface is described [here](#ONEaln). This library of routines is in ONEaln.c
 with the interface declared in ONEaln.h.
 **Caution:** several of the modules used by FastGA must also be compiled in, namely, GDB.[ch],
 ONElib.[ch], alncode.[ch], align.[ch], and gene_core.[ch].  See the make command for ONEalnTEST in
 the Makefile.
-</font>
 
-## <font color="red">Version 1.3 (July 23, 2025) Notes</font>
-
-<font color="red">
+## Version 1.3 (July 23, 2025) Notes
 Soft masking is now supported and taken advantage of by the FastGA suite.  Soft masking is assumed
 to be specified in the input FastA files by denoting masked sequence in lower-case and unmasked sequence in upper-case.  Such masks are recorded in our GDB's and in a suitable form within our
 GIX indices.  The later required a slight modification to the GIX data structure.  Old GIX's are
@@ -66,7 +62,6 @@ Additionally,
 
 We are seeking similar improvements in FastGA proper, better handling of satellitic repeats, and
 higher sensitivity for distant genomes without resorting to using LastZ as a subroutine.
-</font>
 
 ## Overview
 
@@ -865,7 +860,7 @@ The Max... routines return the maximum # of contigs/gaps in any scaffold of a GD
 ```
 
 Scaffolds are numbered starting at 1, and the first contig of a scaffold is indexed by 1.
-In rare, somewhat abnormal cases there can be a run of N's at the start or end of
+In rare, somewhat abnormal cases there can be a run of N's at the start or end
 of a scaffold, the length of these are obtained by index 0 and ContigsInScaffold(g,s).
  The routines return -1 if an error occurs.
 
@@ -889,11 +884,11 @@ if an error occurs.
 ```
 
 Get the sequence spanning interval [beg,end] of the s'th scaffold of g.  If buffer = NULL
-then the routine allocates an array of (end-beg)+1 bytes, places the requested sequence
-there, and returns a pointer to it.  In this case the user must subsequently free this-
+then the routine allocates an array of (end-beg)+1 bytes, places the requested sequence '\0'-terminated
+there, and returns a pointer to it.  In this case the user must subsequently free this
 string.  Otherwise, if the user supplies a non-NULL buffer pointer, then it must be of
 length not less than (end-beg)+1, the
- requested sequence is placed there, and the buffer
+ requested sequence is placed there '\0'-terminated, and the buffer
 pointer is returned.  NULL is returned on an error which includes not
 asking for sequence
 access when opening the reader and requesting an interval not wholly within a contig.

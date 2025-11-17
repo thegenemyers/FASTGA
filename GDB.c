@@ -208,7 +208,7 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
       if (SEXTN == ERROR)
         goto error;
       else if (SEXTN == NULL)
-        { EPRINTF("Could not find %s or a fasta or 1-code extension there of");
+        { EPRINTF("Could not find %s or a fasta or 1-code extension there of",SROOT);
           oneSchemaDestroy(schema);
           goto error;
         }

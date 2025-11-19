@@ -669,7 +669,7 @@ void *gen_1aln(void *args)
           ovl->path.aepos = C->apos;
           ovl->path.diffs = tps->diff;
           Write_Aln_Overlap(of,ovl);
-          Write_Aln_Trace(of,tps->trace,tps->tlen,trace64);
+          Write_Aln_Trace(of,tps->trace,tps->tlen,trace64,0);
 
           if (*C->cptr == '\0')
             break;

@@ -169,7 +169,7 @@ void *gen_paf(void *args)
 
   for (alast = -1; beg < end; beg++)
     { Read_Aln_Overlap(in,ovl);
-      path->tlen  = Read_Aln_Trace(in,(uint8 *) trace);
+      path->tlen  = Read_Aln_Trace(in,(uint8 *) trace,NULL);
       path->trace = trace;
 
       acontig = ovl->aread;

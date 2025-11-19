@@ -351,7 +351,7 @@ int main(int argc, char *argv[])
        //  Read it in
 
       { Read_Aln_Overlap(input,ovl);
-        path->tlen  = Read_Aln_Trace(input,(uint8 *) trace);
+        path->tlen  = Read_Aln_Trace(input,(uint8 *) trace,NULL);
         path->trace = trace;
 
         //  Determine if it should be displayed

@@ -7,7 +7,7 @@
  *  Copyright (C) Richard Durbin, Gene Myers, 2019-
  *
  * HISTORY:
- * Last edited: Dec  1 01:00 2024 (rd109)
+ * Last edited: Oct  8 16:05 2025 (rd109)
  * * Dec  3 06:01 2022 (rd109): remove oneWriteHeader(), switch to stdarg for oneWriteComment etc.
  *   * Dec 27 09:46 2019 (gene): style edits
  *   * Created: Sat Feb 23 10:12:43 2019 (rd109)
@@ -20,6 +20,7 @@
 #include <stdio.h>    // for FILE etc.
 #include <stdarg.h>   // for formatted writing in oneWriteComment(), oneAddProvenance()
 #include <stdbool.h>  // for standard bool types
+#include <string.h>   // for memcpy
 #include <limits.h>   // for INT_MAX etc.
 #include <pthread.h>
 
@@ -220,8 +221,8 @@ OneSchema *oneSchemaCreateFromText (const char *text) ;
   //      P <primary file type>   // a short string
   //      S <secondary file type> // a short string - any number of these
   //      O <char> <field_list>   // definition of object type - these are indexed
-  //      G <char> <field_list>   // definition of group type - indexed and accumulate stats
   //      D <char> <field_list>   // definition of normal line type
+  //      G <char>                // the current object type "groups" objects of the designated type
   //   <char> must be a lower or upper case letter. By convention upper case letters are used
   //      for objects and records within objects, and lower case letters for groups and records not
   //      assigned to objects, including global and group information.
@@ -230,7 +231,7 @@ OneSchema *oneSchemaCreateFromText (const char *text) ;
   //      Only one list type (STRING, *_LIST or DNA) is allowed per line type.
   //   All the D lines following an O line apply to that object.
   //   By convention comments on each schema definition line explain the definition.
-  //   Example, with lists and strings preceded by their length as required in ONEcode
+  //   Example, with lists and strings preceded by their length as required in ONEcode:
   //      P 3 seq                            this is a sequence file
   //      O S 1 3 DNA                        the DNA sequence - each S line starts an object
   //      D Q 1 6 STRING                     the phred encoded quality score + ASCII 33
@@ -259,8 +260,9 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *schema, const char *type,
   //   All header information (if present) is read.
   // 'schema' is also optional.  If it is NULL then the file must contain its own schema.  
   //   If 'schema' is present then it must support 'type', and if the file contains its 
-  //   own schema, then that must match 'schema' where they share line types (there can be
-  //   additional record types in both the file's schema, and in the argument 'schema').
+  //   own schema, then that must match 'schema' where they share line types and there is data
+  //   in the file (there can be additional record types in both the file's schema, and in the
+  //   argument 'schema'), and unused line types in the file schema don't need to match.
   // If nthreads > 1 then nthreads OneFiles are generated as an array and the pointer
   //   to the first, called the master, is returned.  The other nthreads-1 files are
   //   called slaves.  The package routines are aware of when a OneFile argument is a
@@ -272,8 +274,10 @@ bool oneFileCheckSchema (OneFile *of, OneSchema *schema, bool isRequired) ;
 bool oneFileCheckSchemaText (OneFile *of, const char *textSchema) ;
 
   // Checks if file schema is consistent with provided schema.  Mismatches are reported to stderr.
-  // Filetype and all linetypes must match.  File schema can contain additional linetypes.
-  // If isRequired is true then file schema must have all line types in supplied schema.
+  // The filetype must match.  If isRequired is true then file schema must have all linetypes in
+  // supplied schema, and all linetypes must match.  The file schema can contain additional
+  // linetypes. If isRequired is false then only line types present in both the supplied schema and
+  // the file schema, and for which there is data in the file, must match.
   // e.g. if (!oneFileCheckSchemaText (of, "P 3 seq\nD S 1 3 DNA\nD Q 1 6 STRING\nD P 0\n")) die () ;
   // This is provided to enable a program to ensure that its assumptions about data layout
   // are satisfied.
@@ -356,7 +360,7 @@ bool oneInheritDeferred   (OneFile *of, OneFile *source);
   // Add all provenance/reference/deferred entries in source to header of of.  Must be
   //   called before first call to oneWriteLine.
 
-bool oneAddProvenance (OneFile *of, const char *prog, const char *version, char *format, ...);
+bool oneAddProvenance (OneFile *of, const char *prog, const char *version, const char *format, ...);
 bool oneAddReference  (OneFile *of, const char *filename, I64 count);
 bool oneAddDeferred   (OneFile *of, const char *filename);
 
@@ -375,15 +379,21 @@ void oneWriteLine (OneFile *of, char lineType, I64 listLen, void *listBuf);
   // For lists, give the length in the listLen argument, and either place the list data in your
   //   own buffer and give it as listBuf, or put in the line's buffer and set listBuf == NULL.
 
-void oneWriteLineFrom (OneFile *of, OneFile *source) ; // copies a line from source into of
 void oneWriteLineDNA2bit (OneFile *of, char lineType, I64 listLen, U8 *dnaBuf);
 
 // Minor variants of oneWriteLine().
 // Use oneWriteLineDNA2bit for DNA lists if your DNA is already 2-bit compressed.
 
-void oneWriteComment (OneFile *of, char *format, ...); // can not include newline \n chars
+void oneWriteComment (OneFile *of, const char *format, ...); // can not include newline \n chars
 
   // Adds a comment to the current line. Extends line in ascii, adds special line type in binary.
+
+static inline void oneWriteLineFrom (OneFile *of, OneFile *source)
+{ memcpy (of->field, source->field, source->info[(int)source->lineType]->nField*sizeof(OneField)) ;
+  oneWriteLine (of, source->lineType, oneLen(source), _oneList(source)) ;
+  char *s = oneReadComment (source) ; if (s) oneWriteComment (of, "%s", s) ;
+}
+  // utility to transfer a line from source through to ref without the local code knowing the schema
 
 // CLOSING FILES (FOR BOTH READ & WRITE):
 

@@ -25,7 +25,7 @@
 
 #undef DEBUG_THREADS
 
-static char *Usage = "[-mxsS] [-T<int(8)>] <alignment:path>[.1aln]";
+static char *Usage = "[-mxsSw] [-T<int(8)>] <alignment:path>[.1aln]";
 
 static int  CIGAR_M;   // -m
 static int  CIGAR_X;   // -x
@@ -33,6 +33,7 @@ static int  CIGAR;     // -m or -x
 static int  DIFFS_S;   // -s
 static int  DIFFS_L;   // -S
 static int  DIFFS;     // -s or -S
+static int  SWAP_G;    // -w
 static int  NTHREADS;  // -T
 static int  ISTWO;     // one gdb or two?
 
@@ -181,35 +182,70 @@ void *gen_paf(void *args)
       bscaff = contigs2[bcontig].scaf;
 
       aoff = contigs1[acontig].sbeg;
-      stoa(ahead + scaff1[ascaff].hoff,out);
-      fputc('\t',out);
-      ltoa(scaff1[ascaff].slen,buf,out);
-      fputc('\t',out);
-      ltoa(aoff + path->abpos,buf,out);
-      fputc('\t',out);
-      ltoa(aoff + path->aepos,buf,out);
 
-      fputc('\t',out);
-      fputc(COMP(aln->flags)?'-':'+',out);
-
-      fputc('\t',out);
-      stoa(bhead + scaff2[bscaff].hoff,out);
-      fputc('\t',out);
-      ltoa(scaff2[bscaff].slen,buf,out);
-
-      if (COMP(aln->flags))
-        { boff = contigs2[bcontig].sbeg + contigs2[bcontig].clen;
+      if (SWAP_G)
+        { stoa(bhead + scaff2[bscaff].hoff,out);
           fputc('\t',out);
-          ltoa(boff - path->bepos,buf,out);
+          ltoa(scaff2[bscaff].slen,buf,out);
+          
+          if (COMP(aln->flags))
+            { boff = contigs2[bcontig].sbeg + contigs2[bcontig].clen;
+              fputc('\t',out);
+              ltoa(boff - path->bepos,buf,out);
+              fputc('\t',out);
+              ltoa(boff - path->bbpos,buf,out);
+            }
+          else
+            { boff = contigs2[bcontig].sbeg;
+              fputc('\t',out);
+              ltoa(boff + path->bbpos,buf,out);
+              fputc('\t',out);
+              ltoa(boff + path->bepos,buf,out);
+            }
+
           fputc('\t',out);
-          ltoa(boff - path->bbpos,buf,out);
+          fputc(COMP(aln->flags)?'-':'+',out);
+          
+          fputc('\t',out);
+          stoa(ahead + scaff1[ascaff].hoff,out);
+          fputc('\t',out);
+          ltoa(scaff1[ascaff].slen,buf,out);
+          fputc('\t',out);
+          ltoa(aoff + path->abpos,buf,out);
+          fputc('\t',out);
+          ltoa(aoff + path->aepos,buf,out);
         }
       else
-        { boff = contigs2[bcontig].sbeg;
+        { stoa(ahead + scaff1[ascaff].hoff,out);
           fputc('\t',out);
-          ltoa(boff + path->bbpos,buf,out);
+          ltoa(scaff1[ascaff].slen,buf,out);
           fputc('\t',out);
-          ltoa(boff + path->bepos,buf,out);
+          ltoa(aoff + path->abpos,buf,out);
+          fputc('\t',out);
+          ltoa(aoff + path->aepos,buf,out);
+
+          fputc('\t',out);
+          fputc(COMP(aln->flags)?'-':'+',out);
+
+          fputc('\t',out);
+          stoa(bhead + scaff2[bscaff].hoff,out);
+          fputc('\t',out);
+          ltoa(scaff2[bscaff].slen,buf,out);
+
+          if (COMP(aln->flags))
+            { boff = contigs2[bcontig].sbeg + contigs2[bcontig].clen;
+              fputc('\t',out);
+              ltoa(boff - path->bepos,buf,out);
+              fputc('\t',out);
+              ltoa(boff - path->bbpos,buf,out);
+            }
+          else
+            { boff = contigs2[bcontig].sbeg;
+              fputc('\t',out);
+              ltoa(boff + path->bbpos,buf,out);
+              fputc('\t',out);
+              ltoa(boff + path->bepos,buf,out);
+            }
         }
 
       if (CIGAR || DIFFS)
@@ -427,7 +463,7 @@ void *gen_paf(void *args)
 
           { int x;
 
-            stoa("\tdv:f:.",out);
+            stoa("\tdv:f:0.",out);
             x = 10000 + (10000ll*((path->aepos-path->abpos)-iid))/(path->aepos-path->abpos);
             fputc('0'+((x/1000)%10),out);
             fputc('0'+((x/100)%10),out);
@@ -438,13 +474,22 @@ void *gen_paf(void *args)
           stoa("\tdf:i:",out);
           itoa(path->diffs,buf,out);
 
+          if (SWAP_G) 
+            { int i;
+              for (i = 0; i < cig->n; i++)
+                if (cig->op[i] == 'I')
+                  cig->op[i] = 'D';
+                else if (cig->op[i] == 'D')
+                  cig->op[i] = 'I';
+            }
+
           if (CIGAR) 
             { int i, j, beg, end, step;
               
               beg  = 0;
               end  = cig->n;
               step = 1;
-              if (COMP(aln->flags))
+              if (COMP(aln->flags) && !SWAP_G)
                 { beg  = cig->n-1;
                   end  = -1;
                   step = -1;
@@ -486,12 +531,17 @@ void *gen_paf(void *args)
               beg  = 0;
               end  = cig->n;
               step = 1;
-              if (COMP(aln->flags))
+              if (COMP(aln->flags) && !SWAP_G)
                 { Complement_Seq(A,path->aepos-path->abpos);
                   Complement_Seq(B,path->bepos-path->bbpos);
                   beg  = cig->n-1;
                   end  = -1;
                   step = -1;
+                }
+              if (SWAP_G) 
+                { char *C = A;
+                  A = B;
+                  B = C;
                 }
               if (DIFFS_S)                       // change '=' to 'M' for short form
                 for (i = 0; i < cig->n; i ++)
@@ -515,9 +565,9 @@ void *gen_paf(void *args)
                         B += l;
                         break;
                       case 'X':
-                        fputc('*',out);
                         for (j = 0; j < l; j++)
-                          { fputc(DNA_DBASE[(int)B[j]],out);
+                          { fputc('*',out);
+                            fputc(DNA_DBASE[(int)B[j]],out);
                             fputc(DNA_DBASE[(int)A[j]],out);
                           }
                         A += l;
@@ -540,7 +590,7 @@ void *gen_paf(void *args)
                     }
                 }
 
-                if (COMP(aln->flags))
+                if (COMP(aln->flags) && !SWAP_G)
                   Complement_Seq(aln->aseq + path->abpos,path->aepos-path->abpos);
             }
         }
@@ -559,7 +609,7 @@ void *gen_paf(void *args)
 
           { int x;
 
-            stoa("\tdv:f:.",out);
+            stoa("\tdv:f:0.",out);
             x = 10000 + (10000ll*((path->aepos-path->abpos)-iid))/(path->aepos-path->abpos);
             fputc('0'+((x/1000)%10),out);
             fputc('0'+((x/100)%10),out);
@@ -609,7 +659,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("mxsS")
+            ARG_FLAGS("mxsSw")
             break;
           case 'T':
             ARG_POSITIVE(NTHREADS,"Number of threads")
@@ -627,6 +677,8 @@ int main(int argc, char *argv[])
     DIFFS_L = flags['S'];
     DIFFS   = DIFFS_S || DIFFS_L;
 
+    SWAP_G  = flags['w'];
+
     if (argc != 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
@@ -634,6 +686,8 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -x: produce Cigar string tag with X's and ='s\n");
         fprintf(stderr,"      -s: produce CS string tag in short form\n");
         fprintf(stderr,"      -S: produce CS string tag in long form\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -w: swap the order of A and B genomes\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -T: Use -T threads.\n");
         exit (1);

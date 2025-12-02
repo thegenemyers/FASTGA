@@ -4607,11 +4607,8 @@ int main(int argc, char *argv[])
         exit (1);
       }
 
-    if (FREQ > 255)
-      { fprintf(stderr,"%s: The maximum allowable frequency cutoff is 255\n",Prog_Name);
-        exit (1);
-      }
-    
+    // Removed 255 frequency limit to support pangenome workflows with many sequences
+
     if ((OUT_OPT & PAFM) && (OUT_OPT & PAFX))
       { fprintf(stderr,"%s: Only one of -paf[m] or -paf[x] can be set\n",Prog_Name);
         exit (1);

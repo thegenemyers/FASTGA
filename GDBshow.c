@@ -19,13 +19,14 @@
 #include <fcntl.h>
 
 #include "GDB.h"
+#include "ANO.h"
 #include "hash.h"
 #include "select.h"
 
 #define DEBUG_RANGE
 
 static char *Usage =
-            "[-h] [-w<int(80)>] <source:path>[.1gdb] [ <selection>|<FILE> ]";
+            "[-hu] [-w<int(80)>] <source:path>[.1gdb] [#[<mask>[.1ano]]] [ <selection>|<FILE> ]";
 
 #define MAX_BUFFER   10001
 
@@ -74,14 +75,35 @@ static void complement(char *seq, int len)
     seq[i] = Comp_Table[(int) seq[i]];
 }
 
+int notdna[256];
+
+static void mask_contig(ANO *ano, int c, char *contig)
+{ int m, t, p, b, e;
+
+  t = ano->moff[c+1];
+  b = 0;
+  for (m = ano->moff[c]; m < t; m++)
+    { e = ano->masks[m].end;
+      if (b < ano->masks[m].beg)
+        b = ano->masks[m].beg;
+      for (p = b; p < e; p++)
+        contig[p] += 32;
+      if (e > b)
+        b = e;
+    }
+}
+
 int main(int argc, char *argv[])
 { GDB        _gdb, *gdb = &_gdb;
+  ANO        _ano, *ano = &_ano;
+  int        has_mask;
   Selection *select;
   int        llen;
 
   int         UPPER;
   int         DOSEQ;
   int         WIDTH;
+  char       *MFILE;
 
   //  Process arguments
 
@@ -92,25 +114,36 @@ int main(int argc, char *argv[])
     ARG_INIT("GDBshow")
 
     WIDTH = 80;
+    MFILE = NULL;
+    UPPER = LOWER_CASE;
 
     j = 1;
     for (i = 1; i < argc; i++)
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("h")
+            ARG_FLAGS("hu")
             break;
           case 'w':
             ARG_NON_NEGATIVE(WIDTH,"Line width")
             break;
+          case '#':
+            MFILE = argv[i]+2;
+            break;
+        }
+      else if (argv[i][0] == '#')
+        { if (j == 1)
+            MFILE = argv[i]+1;
         }
       else
         argv[j++] = argv[i];
     argc = j;
 
     DOSEQ = 1-flags['h'];
+    if (flags['u'])
+      UPPER = UPPER_CASE;
 
-    if (argc <= 1)
+    if (argc <= 1 || argc >= 4)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"  <selection> = <range>[+-] [ , <range>[+-] ]*\n");
@@ -125,7 +158,10 @@ int main(int argc, char *argv[])
         fprintf(stderr,"           <contig>   = # | <int>\n");
         fprintf(stderr,"           <position> = # | <int> [ . <int> ] [kMG]\n");
         fprintf(stderr,"\n");
+        fprintf(stderr,"       #: Show supplied or implicit .1ano as lower case sequence\n");
+        fprintf(stderr,"\n");
         fprintf(stderr,"      -h: Show only the header lines.\n");
+        fprintf(stderr,"      -u: Show in upper case.\n");
         fprintf(stderr,"      -w: Print -w bp per line (default is 80).\n");
         exit (1);
       }
@@ -160,10 +196,26 @@ int main(int argc, char *argv[])
         *eptr = c;
       }
 
-    if (gdb->iscaps)
-      UPPER = UPPER_CASE;
-    else
-      UPPER = LOWER_CASE;
+    has_mask = 0;
+    if (MFILE != NULL)
+      { UPPER = UPPER_CASE;
+        if (*MFILE == '\0')
+          { char *pwd, *root, *e;
+
+            pwd = PathTo(argv[1]);        
+            e = argv[1] + strlen(argv[1]);   
+            if (e > argv[1]+5 && strcmp(e-5,".1gdb") == 0)
+              root = Root(argv[1],".1gdb");
+            else 
+              root = Root(argv[1],".gdb");
+            Read_ANO(ano,Catenate(pwd,"/",root,".1ano"),gdb);
+            free(root);
+            free(pwd);
+          }
+        else
+          Read_ANO(ano,MFILE,gdb);
+        has_mask = 1;
+      }
   }
 
   //  Get the selection list (every contig by default)
@@ -252,6 +304,8 @@ int main(int argc, char *argv[])
                           cbeg = r->sbeg;
                           if (cbeg < lst && cend > fst)
                             { Get_Contig(gdb,u,UPPER,contig);
+                              if (has_mask)
+                                mask_contig(ano,u,contig);
                               complement(contig,r->clen);
                               f = fst-cbeg;
                               l = lst-cbeg;
@@ -280,7 +334,7 @@ int main(int argc, char *argv[])
                     }
                 }
 
-              else
+              else // ori > 0
 
                 { int cbeg, cend, wpos;
                   int j, u, w, f, l;
@@ -296,7 +350,7 @@ int main(int argc, char *argv[])
   
                   r = CONTIGS + SCAFFS[k].fctg;
   
-                  printf(">%s",HEADERS+SCAFFS[k].hoff);
+                  printf(">%s ",HEADERS+SCAFFS[k].hoff);
                   printf("%c%d,%d%c\n",fst==0?SOEL:SPOS,fst,lst,lst==SCAFFS[k].slen?EOEL:EPOS);
   
                   if (DOSEQ)
@@ -318,6 +372,8 @@ int main(int argc, char *argv[])
                           cend = cbeg + r->clen;
                           if (cbeg < lst && cend > fst)
                             { Get_Contig(gdb,u,UPPER,contig);
+                              if (has_mask)
+                                mask_contig(ano,u,contig);
                               f = fst-cbeg;
                               l = lst-cbeg;
                               if (f < 0) f = 0; 
@@ -370,8 +426,11 @@ int main(int argc, char *argv[])
 
               if (DOSEQ)
                 { int j;
-  
+
                   Get_Contig(gdb,k,UPPER,contig);
+
+                  if (has_mask)
+                    mask_contig(ano,k,contig);
 
                   if (ori < 0)
                     { x = r->clen - fst;

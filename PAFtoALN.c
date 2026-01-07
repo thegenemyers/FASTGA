@@ -804,27 +804,17 @@ int main(int argc, char *argv[])
     ISTWO = 0;
     type  = Get_GDB_Paths(argv[2],NULL,&SPATH1,&tpath,0);
     if (type != IS_GDB)
-      Create_GDB(gdb1,SPATH1,type,0,NULL,0);
+      Create_GDB(gdb1,SPATH1,type,0,NULL,0,NULL);
     else
-      { Read_GDB(gdb1,tpath);
-        if (gdb1->seqs == NULL)
-          { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
-            exit (1);
-          }
-      }
+      Read_GDB(gdb1,tpath);
     free(tpath);
 
     if (argc == 4)
       { type = Get_GDB_Paths(argv[3],NULL,&SPATH2,&tpath,0);
         if (type != IS_GDB)
-          Create_GDB(gdb2,SPATH2,type,0,NULL,0);
+          Create_GDB(gdb2,SPATH2,type,0,NULL,0,NULL);
         else
-          { Read_GDB(gdb2,tpath);
-            if (gdb2->seqs == NULL)
-              { fprintf(stderr,"%s: GDB %s must have sequence data\n",Prog_Name,tpath);
-                exit (1);
-              }
-          }
+          Read_GDB(gdb2,tpath);
         free(tpath);
         ISTWO = 1;
       }
@@ -909,9 +899,9 @@ int main(int argc, char *argv[])
     free(cpath);
     free(SPATH1);
 
-    Write_Aln_Skeleton(of,gdb1);
+    Write_Skeleton(of,gdb1);
     if (ISTWO)
-      { Write_Aln_Skeleton(of,gdb2);
+      { Write_Skeleton(of,gdb2);
         free(SPATH2);
       }
 

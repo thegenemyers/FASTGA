@@ -675,24 +675,24 @@ int main(int argc, char *argv[])
     units1 = units2 = NULL;
     
     if (CIGAR || DIFFS)
-      { Skip_Aln_Skeletons(input);
-        units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS);
+      { Skip_Skeleton(input);
+        units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS,NULL);
       }
     else
       { if (input->lineType == 'g')
-          Read_Aln_Skeleton(input,src1_name,gdb1);
+          Read_Skeleton(input,src1_name,gdb1);
         else
-          Get_GDB(gdb1,src1_name,cpath,0);
+          Get_GDB(gdb1,src1_name,cpath,0,NULL);
       }
 
     if (ISTWO)
       { if (CIGAR || DIFFS)
-          units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS);
+          units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS,NULL);
         else
           { if (input->lineType == 'g')
-              Read_Aln_Skeleton(input,src1_name,gdb2);
+              Read_Skeleton(input,src1_name,gdb2);
             else
-              Get_GDB(gdb2,src2_name,cpath,0);
+              Get_GDB(gdb2,src2_name,cpath,0,NULL);
           }
       }
     else

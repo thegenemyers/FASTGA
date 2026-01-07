@@ -88,7 +88,7 @@ static int enlarge_vector(_Work_Data *work, int newmax)
   max = ((int) (newmax*1.2)) + 10000;
   vec = Realloc(work->vector,max,"Enlarging DP vector");
   if (vec == NULL)
-    return(1);
+    return (1);
   work->vecmax = max;
   work->vector = vec;
   return (0);
@@ -101,7 +101,7 @@ static int enlarge_points(_Work_Data *work, int newmax)
   max = ((int) (newmax*1.2)) + 10000;
   vec = Realloc(work->points,max,"Enlarging point vector");
   if (vec == NULL)
-    return(1);
+    return (1);
   work->pntmax = max;
   work->points = vec;
   return (0);
@@ -114,7 +114,7 @@ static int enlarge_alnpts(_Work_Data *work, int newmax)
   max = ((int) (newmax*1.2)) + 10000;
   vec = Realloc(work->alnpts,max,"Enlarging point vector");
   if (vec == NULL)
-    return(1);
+    return (1);
   work->alnmax = max;
   work->alnpts = vec;
   return (0);
@@ -127,7 +127,7 @@ static int enlarge_trace(_Work_Data *work, int newmax)
   max = ((int) (newmax*1.2)) + 10000;
   vec = Realloc(work->trace,max,"Enlarging trace vector");
   if (vec == NULL)
-    return(1);
+    return (1);
   work->tramax = max;
   work->trace  = vec;
   return (0);
@@ -347,10 +347,10 @@ typedef struct
     int mark;
   } Pebble;
 
-static int VectorEl = 6*sizeof(int) + sizeof(BVEC);
+static int VectorEl = 4*sizeof(int) + sizeof(BVEC);
 
-static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, Path *bpath,
-                        int *mind, int maxd, int mida, int minp, int maxp, int aoff, int boff)
+static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
+                        int *mind, int maxd, int mida, int minp, int maxp, int aoff)
 { char *aseq  = align->aseq;
   char *bseq  = align->bseq;
   Path *apath = align->path;
@@ -362,24 +362,22 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
   BVEC   *T;
   BVEC   *_T;
 
-  int    *HA, *HB;
-  int    *_HA, *_HB;
-  int    *NA, *NB;
-  int    *_NA, *_NB;
+  int    *HA, *_HA;
+  int    *NA, *_NA;
   Pebble *cells;
   int     avail, cmax;
 
-  int     TRACE_SPACE = spec->trace_space;
+  int     tspace      = spec->trace_space;
   int     PATH_AVE    = spec->ave_path;
   int     REACH       = spec->reach;
   int16  *SCORE       = spec->score;
   int16  *TABLE       = spec->table;
 
-  int     besta, besty;
-  int     trima, trimy, trimd;
-  int     trimha, trimhb;
-  int     morea, morey, mored;
-  int     moreha, morehb;
+  int     besta, bestx;
+  int     trima, trimx, trimd;
+  int     trimha;
+  int     morea, morex, mored;
+  int     moreha;
   int     more, morem, lasta;
   int     aclip, bclip;
 
@@ -391,24 +389,20 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
 
     span = (hgh-low)+1;
     vlen = work->vecmax/VectorEl;
-    wing = (vlen - span)/2;
+    wing = (vlen - span)>>1;
     vmin = low - wing;
     vmax = hgh + wing;
 
     _V  = ((int *) work->vector);
     _M  = _V + vlen;
     _HA = _M + vlen;
-    _HB = _HA + vlen;
-    _NA = _HB + vlen;
-    _NB = _NA + vlen;
-    _T  = ((BVEC *) (_NB + vlen));
+    _NA = _HA + vlen;
+    _T  = ((BVEC *) (_NA + vlen));
 
     V  = _V-vmin;
     M  = _M-vmin;
     HA = _HA-vmin;
-    HB = _HB-vmin;
     NA = _NA-vmin;
-    NB = _NB-vmin;
     T  = _T-vmin;
 
     cells = (Pebble *) (work->cells);
@@ -423,34 +417,32 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
   bclip = -INT32_MAX;
 
   besta  = trima  = morea = lasta = mida;
-  besty  = trimy  = morey = (mida-hgh) >> 1;
+  bestx  = trimx  = morex = (mida+hgh)>>1;
   trimd  = mored  = 0;
   trimha = moreha = 0;
-  trimhb = morehb = 1;
   morem  = -1;
 
   { int   k;
-    char *a;
+    char *bs;
 
-    a  = aseq + hgh;
+    bs = bseq - hgh;
     for (k = hgh; k >= low; k--)
-      { int     y, c, d;
-        int     ha, hb;
-        int     na, nb;
+      { int     x, c, d;
+        int     ha, na;
         Pebble *pb;
 
-        y = (mida-k) >> 1;
+        x = (mida+k)>>1;
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
             cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
             if (cells == NULL)
-              return(1);
+              return (1);
             work->celmax = cmax;
             work->cells  = (void *) cells;
           }
 
-        na = (((y+k)+(TRACE_SPACE-aoff))/TRACE_SPACE-1)*TRACE_SPACE+aoff;
+        na = ((x+(tspace-aoff))/tspace-1)*tspace+aoff;
 #ifdef SHOW_TPS
         printf(" A %d: %d,%d,0,%d\n",avail,-1,k,na); fflush(stdout);
 #endif
@@ -460,46 +452,34 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
         pb->diff = 0;
         pb->mark = na;
         ha  = avail++;
-        na += TRACE_SPACE;
-
-        nb = ((y+(TRACE_SPACE-boff))/TRACE_SPACE-1)*TRACE_SPACE+boff;
-#ifdef SHOW_TPS
-        printf(" B %d: %d,%d,0,%d\n",avail,-1,k,nb); fflush(stdout);
-#endif
-        pb = cells+avail;
-        pb->ptr  = -1;
-        pb->diag = k;
-        pb->diff = 0;
-        pb->mark = nb;
-        hb  = avail++;
-        nb += TRACE_SPACE;
+        na += tspace;
 
         while (1)
-          { c = bseq[y];
+          { c = bs[x];
             if (c == 4)
               { more = 0;
                 if (bclip < k)
                   bclip = k;
                 break;
               }
-            d = a[y];
+            d = aseq[x];
             if (c != d)
-              { if (d == 4) 
+              { if (d == 4)
                   { more  = 0;
                     aclip = k;
                   }
                 break;
               }
-            y += 1;
+            x += 1;
           }
-        c = (y << 1) + k;
+        c = (x << 1) - k;
 
-        while (y+k >= na)
+        while (x >= na)
           { if (avail >= cmax)
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
                 if (cells == NULL)
-                  return(1);
+                  return (1);
                 work->celmax = cmax;
                 work->cells  = (void *) cells;
               }
@@ -512,59 +492,35 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
             pb->diff = 0;
             pb->mark = na;
             ha  = avail++;
-            na += TRACE_SPACE;
-          }
-        while (y >= nb)
-          { if (avail >= cmax)
-              { cmax  = ((int) (avail*1.2)) + 10000;
-                cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
-                if (cells == NULL)
-                  return(1);
-                work->celmax = cmax;
-                work->cells  = (void *) cells;
-              }
-#ifdef SHOW_TPS
-            printf(" B %d: %d,%d,0,%d\n",avail,hb,k,nb); fflush(stdout);
-#endif
-            pb = cells+avail;
-            pb->ptr  = hb;
-            pb->diag = k;
-            pb->diff = 0;
-            pb->mark = nb;
-            hb  = avail++;
-            nb += TRACE_SPACE;
+            na += tspace;
           }
 
         if (c > besta)
           { besta  = trima = lasta = c;
-            besty  = trimy = y;
+            bestx  = trimx = x;
             trimha = ha;
-            trimhb = hb;
           }
 
         V[k]  = c;
         T[k]  = PATH_INT;
         M[k]  = PATH_LEN;
         HA[k] = ha;
-        HB[k] = hb;
         NA[k] = na;
-        NB[k] = nb;
 
-        a -= 1;
+        bs += 1;
       }
   }
 
   if (more == 0)
-    { if (bseq[besty] != 4 && aseq[besta - besty] != 4)
+    { if (bseq[besta-bestx] != 4 && aseq[bestx] != 4)
         more = 1;
       if (hgh >= aclip)
         { hgh = aclip-1;
           if (morem <= M[aclip])
             { morem  = M[aclip];
               morea  = V[aclip];
-              morey  = (morea - aclip)/2;
+              morex  = (morea + aclip)>>1;
               moreha = HA[aclip];
-              morehb = HB[aclip];
             }
         }
       if (low <= bclip)
@@ -572,9 +528,8 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           if (morem <= M[bclip])
             { morem  = M[bclip];
               morea  = V[bclip];
-              morey  = (morea - bclip)/2;
+              morex  = (morea + bclip)>>1;
               moreha = HA[bclip];
-              morehb = HB[bclip];
             }
         }
       aclip =  INT32_MAX;
@@ -590,10 +545,10 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
 
   while (more && lasta >= besta - TRIM_MLAG)
     { int     k, n;
-      int     ua, ub;
+      int     ua;
       BVEC    t;
       int     am, ac, ap;
-      char   *a;
+      char   *bs;
 
       low -= 1;
       hgh += 1;
@@ -601,12 +556,12 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
       if (low <= vmin || hgh >= vmax)
         { int   span, wing;
           int64 move;
-          int64 vd, md, had, hbd, nad, nbd, td;
+          int64 vd, md, had, nad, td;
 
           span = (hgh-low)+1;
           if (.8*vlen < span)
             { if (enlarge_vector(work,vlen*VectorEl))
-                return(1);
+                return (1);
 
               move = ((void *) _V) - work->vector;
               vlen = work->vecmax/VectorEl;
@@ -614,22 +569,18 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
               _V  = (int *) work->vector;
               _M  = _V + vlen;
               _HA = _M + vlen;
-              _HB = _HA + vlen;
-              _NA = _HB + vlen;
-              _NB = _NA + vlen;
-              _T  = ((BVEC *) (_NB + vlen));
+              _NA = _HA + vlen;
+              _T  = ((BVEC *) (_NA + vlen));
             }
           else
             move = 0;
 
-          wing = (vlen - span)/2;
+          wing = (vlen - span)>>1;
 
           vd  = ((void *) ( _V+wing)) - (((void *) ( V+low)) - move);
           md  = ((void *) ( _M+wing)) - (((void *) ( M+low)) - move);
           had = ((void *) (_HA+wing)) - (((void *) (HA+low)) - move);
-          hbd = ((void *) (_HB+wing)) - (((void *) (HB+low)) - move);
           nad = ((void *) (_NA+wing)) - (((void *) (NA+low)) - move);
-          nbd = ((void *) (_NB+wing)) - (((void *) (NB+low)) - move);
           td  = ((void *) ( _T+wing)) - (((void *) ( T+low)) - move);
 
           if (vd < 0)
@@ -638,23 +589,15 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
             memmove( _M+wing,  ((void *) ( M+low)) - move, span*sizeof(int));
           if (had < 0)
             memmove(_HA+wing,  ((void *) (HA+low)) - move, span*sizeof(int));
-          if (hbd < 0)
-            memmove(_HB+wing,  ((void *) (HB+low)) - move, span*sizeof(int));
           if (nad < 0)
             memmove(_NA+wing,  ((void *) (NA+low)) - move, span*sizeof(int));
-          if (nbd < 0)
-            memmove(_NB+wing,  ((void *) (NB+low)) - move, span*sizeof(int));
           if (td < 0)
             memmove( _T+wing,  ((void *) ( T+low)) - move, span*sizeof(BVEC));
 
           if (td > 0)
             memmove( _T+wing,  ((void *) ( T+low)) - move, span*sizeof(BVEC));
-          if (nbd > 0)
-            memmove(_NB+wing,  ((void *) (NB+low)) - move, span*sizeof(int));
           if (nad > 0)
             memmove(_NA+wing,  ((void *) (NA+low)) - move, span*sizeof(int));
-          if (hbd > 0)
-            memmove(_HB+wing,  ((void *) (HB+low)) - move, span*sizeof(int));
           if (had > 0)
             memmove(_HA+wing,  ((void *) (HA+low)) - move, span*sizeof(int));
           if (md > 0)
@@ -668,15 +611,12 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           V  =  _V-vmin;
           M  =  _M-vmin;
           HA = _HA-vmin;
-          HB = _HB-vmin;
           NA = _NA-vmin;
-          NB = _NB-vmin;
           T  =  _T-vmin;
         }
 
       if (low >= minp)
         { NA[low] = NA[low+1];
-          NB[low] = NB[low+1];
           V[low]  = -1;
         }
       else
@@ -684,7 +624,6 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
 
       if (hgh <= maxp)
         { NA[hgh] = NA[hgh-1];
-          NB[hgh] = NB[hgh-1];
           V[hgh]  = am = -1;
         }
       else
@@ -693,13 +632,13 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
       dif += 1;
 
       ac = V[hgh+1] = V[low-1] = -1;
-      a  = aseq + hgh;
+      bs = bseq - hgh;
       t  = PATH_INT;
       n  = PATH_LEN;
-      ua = ub = -1;
+      ua = -1;
       for (k = hgh; k >= low; k--)
-        { int     y, m;
-          int     ha, hb;
+        { int     x, m;
+          int     ha;
           int     c, d;
           BVEC    b;
           Pebble *pb;
@@ -714,14 +653,12 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                 m  = n;
                 b  = t;
                 ha = ua;
-                hb = ub;
               }
             else
               { c  = am+1;
                 m  = M[d];
-                b  = T[d]; 
+                b  = T[d];
                 ha = HA[d];
-                hb = HB[d];
               }
           else
             if (ac < ap)
@@ -729,52 +666,50 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                 m  = n;
                 b  = t;
                 ha = ua;
-                hb = ub;
               }
             else
               { c  = ac+2;
                 m  = M[k];
                 b  = T[k];
                 ha = HA[k];
-                hb = HB[k];
               }
 
           if ((b & PATH_TOP) != 0)
             m -= 1;
           b <<= 1;
 
-          y = (c-k) >> 1;
+          x = (c+k)>>1;
           while (1)
-            { c = bseq[y];
+            { c = bs[x];
               if (c == 4)
                 { more = 0;
                   if (bclip < k)
                     bclip = k;
                   break;
                 }
-              d = a[y];
+              d = aseq[x];
               if (c != d)
-                { if (d == 4) 
+                { if (d == 4)
                     { more  = 0;
                       aclip = k;
                     }
                   break;
                 }
-              y += 1;
+              x += 1;
               if ((b & PATH_TOP) == 0)
                 m += 1;
               b = (b << 1) | 1;
             }
-          c = (y << 1) + k;
+          c = (x << 1) - k;
 
-          while (y+k >= NA[k])
+          while (x >= NA[k])
             { if (cells[ha].mark < NA[k])
                 { if (avail >= cmax)
                     { cmax  = ((int) (avail*1.2)) + 10000;
                       cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
                                                        "Reallocating trace cells");
                       if (cells == NULL)
-                        return(1);
+                        return (1);
                       work->celmax = cmax;
                       work->cells  = (void *) cells;
                     }
@@ -788,45 +723,20 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                   pb->mark = NA[k];
                   ha = avail++;
                 }
-              NA[k] += TRACE_SPACE;
-            }
-
-          while (y >= NB[k])
-            { if (cells[hb].mark < NB[k])
-                { if (avail >= cmax)
-                    { cmax  = ((int) (avail*1.2)) + 10000;
-                      cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
-                                                       "Reallocating trace cells");
-                      if (cells == NULL)
-                        return(1);
-                      work->celmax = cmax;
-                      work->cells  = (void *) cells;
-                    }
-#ifdef SHOW_TPS
-                  printf(" B %d: %d,%d,%d,%d\n",avail,hb,k,dif,NB[k]); fflush(stdout);
-#endif
-                  pb = cells+avail;
-                  pb->ptr  = hb;
-                  pb->diag = k;
-                  pb->diff = dif;
-                  pb->mark = NB[k];
-                  hb = avail++;
-                }
-              NB[k] += TRACE_SPACE;
+              NA[k] += tspace;
             }
 
           if (c > besta)
             { besta = c;
-              besty = y;
+              bestx = x;
               if (m >= PATH_AVE)
                 { lasta = c;
                   if (TABLE[b & TRIM_MASK] >= 0)
                     if (TABLE[(b >> TRIM_LEN) & TRIM_MASK] + SCORE[b & TRIM_MASK] >= 0)
                       { trima  = c;
-                        trimy  = y;
+                        trimx  = x;
                         trimd  = dif;
                         trimha = ha;
-                        trimhb = hb;
                       }
                 }
             }
@@ -834,28 +744,25 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           t  = T[k];
           n  = M[k];
           ua = HA[k];
-          ub = HB[k];
           V[k]  = c;
           T[k]  = b;
           M[k]  = m;
           HA[k] = ha;
-          HB[k] = hb;
 
-          a -= 1;
+          bs += 1;
         }
 
       if (more == 0)
-        { if (bseq[besty] != 4 && aseq[besta-besty] != 4)
+        { if (bseq[besta-bestx] != 4 && aseq[bestx] != 4)
             more = 1;
           if (hgh >= aclip)
             { hgh = aclip-1;
               if (morem <= M[aclip])
                 { morem  = M[aclip];
                   morea  = V[aclip];
-                  morey  = (morea - aclip)/2;
+                  morex  = (morea + aclip)>>1;
                   mored  = dif;
                   moreha = HA[aclip];
-                  morehb = HB[aclip];
                 }
             }
           if (low <= bclip)
@@ -863,10 +770,9 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
               if (morem <= M[bclip])
                 { morem  = M[bclip];
                   morea  = V[bclip];
-                  morey  = (morea - bclip)/2;
+                  morex  = (morea + bclip)>>1;
                   mored  = dif;
                   moreha = HA[bclip];
-                  morehb = HB[bclip];
                 }
             }
           aclip =  INT32_MAX;
@@ -876,7 +782,7 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
       n = besta - WAVE_LAG;
       while (hgh >= low)
         if (V[hgh] < n)
-          hgh -= 1;                               
+          hgh -= 1;
         else
           { while (V[low] < n)
               low += 1;
@@ -897,37 +803,38 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
     }
 
   { uint16 *atrace = (uint16 *) apath->trace;
-    uint16 *btrace = (uint16 *) bpath->trace;
-    int     atlen, btlen;
-    int     trimx;
+    int     atlen;
+    int     trimy;
     int     a, b, k, h;
     int     d, e;
 
     if (morem >= 0 && REACH)
-      { trimx  = morea-morey;
-        trimy  = morey;
+      { trimx  = morex;
+        trimy  = morea - morex;
         trimd  = mored;
         trimha = moreha;
-        trimhb = morehb;
       }
     else
-      trimx = trima-trimy;
+      trimy = trima - trimx;
 
-    atlen = btlen = 0;
+    atlen = 0;
 
     a = -1;
     for (h = trimha; h >= 0; h = b)
-      { b = cells[h].ptr; 
+      { b = cells[h].ptr;
         cells[h].ptr = a;
         a = h;
       }
     h = a;
 
     k = cells[h].diag;
-    b = (mida-k)/2;
+    b = (mida-k)>>1;
     e = 0;
+
+    low = k;
+
 #ifdef SHOW_TRAIL
-    printf("  A path = (%5d,%5d)\n",(mida+k)/2,b); fflush(stdout);
+    printf("  A path = (%5d,%5d)\n",(mida+k)>>1,b); fflush(stdout);
 #endif
     for (h = cells[h].ptr; h >= 0; h = cells[h].ptr)
       { k = cells[h].diag;
@@ -956,53 +863,10 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
 #endif
       }
 
-    a = -1;
-    for (h = trimhb; h >= 0; h = b)
-      { b = cells[h].ptr; 
-        cells[h].ptr = a;
-        a = h;
-      }
-    h = a;
-
-    k = cells[h].diag;
-    b = (mida+k)/2;
-    e = 0;
-    low = k;
-#ifdef SHOW_TRAIL
-    printf("  B path = (%5d,%5d)\n",b,(mida-k)/2); fflush(stdout);
-#endif
-    for (h = cells[h].ptr; h >= 0; h = cells[h].ptr)
-      { k = cells[h].diag;
-        a = cells[h].mark + k;
-        d = cells[h].diff;
-        btrace[btlen++] = (uint16) (d-e);
-        btrace[btlen++] = (uint16) (a-b);  
-#ifdef SHOW_TRAIL
-        printf("     %4d: (%5d,%5d): %3d / %3d\n",h,a,a-k,d-e,a-b); fflush(stdout);
-#endif
-        b = a;
-        e = d;
-      }
-    if (b-k != trimy)
-      { btrace[btlen++] = (uint16) (trimd-e);
-        btrace[btlen++] = (uint16) (trimx-b);  
-#ifdef SHOW_TRAIL
-        printf("           (%5d,%5d): %3d / %3d\n",trimx,trimy,trimd-e,trimx-b); fflush(stdout);
-#endif
-      }
-    else if (b != trimx)
-      { btrace[btlen-1] = (uint16) (btrace[btlen-1] + (trimx-b));
-        btrace[btlen-2] = (uint16) (btrace[btlen-2] + (trimd-e));
-#ifdef SHOW_TRAIL
-        printf("         @ (%5d,%5d): %3d / %3d\n",trimx,trimy,trimd-e,trimx-b); fflush(stdout);
-#endif
-      }
-
     apath->aepos = trimx;
     apath->bepos = trimy;
     apath->diffs = trimd;
     apath->tlen  = atlen;
-    bpath->tlen  = btlen;
   }
 
   *mind = low;
@@ -1011,8 +875,8 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
 
 /*** Reverse Wave ***/
 
-static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, Path *bpath,
-                        int mind, int maxd, int mida, int minp, int maxp, int aoff, int boff)
+static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
+                        int mind, int maxd, int mida, int minp, int maxp, int aoff)
 { char *aseq  = align->aseq - 1;
   char *bseq  = align->bseq - 1;
   Path *apath = align->path;
@@ -1024,24 +888,22 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
   BVEC   *T;
   BVEC   *_T;
 
-  int    *HA, *HB;
-  int    *_HA, *_HB;
-  int    *NA, *NB;
-  int    *_NA, *_NB;
+  int    *HA, *_HA;
+  int    *NA, *_NA;
   Pebble *cells;
   int     avail, cmax;
 
-  int     TRACE_SPACE = spec->trace_space;
+  int     tspace      = spec->trace_space;
   int     PATH_AVE    = spec->ave_path;
   int     REACH       = spec->reach;
   int16  *SCORE       = spec->score;
   int16  *TABLE       = spec->table;
 
-  int     besta, besty;
-  int     trima, trimy, trimd;
-  int     trimha, trimhb;
-  int     morea, morey, mored;
-  int     moreha, morehb;
+  int     besta, bestx;
+  int     trima, trimx, trimd;
+  int     trimha;
+  int     morea, morex, mored;
+  int     moreha;
   int     more, morem, lasta;
   int     aclip, bclip;
 
@@ -1053,24 +915,20 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
 
     span = (hgh-low)+1;
     vlen = work->vecmax/VectorEl;
-    wing = (vlen - span)/2;
+    wing = (vlen - span)>>1;
     vmin = low - wing;
     vmax = hgh + wing;
 
     _V  = ((int *) work->vector);
     _M  = _V + vlen;
     _HA = _M + vlen;
-    _HB = _HA + vlen;
-    _NA = _HB + vlen;
-    _NB = _NA + vlen;
-    _T  = ((BVEC *) (_NB + vlen));
+    _NA = _HA + vlen;
+    _T  = ((BVEC *) (_NA + vlen));
 
     V  = _V-vmin;
     M  = _M-vmin;
     HA = _HA-vmin;
-    HB = _HB-vmin;
     NA = _NA-vmin;
-    NB = _NB-vmin;
     T  = _T-vmin;
 
     cells = (Pebble *) (work->cells);
@@ -1083,81 +941,68 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
   bclip =  INT32_MAX;
 
   besta  = trima  = morea = lasta = mida;
-  besty  = trimy  = morey = (mida-hgh) >> 1;
+  bestx  = trimx  = morex = (mida+hgh)>>1;
   trimd  = mored  = 0;
   trimha = moreha = 0;
-  trimhb = morehb = 1;
   morem  = -1;
 
   { int   k;
-    char *a;
+    char *bs;
 
-    a = aseq + low;
+    bs = bseq - low;
     for (k = low; k <= hgh; k++)
-      { int     y, c, d;
-        int     ha, hb;
-        int     na, nb;
+      { int     x, c, d;
+        int     ha, na;
         Pebble *pb;
 
-        y = (mida-k) >> 1;
+        x = (mida+k)>>1;
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
             cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
             if (cells == NULL)
-              return(1);
+              return (1);
             work->celmax = cmax;
             work->cells  = (void *) cells;
           }
 
-        na = (((y+k)+(TRACE_SPACE-aoff)-1)/TRACE_SPACE-1)*TRACE_SPACE+aoff;
+        na = ((x+(tspace-aoff)-1)/tspace-1)*tspace+aoff;
 #ifdef SHOW_TPS
-        printf(" A %d: -1,%d,0,%d\n",avail,k,na+TRACE_SPACE); fflush(stdout);
+        printf(" A %d: -1,%d,0,%d\n",avail,k,na+tspace); fflush(stdout);
 #endif
         pb = cells+avail;
         pb->ptr  = -1;
         pb->diag = k;
         pb->diff = 0;
-        pb->mark = y+k;
+        pb->mark = x;
         ha  = avail++;
 
-        nb = ((y+(TRACE_SPACE-boff)-1)/TRACE_SPACE-1)*TRACE_SPACE+boff;
-#ifdef SHOW_TPS
-        printf(" B %d: -1,%d,0,%d\n",avail,k,nb+TRACE_SPACE); fflush(stdout);
-#endif
-        pb = cells+avail;
-        pb->ptr  = -1;
-        pb->diag = k;
-        pb->diff = 0;
-        pb->mark = y;
-        hb  = avail++;
-
         while (1)
-          { c = bseq[y];
+          { c = bs[x];
             if (c == 4)
               { more = 0;
                 if (bclip > k)
                   bclip = k;
                 break;
               }
-            d = a[y];
+            d = aseq[x];
             if (c != d)
-              { if (d == 4) 
+              { if (d == 4)
                   { more  = 0;
                     aclip = k;
                   }
                 break;
               }
-            y -= 1;
+            x -= 1;
           }
-        c = (y << 1) + k;
+        c = (x << 1) - k;
 
-        while (y+k <= na)
+        while (x <= na)
           { if (avail >= cmax)
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
                 if (cells == NULL)
-                  return(1);
+                  return (1);
                 work->celmax = cmax;
                 work->cells  = (void *) cells;
               }
@@ -1170,59 +1015,35 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
             pb->diff = 0;
             pb->mark = na;
             ha  = avail++;
-            na -= TRACE_SPACE;
-          }
-        while (y <= nb)
-          { if (avail >= cmax)
-              { cmax  = ((int) (avail*1.2)) + 10000;
-                cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
-                if (cells == NULL)
-                  return(1);
-                work->celmax = cmax;
-                work->cells  = (void *) cells;
-              }
-#ifdef SHOW_TPS
-            printf(" B %d: %d,%d,0,%d\n",avail,hb,k,nb); fflush(stdout);
-#endif
-            pb = cells+avail;
-            pb->ptr  = hb;
-            pb->diag = k;
-            pb->diff = 0;
-            pb->mark = nb;
-            hb  = avail++;
-            nb -= TRACE_SPACE;
+            na -= tspace;
           }
 
         if (c < besta)
           { besta  = trima = lasta = c;
-            besty  = trimy = y;
+            bestx  = trimx = x;
             trimha = ha;
-            trimhb = hb;
           }
 
         V[k]  = c;
         T[k]  = PATH_INT;
         M[k]  = PATH_LEN;
         HA[k] = ha;
-        HB[k] = hb;
         NA[k] = na;
-        NB[k] = nb;
 
-        a += 1;
+        bs -= 1;
       }
   }
 
   if (more == 0)
-    { if (bseq[besty] != 4 && aseq[besta - besty] != 4)
+    { if (bseq[besta-bestx] != 4 && aseq[bestx] != 4)
         more = 1;
       if (low <= aclip)
         { low = aclip+1;
           if (morem <= M[aclip])
             { morem  = M[aclip];
               morea  = V[aclip];
-              morey  = (morea - aclip)/2;
+              morex  = (morea + aclip)>>1;
               moreha = HA[aclip];
-              morehb = HB[aclip];
             }
         }
       if (hgh >= bclip)
@@ -1230,9 +1051,8 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           if (morem <= M[bclip])
             { morem  = M[bclip];
               morea  = V[bclip];
-              morey  = (morea - bclip)/2;
+              morex  = (morea + bclip)>>1;
               moreha = HA[bclip];
-              morehb = HB[bclip];
             }
         }
       aclip = -INT32_MAX;
@@ -1246,22 +1066,22 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
 
   while (more && lasta <= besta + TRIM_MLAG)
     { int    k, n;
-      int    ua, ub;
+      int    ua;
       BVEC   t;
       int    am, ac, ap;
-      char  *a;
+      char  *bs;
 
       low -= 1;
       hgh += 1;
 
       if (low <= vmin || hgh >= vmax)
         { int   span, wing;
-          int64 move, vd, md, had, hbd, nad, nbd, td;
+          int64 move, vd, md, had, nad, td;
 
           span = (hgh-low)+1;
           if (.8*vlen < span)
             { if (enlarge_vector(work,vlen*VectorEl))
-                return(1);
+                return (1);
 
               move = ((void *) _V) - work->vector;
               vlen = work->vecmax/VectorEl;
@@ -1269,22 +1089,18 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
               _V  = (int *) work->vector;
               _M  = _V + vlen;
               _HA = _M + vlen;
-              _HB = _HA + vlen;
-              _NA = _HB + vlen;
-              _NB = _NA + vlen;
-              _T  = ((BVEC *) (_NB + vlen));
+              _NA = _HA + vlen;
+              _T  = ((BVEC *) (_NA + vlen));
             }
           else
             move = 0;
 
-          wing = (vlen - span)/2;
+          wing = (vlen - span)>>1;
 
           vd  = ((void *) ( _V+wing)) - (((void *) ( V+low)) - move);
           md  = ((void *) ( _M+wing)) - (((void *) ( M+low)) - move);
           had = ((void *) (_HA+wing)) - (((void *) (HA+low)) - move);
-          hbd = ((void *) (_HB+wing)) - (((void *) (HB+low)) - move);
           nad = ((void *) (_NA+wing)) - (((void *) (NA+low)) - move);
-          nbd = ((void *) (_NB+wing)) - (((void *) (NB+low)) - move);
           td  = ((void *) ( _T+wing)) - (((void *) ( T+low)) - move);
 
           if (vd < 0)
@@ -1293,23 +1109,15 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
             memmove( _M+wing,  ((void *) ( M+low)) - move, span*sizeof(int));
           if (had < 0)
             memmove(_HA+wing,  ((void *) (HA+low)) - move, span*sizeof(int));
-          if (hbd < 0)
-            memmove(_HB+wing,  ((void *) (HB+low)) - move, span*sizeof(int));
           if (nad < 0)
             memmove(_NA+wing,  ((void *) (NA+low)) - move, span*sizeof(int));
-          if (nbd < 0)
-            memmove(_NB+wing,  ((void *) (NB+low)) - move, span*sizeof(int));
           if (td < 0)
             memmove( _T+wing,  ((void *) ( T+low)) - move, span*sizeof(BVEC));
 
           if (td > 0)
             memmove( _T+wing,  ((void *) ( T+low)) - move, span*sizeof(BVEC));
-          if (nbd > 0)
-            memmove(_NB+wing,  ((void *) (NB+low)) - move, span*sizeof(int));
           if (nad > 0)
             memmove(_NA+wing,  ((void *) (NA+low)) - move, span*sizeof(int));
-          if (hbd > 0)
-            memmove(_HB+wing,  ((void *) (HB+low)) - move, span*sizeof(int));
           if (had > 0)
             memmove(_HA+wing,  ((void *) (HA+low)) - move, span*sizeof(int));
           if (md > 0)
@@ -1323,23 +1131,19 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           V  =  _V-vmin;
           M  =  _M-vmin;
           HA = _HA-vmin;
-          HB = _HB-vmin;
           NA = _NA-vmin;
-          NB = _NB-vmin;
           T  =  _T-vmin;
         }
 
       if (low >= minp)
         { NA[low] = NA[low+1];
-          NB[low] = NB[low+1];
           V[low]  = ap = INT32_MAX;
         }
       else
-        ap = V[++low]; 
+        ap = V[++low];
 
       if (hgh <= maxp)
         { NA[hgh] = NA[hgh-1];
-          NB[hgh] = NB[hgh-1];
           V[hgh] = INT32_MAX;
         }
       else
@@ -1348,13 +1152,13 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
       dif += 1;
 
       ac = V[hgh+1] = V[low-1] = INT32_MAX;
-      a  = aseq + low;
+      bs = bseq - low;
       t  = PATH_INT;
       n  = PATH_LEN;
-      ua = ub = -1;
+      ua = -1;
       for (k = low; k <= hgh; k++)
-        { int     y, m;
-          int     ha, hb;
+        { int     x, m;
+          int     ha;
           int     c, d;
           BVEC    b;
           Pebble *pb;
@@ -1369,14 +1173,12 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                 m  = n;
                 b  = t;
                 ha = ua;
-                hb = ub;
               }
             else
               { c  = ap-1;
                 m  = M[d];
                 b  = T[d];
                 ha = HA[d];
-                hb = HB[d];
               }
           else
             if (ac > am)
@@ -1384,52 +1186,50 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                 m  = n;
                 b  = t;
                 ha = ua;
-                hb = ub;
               }
             else
               { c  = ac-2;
                 m  = M[k];
                 b  = T[k];
                 ha = HA[k];
-                hb = HB[k];
               }
 
           if ((b & PATH_TOP) != 0)
             m -= 1;
           b <<= 1;
 
-          y = (c-k) >> 1;
+          x = (c+k)>>1;
           while (1)
-            { c = bseq[y];
+            { c = bs[x];
               if (c == 4)
                 { more = 0;
                   if (bclip > k)
                     bclip = k;
                   break;
                 }
-              d = a[y];
+              d = aseq[x];
               if (c != d)
-                { if (d == 4) 
+                { if (d == 4)
                     { more  = 0;
                       aclip = k;
                     }
                   break;
                 }
-              y -= 1;
+              x -= 1;
               if ((b & PATH_TOP) == 0)
                 m += 1;
               b = (b << 1) | 1;
             }
-          c = (y << 1) + k;
+          c = (x << 1) - k;
 
-          while (y+k <= NA[k])
+          while (x <= NA[k])
             { if (cells[ha].mark > NA[k])
                 { if (avail >= cmax)
                     { cmax  = ((int) (avail*1.2)) + 10000;
                       cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
                                                        "Reallocating trace cells");
                       if (cells == NULL)
-                        return(1);
+                        return (1);
                       work->celmax = cmax;
                       work->cells  = (void *) cells;
                     }
@@ -1443,44 +1243,20 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
                   pb->mark = NA[k];
                   ha = avail++;
                 }
-              NA[k] -= TRACE_SPACE;
-            }
-          while (y <= NB[k])
-            { if (cells[hb].mark > NB[k])
-                { if (avail >= cmax)
-                    { cmax  = ((int) (avail*1.2)) + 10000;
-                      cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
-                                                       "Reallocating trace cells");
-                      if (cells == NULL)
-                        return(1);
-                      work->celmax = cmax;
-                      work->cells  = (void *) cells;
-                    }
-#ifdef SHOW_TPS
-                  printf(" B %d: %d,%d,%d,%d\n",avail,hb,k,dif,NB[k]); fflush(stdout);
-#endif
-                  pb = cells+avail;
-                  pb->ptr  = hb;
-                  pb->diag = k;
-                  pb->diff = dif;
-                  pb->mark = NB[k];
-                  hb = avail++;
-                }
-              NB[k] -= TRACE_SPACE;
+              NA[k] -= tspace;
             }
 
           if (c < besta)
             { besta = c;
-              besty = y;
+              bestx = x;
               if (m >= PATH_AVE)
                 { lasta = c;
                   if (TABLE[b & TRIM_MASK] >= 0)
                     if (TABLE[(b >> TRIM_LEN) & TRIM_MASK] + SCORE[b & TRIM_MASK] >= 0)
                       { trima  = c;
-                        trimy  = y;
+                        trimx  = x;
                         trimd  = dif;
                         trimha = ha;
-                        trimhb = hb;
                       }
                 }
             }
@@ -1488,28 +1264,25 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           t  = T[k];
           n  = M[k];
           ua = HA[k];
-          ub = HB[k];
           V[k]  = c;
           T[k]  = b;
           M[k]  = m;
           HA[k] = ha;
-          HB[k] = hb;
 
-          a += 1;
+          bs -= 1;
         }
 
       if (more == 0)
-        { if (bseq[besty] != 4 && aseq[besta - besty] != 4)
+        { if (bseq[besta-bestx] != 4 && aseq[bestx] != 4)
             more = 1;
           if (low <= aclip)
             { low = aclip+1;
               if (morem <= M[aclip])
                 { morem  = M[aclip];
                   morea  = V[aclip];
-                  morey  = (morea - aclip)/2;
+                  morex  = (morea + aclip)>>1;
                   mored  = dif;
                   moreha = HA[aclip];
-                  morehb = HB[aclip];
                 }
             }
           if (hgh >= bclip)
@@ -1517,10 +1290,9 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
               if (morem <= M[bclip])
                 { morem  = M[bclip];
                   morea  = V[bclip];
-                  morey  = (morea - bclip)/2;
+                  morex  = (morea + bclip)>>1;
                   mored  = dif;
                   moreha = HA[bclip];
-                  morehb = HB[bclip];
                 }
             }
           aclip = -INT32_MAX;
@@ -1530,7 +1302,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
       n = besta + WAVE_LAG;
       while (hgh >= low)
         if (V[hgh] > n)
-          hgh -= 1;                               
+          hgh -= 1;
         else
           { while (V[low] > n)
               low += 1;
@@ -1551,27 +1323,25 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
     }
 
   { uint16 *atrace = (uint16 *) apath->trace;
-    uint16 *btrace = (uint16 *) bpath->trace;
-    int     atlen, btlen;
-    int     trimx;
+    int     atlen;
+    int     trimy;
     int     a, b, k, h;
     int     d, e;
 
     if (morem >= 0 && REACH)
-      { trimx  = morea-morey;
-        trimy  = morey;
+      { trimx  = morex;
+        trimy  = morea - morex;
         trimd  = mored;
         trimha = moreha;
-        trimhb = morehb;
       }
     else
-      trimx = trima-trimy;
+      trimy = trima - trimx;
 
-    atlen = btlen = 0;
+    atlen = 0;
 
     a = -1;
     for (h = trimha; h >= 0; h = b)
-      { b = cells[h].ptr; 
+      { b = cells[h].ptr;
         cells[h].ptr = a;
         a = h;
       }
@@ -1583,7 +1353,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
 #ifdef SHOW_TRAIL
     printf("  A path = (%5d,%5d)\n",b+k,b); fflush(stdout);
 #endif
-    if ((b+k)%TRACE_SPACE != aoff)
+    if ((b+k)%tspace != aoff)
       { h = cells[h].ptr;
         if (h < 0)
           { a = trimy;
@@ -1637,108 +1407,34 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align, P
           }
       }
 
-    a = -1;
-    for (h = trimhb; h >= 0; h = b)
-      { b = cells[h].ptr; 
-        cells[h].ptr = a;
-        a = h;
-      }
-    h = a;
-
-    k = cells[h].diag;
-    b = cells[h].mark + k;
-    e = 0;
-#ifdef SHOW_TRAIL
-    printf("  B path = (%5d,%5d)\n",b,b-k); fflush(stdout);
-#endif
-    if ((b-k)%TRACE_SPACE != boff)
-      { h = cells[h].ptr;
-        if (h < 0)
-          { a = trimx;
-            d = trimd;
-          } 
-        else
-          { k = cells[h].diag;
-            a = cells[h].mark + k;
-            d = cells[h].diff;
-          }
-#ifdef SHOW_TRAIL
-        printf("    +%4d: (%5d,%5d): %3d / %3d\n",h,a,a-k,d-e,b-a); fflush(stdout);
-#endif
-        if (bpath->tlen == 0)
-          { btrace[--btlen] = (uint16) (b-a);
-            btrace[--btlen] = (uint16) (b-a);
-          }
-        else
-          { btrace[1] = (uint16) (btrace[1] + (b-a));
-            btrace[0] = (uint16) (btrace[0] + (d-e));
-          }
-        b = a;
-        e = d;
-      }
-
-    if (h >= 0)
-      { for (h = cells[h].ptr; h >= 0; h = cells[h].ptr)
-          { k = cells[h].diag;
-            a = cells[h].mark + k;
-            btrace[--btlen] = (uint16) (b-a);
-            d = cells[h].diff;
-            btrace[--btlen] = (uint16) (d-e);
-#ifdef SHOW_TRAIL
-            printf("     %4d: (%5d,%5d): %3d / %3d\n",h,a,a-k,d-e,b-a); fflush(stdout);
-#endif
-            b = a;
-            e = d;
-          }
-        if (b-k != trimy)
-          { btrace[--btlen] = (uint16) (b-trimx);
-            btrace[--btlen] = (uint16) (trimd-e);
-#ifdef SHOW_TRAIL
-            printf("           (%5d,%5d): %3d / %3d\n",trimx,trimy,trimd-e,b-trimx); fflush(stdout);
-#endif
-          }
-        else if (b != trimx)
-          { btrace[btlen+1] = (uint16) (btrace[btlen+1] + (b-trimx));
-            btrace[btlen]   = (uint16) (btrace[btlen]   + (trimd-e));
-#ifdef SHOW_TRAIL
-            printf("         @ (%5d,%5d): %3d / %3d\n",trimx,trimy,trimd-e,b-trimx); fflush(stdout);
-#endif
-          }
-      }
-
     apath->abpos = trimx;
     apath->bbpos = trimy;
     apath->diffs = apath->diffs + trimd;
     apath->tlen  = apath->tlen  - atlen;
     apath->trace = atrace + atlen;
-    bpath->tlen  = bpath->tlen  - btlen;
-    bpath->trace = btrace + btlen;
   }
 
   return (0);
 }
 
+// Find the longest local alignment between aseq* and bseq through anti-diagonal anti between
+// diagonals low and hgh.  See associated .h file for the precise definition of the interface.
 
-/* Find the longest local alignment between aseq and bseq through (xcnt,ycnt)
-   See associated .h file for the precise definition of the interface.
-*/
-
-Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
-                      int low, int hgh, int anti, int lbord, int hbord)
+int Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
+                    int low, int hgh, int anti, int lbord, int hbord)
 { _Work_Data  *work = ( _Work_Data *) ework;
   _Align_Spec *spec = (_Align_Spec *) espec;
 
-  Path *apath, *bpath;
-  int   aoff, boff;
+  Path *apath;
+  int   aoff;
   int   minp, maxp;
   int   selfie;
   int   fshort, rshort;
 
-  { int alen, blen;
+  { int alen;
     int maxtp, wsize;
 
     alen = align->alen;
-    blen = align->blen;
 
     if (hgh-low >= 7500)
       wsize = VectorEl*(hgh-low+1);
@@ -1746,22 +1442,16 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
       wsize = VectorEl*10000;
     if (wsize >= work->vecmax)
       if (enlarge_vector(work,wsize))
-        return (NULL);
+        return (1);
 
-    if (alen < blen)
-      maxtp = 2*(blen/spec->trace_space+2);
-    else
-      maxtp = 2*(alen/spec->trace_space+2);
-    wsize = 4*maxtp*sizeof(uint16) + sizeof(Path);
+    maxtp = 2*(alen/spec->trace_space+2);
+    wsize = 2*maxtp*sizeof(uint16);
     if (wsize > work->pntmax)
       if (enlarge_points(work,wsize))
-        return (NULL);
+        return (1);
 
     apath = align->path;
-    bpath = (Path *) work->points;
-
-    apath->trace = ((uint16 *) (bpath+1)) + maxtp;
-    bpath->trace = ((uint16 *) apath->trace) +  2*maxtp;
+    apath->trace = ((uint16 *) work->points) + maxtp;
   }
 
 #ifdef DEBUG_PASSES
@@ -1770,7 +1460,7 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
 
   selfie = (align->aseq == align->bseq);
 
-  while (((anti-hgh) >> 1) < 0)
+  while (((anti-hgh)>>1) < 0)
     hgh -= 1;
    
   if (lbord < 0)
@@ -1791,20 +1481,12 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
     maxp = hgh+hbord;
 
   if (ACOMP(align->flags))
-    { aoff = align->alen % spec->trace_space;
-      boff = 0;
-    }
-  else if (COMP(align->flags))
-    { aoff = 0;
-      boff = align->blen % spec->trace_space;
-    }
+    aoff = align->alen % spec->trace_space;
   else
-    { aoff = 0;
-      boff = 0;
-    }
+    aoff = 0;
 
-  if (forward_wave(work,spec,align,bpath,&low,hgh,anti,minp,maxp,aoff,boff))
-    return (NULL);
+  if (forward_wave(work,spec,align,&low,hgh,anti,minp,maxp,aoff))
+    return (1);
 
   fshort = ((apath->aepos + apath->bepos) - anti < DUB_TRIM);
 
@@ -1814,60 +1496,52 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
          apath->aepos,apath->bepos,apath->diffs);
 #endif
 
-  if (reverse_wave(work,spec,align,bpath,low,low,anti,minp,maxp,aoff,boff))
-    return (NULL);
+  if (reverse_wave(work,spec,align,low,low,anti,minp,maxp,aoff))
+    return (1);
 
 #ifdef DEBUG_PASSES
   printf("R1 (%d,%d) => (%d,%d) %d\n",
-         (anti+low)/2,(anti-low)/2,apath->abpos,apath->bbpos,apath->diffs);
+         (anti+low)>>1,(anti-low)>>1,apath->abpos,apath->bbpos,apath->diffs);
 #endif
 
   rshort = (anti - (apath->abpos + apath->bbpos) < DUB_TRIM);
 
   if (fshort)
     { if (rshort)
-        { apath->aepos = apath->abpos = (apath->abpos+apath->aepos)/2;
-          apath->bepos = apath->bbpos = (apath->bbpos+apath->bepos)/2;
-          bpath->aepos = bpath->abpos = (bpath->abpos+bpath->aepos)/2;
-          bpath->bepos = bpath->bbpos = (bpath->bbpos+bpath->bepos)/2;
+        { apath->aepos = apath->abpos = (apath->abpos+apath->aepos)>>1;
+          apath->bepos = apath->bbpos = (apath->bbpos+apath->bepos)>>1;
           apath->tlen  = 0;
-          bpath->tlen  = 0;
         }
       else
         { low  = apath->abpos - apath->bbpos;
           anti = apath->abpos + apath->bbpos;
-          apath->tlen = bpath->tlen = 0;
-          if (forward_wave(work,spec,align,bpath,&low,low,anti,minp,maxp,aoff,boff))
-            return (NULL);
+          apath->tlen = 0;
+          if (forward_wave(work,spec,align,&low,low,anti,minp,maxp,aoff))
+            return (1);
         }
     }
   else
     { if (rshort)
         { low  = apath->aepos - apath->bepos;
           anti = apath->aepos + apath->bepos;
-          apath->tlen = bpath->tlen = 0;
+          apath->tlen = 0;
           apath->diffs = 0;
-          if (reverse_wave(work,spec,align,bpath,low,low,anti,minp,maxp,aoff,boff))
-            return (NULL);
+          if (reverse_wave(work,spec,align,low,low,anti,minp,maxp,aoff))
+            return (1);
         }
     }
-        
 
-  bpath->diffs = apath->diffs;
   if (ACOMP(align->flags))
     { uint16 *trace = (uint16 *) apath->trace;
       uint16  p;
       int     i, j;
 
-      bpath->aepos = apath->bepos;
-      bpath->bepos = apath->aepos;
-      bpath->abpos = apath->bbpos;
-      bpath->bbpos = apath->abpos;
-
-      apath->abpos = align->alen - bpath->bepos;
-      apath->bbpos = align->blen - bpath->aepos;
-      apath->aepos = align->alen - bpath->bbpos;
-      apath->bepos = align->blen - bpath->abpos;
+      i = apath->abpos;
+      apath->abpos = align->alen - apath->aepos;
+      apath->aepos = align->alen - i;
+      i = apath->bbpos;
+      apath->bbpos = align->blen - apath->bepos;
+      apath->bepos = align->blen - i;
       i = apath->tlen-2;
       j = 0;
       while (j < i)
@@ -1880,34 +1554,6 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
           i -= 2;
           j += 2;
         }
-    }
-  else if (COMP(align->flags))
-    { uint16 *trace = (uint16 *) bpath->trace;
-      uint16  p;
-      int     i, j;
-
-      bpath->abpos = align->blen - apath->bepos;
-      bpath->bbpos = align->alen - apath->aepos;
-      bpath->aepos = align->blen - apath->bbpos;
-      bpath->bepos = align->alen - apath->abpos;
-      i = bpath->tlen-2;
-      j = 0;
-      while (j < i)
-        { p = trace[i];
-          trace[i] = trace[j];
-          trace[j] = p;
-          p = trace[i+1];
-          trace[i+1] = trace[j+1];
-          trace[j+1] = p;
-          i -= 2;
-          j += 2;
-        }
-    }
-  else
-    { bpath->aepos = apath->bepos;
-      bpath->bepos = apath->aepos;
-      bpath->abpos = apath->bbpos;
-      bpath->bbpos = apath->abpos;
     }
 
 #ifdef DEBUG_POINTS
@@ -1924,37 +1570,20 @@ Path *Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
         printf("      %d / %d (%d)\n",dif,del,a);
       }
   }
-
-  { uint16 *trace = (uint16 *) bpath->trace;
-    int     a, h;
-
-    printf("\nB-path (%d,%d)->(%d,%d)",bpath->abpos,bpath->bbpos,bpath->aepos,bpath->bepos);
-    printf(" %c [%d,%d]\n",((COMP(align->flags) || ACOMP(align->flags)) ? 'c' : 'n'),
-                           align->blen,align->alen);
-    a = bpath->bbpos;
-    for (h = 1; h < bpath->tlen; h += 2)
-      { int dif = trace[h-1];
-        int del = trace[h];
-        a += del;
-        printf("      %d / %d (%d)\n",dif,del,a);
-      }
-  }
 #endif
 
-  return (bpath);
+  return (0);
 }
 
 
 /****************************************************************************************\
 *                                                                                        *
-*  EXTENSION VERSION OF LOCAL ALIGNMENT                                                  *
+*  WRAP AROUND A SEQUENCE LOCAL ALIGNMENT                                                *
 *                                                                                        *
 \****************************************************************************************/
 
-static int VectorEn = 4*sizeof(int) + sizeof(BVEC);
-
-static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
-                          int midd, int mida, int minp, int maxp)
+static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
+                        int *mind, int maxd, int mida, int minp, int maxp, int tspace)
 { char *aseq  = align->aseq;
   char *bseq  = align->bseq;
   Path *apath = align->path;
@@ -1966,33 +1595,32 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
   BVEC   *T;
   BVEC   *_T;
 
-  int    *HA, *NA;
-  int    *_HA, *_NA;
+  int    *HA, *_HA;
+  int    *NA, *_NA;
   Pebble *cells;
   int     avail, cmax;
 
-  int     TRACE_SPACE = spec->trace_space;
   int     PATH_AVE    = spec->ave_path;
   int16  *SCORE       = spec->score;
   int16  *TABLE       = spec->table;
 
-  int     besta, besty;
-  int     trima, trimy, trimd;
+  int     besta, bestx;
+  int     trima, trimx, trimd;
   int     trimha;
-  int     morea, morey, mored;
+  int     morea, morex, mored;
   int     moreha;
   int     more, morem, lasta;
-  int     aclip, bclip;
+  int     bclip;
 
-  hgh = midd;
-  low = midd;
+  hgh = maxd;
+  low = *mind;
   dif = 0;
 
   { int span, wing;
 
     span = (hgh-low)+1;
-    vlen = work->vecmax/VectorEn;
-    wing = (vlen - span)/2;
+    vlen = work->vecmax/VectorEl;
+    wing = (vlen - span)>>1;
     vmin = low - wing;
     vmax = hgh + wing;
 
@@ -2016,25 +1644,24 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
   /* Compute 0-wave starting from mid-line */
 
   more  = 1;
-  aclip =  INT32_MAX;
   bclip = -INT32_MAX;
 
   besta  = trima  = morea = lasta = mida;
-  besty  = trimy  = morey = (mida-hgh) >> 1;
+  bestx  = trimx  = morex = (mida+hgh)>>1;
   trimd  = mored  = 0;
   trimha = moreha = 0;
   morem  = -1;
 
   { int   k;
-    char *a;
+    char *bs;
 
-    a  = aseq + hgh;
+    bs = bseq - hgh;
     for (k = hgh; k >= low; k--)
-      { int     y, c, d;
+      { int     x, p, c;
         int     ha, na;
         Pebble *pb;
 
-        y = (mida-k) >> 1;
+        x = (mida+k)>>1;
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
@@ -2045,7 +1672,7 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             work->cells  = (void *) cells;
           }
 
-        na = ((y+k)/TRACE_SPACE)*TRACE_SPACE;
+        na = (x/tspace)*tspace;
 #ifdef SHOW_TPS
         printf(" A %d: %d,%d,0,%d\n",avail,-1,k,na); fflush(stdout);
 #endif
@@ -2055,29 +1682,27 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         pb->diff = 0;
         pb->mark = na;
         ha  = avail++;
-        na += TRACE_SPACE;
+        na += tspace;
 
+        p = x % tspace;
         while (1)
-          { c = bseq[y];
-            if (c == 4)
-              { more = 0;
-                if (bclip < k)
-                  bclip = k;
-                break;
-              }
-            d = a[y];
-            if (c != d)
-              { if (d == 4) 
+          { c = bs[x];
+            if (aseq[p] != c)
+              { if (c == 4)
                   { more  = 0;
-                    aclip = k;
+                    if (bclip < k)
+                      bclip = k;
                   }
                 break;
               }
-            y += 1;
+            x += 1;
+            p += 1;
+            if (p == tspace)
+              p = 0;
           }
-        c = (y << 1) + k;
+        c = (x << 1) - k;
 
-        while (y+k >= na)
+        while (x >= na)
           { if (avail >= cmax)
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
@@ -2095,12 +1720,12 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             pb->diff = 0;
             pb->mark = na;
             ha  = avail++;
-            na += TRACE_SPACE;
+            na += tspace;
           }
 
         if (c > besta)
           { besta  = trima = lasta = c;
-            besty  = trimy = y;
+            bestx  = trimx = x;
             trimha = ha;
           }
 
@@ -2110,32 +1735,21 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         HA[k] = ha;
         NA[k] = na;
 
-        a -= 1;
+        bs += 1;
       }
   }
 
   if (more == 0)
-    { if (bseq[besty] != 4 && aseq[besta - besty] != 4)
-        more = 1;
-      if (hgh >= aclip)
-        { hgh = aclip-1;
-          if (morem <= M[aclip])
-            { morem  = M[aclip];
-              morea  = V[aclip];
-              morey  = (morea - aclip)/2;
-              moreha = HA[aclip];
-            }
-        }
+    { more = (bseq[besta-bestx] != 4);
       if (low <= bclip)
         { low = bclip+1;
           if (morem <= M[bclip])
             { morem  = M[bclip];
               morea  = V[bclip];
-              morey  = (morea - bclip)/2;
+              morex  = (morea + bclip)>>1;
               moreha = HA[bclip];
             }
         }
-      aclip =  INT32_MAX;
       bclip = -INT32_MAX;
     }
 
@@ -2151,7 +1765,10 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
       int     ua;
       BVEC    t;
       int     am, ac, ap;
-      char   *a;
+      char   *bs;
+
+      low -= 1;
+      hgh += 1;
 
       if (low <= vmin || hgh >= vmax)
         { int   span, wing;
@@ -2160,11 +1777,11 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
 
           span = (hgh-low)+1;
           if (.8*vlen < span)
-            { if (enlarge_vector(work,vlen*VectorEn))
+            { if (enlarge_vector(work,vlen*VectorEl))
                 return (1);
 
               move = ((void *) _V) - work->vector;
-              vlen = work->vecmax/VectorEn;
+              vlen = work->vecmax/VectorEl;
 
               _V  = (int *) work->vector;
               _M  = _V + vlen;
@@ -2175,7 +1792,7 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           else
             move = 0;
 
-          wing = (vlen - span)/2;
+          wing = (vlen - span)>>1;
 
           vd  = ((void *) ( _V+wing)) - (((void *) ( V+low)) - move);
           md  = ((void *) ( _M+wing)) - (((void *) ( M+low)) - move);
@@ -2215,27 +1832,29 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low > minp)
-        { low -= 1;
-          NA[low] = NA[low+1];
+      if (low >= minp)
+        { NA[low] = NA[low+1];
           V[low]  = -1;
         }
-      if (hgh < maxp)
-        { hgh += 1;
-          NA[hgh] = NA[hgh-1];
+      else
+        low += 1;
+
+      if (hgh <= maxp)
+        { NA[hgh] = NA[hgh-1];
           V[hgh]  = am = -1;
         }
       else
-        am = V[hgh];
+        am = V[--hgh];
+
       dif += 1;
 
       ac = V[hgh+1] = V[low-1] = -1;
-      a  = aseq + hgh;
+      bs = bseq - hgh;
       t  = PATH_INT;
       n  = PATH_LEN;
       ua = -1;
       for (k = hgh; k >= low; k--)
-        { int     y, m;
+        { int     x, p, m;
           int     ha;
           int     c, d;
           BVEC    b;
@@ -2255,7 +1874,7 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             else
               { c  = am+1;
                 m  = M[d];
-                b  = T[d]; 
+                b  = T[d];
                 ha = HA[d];
               }
           else
@@ -2276,31 +1895,29 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             m -= 1;
           b <<= 1;
 
-          y = (c-k) >> 1;
+          x = (c+k)>>1;
+          p = x % tspace;
           while (1)
-            { c = bseq[y];
-              if (c == 4)
-                { more = 0;
-                  if (bclip < k)
-                    bclip = k;
-                  break;
-                }
-              d = a[y];
-              if (c != d)
-                { if (d == 4) 
+            { c = bs[x];
+              if (aseq[p] != c)
+                { if (c == 4)
                     { more  = 0;
-                      aclip = k;
+                      if (bclip < k)
+                        bclip = k;
                     }
                   break;
                 }
-              y += 1;
+              x += 1;
+              p += 1;
+              if (p == tspace)
+                p = 0;
               if ((b & PATH_TOP) == 0)
                 m += 1;
               b = (b << 1) | 1;
             }
-          c = (y << 1) + k;
+          c = (x << 1) - k;
 
-          while (y+k >= NA[k])
+          while (x >= NA[k])
             { if (cells[ha].mark < NA[k])
                 { if (avail >= cmax)
                     { cmax  = ((int) (avail*1.2)) + 10000;
@@ -2321,18 +1938,18 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                   pb->mark = NA[k];
                   ha = avail++;
                 }
-              NA[k] += TRACE_SPACE;
+              NA[k] += tspace;
             }
 
           if (c > besta)
             { besta = c;
-              besty = y;
+              bestx = x;
               if (m >= PATH_AVE)
                 { lasta = c;
                   if (TABLE[b & TRIM_MASK] >= 0)
                     if (TABLE[(b >> TRIM_LEN) & TRIM_MASK] + SCORE[b & TRIM_MASK] >= 0)
                       { trima  = c;
-                        trimy  = y;
+                        trimx  = x;
                         trimd  = dif;
                         trimha = ha;
                       }
@@ -2347,40 +1964,28 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           M[k]  = m;
           HA[k] = ha;
 
-          a -= 1;
+          bs += 1;
         }
 
       if (more == 0)
-        { if (bseq[besty] != 4 && aseq[besta-besty] != 4)
-            more = 1;
-          if (hgh >= aclip)
-            { hgh = aclip-1;
-              if (morem <= M[aclip])
-                { morem  = M[aclip];
-                  morea  = V[aclip];
-                  morey  = (morea - aclip)/2;
-                  mored  = dif;
-                  moreha = HA[aclip];
-                }
-            }
+        { more = (bseq[besta-bestx] != 4);
           if (low <= bclip)
             { low = bclip+1;
               if (morem <= M[bclip])
                 { morem  = M[bclip];
                   morea  = V[bclip];
-                  morey  = (morea - bclip)/2;
+                  morex  = (morea + bclip)>>1;
                   mored  = dif;
                   moreha = HA[bclip];
                 }
             }
-          aclip =  INT32_MAX;
           bclip = -INT32_MAX;
         }
 
       n = besta - WAVE_LAG;
       while (hgh >= low)
         if (V[hgh] < n)
-          hgh -= 1;                               
+          hgh -= 1;
         else
           { while (V[low] < n)
               low += 1;
@@ -2402,34 +2007,1193 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
 
   { uint16 *atrace = (uint16 *) apath->trace;
     int     atlen;
-    int     trimx;
+    int     trimy;
     int     a, b, k, h;
     int     d, e;
 
     if (morem >= 0)
-      { trimx  = morea-morey;
-        trimy  = morey;
+      { trimx  = morex;
+        trimy  = morea - morex;
         trimd  = mored;
         trimha = moreha;
       }
     else
-      trimx = trima-trimy;
+      trimy = trima - trimx;
 
     atlen = 0;
 
     a = -1;
     for (h = trimha; h >= 0; h = b)
-      { b = cells[h].ptr; 
+      { b = cells[h].ptr;
         cells[h].ptr = a;
         a = h;
       }
     h = a;
 
     k = cells[h].diag;
-    b = (mida-k)/2;
+    b = (mida-k)>>1;
+    e = 0;
+
+    low = k;
+
+#ifdef SHOW_TRAIL
+    printf("  A path = (%5d,%5d)\n",(mida+k)>>1,b); fflush(stdout);
+#endif
+    for (h = cells[h].ptr; h >= 0; h = cells[h].ptr)
+      { k = cells[h].diag;
+        a = cells[h].mark - k;
+        d = cells[h].diff;
+        atrace[atlen++] = (uint16) (d-e);
+        atrace[atlen++] = (uint16) (a-b);
+#ifdef SHOW_TRAIL
+        printf("     %4d: (%5d,%5d): %3d / %3d\n",h,a+k,a,d-e,a-b); fflush(stdout);
+#endif
+        b = a;
+        e = d;
+      }
+    if (b+k != trimx)
+      { atrace[atlen++] = (uint16) (trimd-e);
+        atrace[atlen++] = (uint16) (trimy-b);
+#ifdef SHOW_TRAIL
+        printf("           (%5d,%5d): %3d / %3d\n",trimx,trimy,trimd-e,trimy-b); fflush(stdout);
+#endif
+      }
+    else if (b != trimy)
+      { atrace[atlen-1] = (uint16) (atrace[atlen-1] + (trimy-b));
+        atrace[atlen-2] = (uint16) (atrace[atlen-2] + (trimd-e));
+#ifdef SHOW_TRAIL
+        printf("         @ (%5d,%5d): %3d / %3d\n",trimx,trimy,trimd-e,trimy-b); fflush(stdout);
+#endif
+      }
+
+    apath->aepos = trimx;
+    apath->bepos = trimy;
+    apath->diffs = trimd;
+    apath->tlen  = atlen;
+  }
+
+  *mind = low;
+  return (0);
+}
+
+static int reverse_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align, 
+                        int mind, int maxd, int mida, int minp, int maxp, int tspace)
+{ char *aseq  = align->aseq - 1;
+  char *bseq  = align->bseq - 1;
+  Path *apath = align->path;
+
+  int     hgh, low, dif;
+  int     vlen, vmin, vmax;
+  int    *V, *M;
+  int    *_V, *_M;
+  BVEC   *T;
+  BVEC   *_T;
+
+  int    *HA, *_HA;
+  int    *NA, *_NA;
+  Pebble *cells;
+  int     avail, cmax;
+
+  int     PATH_AVE    = spec->ave_path;
+  int16  *SCORE       = spec->score;
+  int16  *TABLE       = spec->table;
+
+  int     besta, bestx;
+  int     trima, trimx, trimd;
+  int     trimha;
+  int     morea, morex, mored;
+  int     moreha;
+  int     more, morem, lasta;
+  int     bclip;
+
+  hgh = maxd;
+  low = mind;
+  dif = 0;
+
+  { int span, wing;
+
+    span = (hgh-low)+1;
+    vlen = work->vecmax/VectorEl;
+    wing = (vlen - span)>>1;
+    vmin = low - wing;
+    vmax = hgh + wing;
+
+    _V  = ((int *) work->vector);
+    _M  = _V + vlen;
+    _HA = _M + vlen;
+    _NA = _HA + vlen;
+    _T  = ((BVEC *) (_NA + vlen));
+
+    V  = _V-vmin;
+    M  = _M-vmin;
+    HA = _HA-vmin;
+    NA = _NA-vmin;
+    T  = _T-vmin;
+
+    cells = (Pebble *) (work->cells);
+    cmax  = work->celmax;
+    avail = 0;
+  }
+
+  more  = 1;
+  bclip =  INT32_MAX;
+
+  besta  = trima  = morea = lasta = mida;
+  bestx  = trimx  = morex = (mida+hgh)>>1;
+  trimd  = mored  = 0;
+  trimha = moreha = 0;
+  morem  = -1;
+
+  { int   k;
+    char *bs;
+
+    bs = bseq - low;
+    for (k = low; k <= hgh; k++)
+      { int     x, p, c;
+        int     ha, na;
+        Pebble *pb;
+
+        x = (mida+k)>>1;
+
+        if (avail >= cmax-1)
+          { cmax  = ((int) (avail*1.2)) + 10000;
+            cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
+            if (cells == NULL)
+              return (1);
+            work->celmax = cmax;
+            work->cells  = (void *) cells;
+          }
+
+        na = (x/tspace)*tspace;
+#ifdef SHOW_TPS
+        printf(" A %d: -1,%d,0,%d\n",avail,k,na+tspace); fflush(stdout);
+#endif
+        pb = cells+avail;
+        pb->ptr  = -1;
+        pb->diag = k;
+        pb->diff = 0;
+        pb->mark = x;
+        ha  = avail++;
+
+        p = x % tspace;
+        while (1)
+          { c = bs[x];
+            if (aseq[p] != c)
+              { if (c == 4) 
+                  { more  = 0;
+                    if (bclip > k)
+                      bclip = k;
+                  }
+                break;
+              }
+            x -= 1;
+            if (p == 0)
+              p = tspace;
+            p -= 1;
+          }
+        c = (x << 1) - k;
+
+        while (x <= na)
+          { if (avail >= cmax)
+              { cmax  = ((int) (avail*1.2)) + 10000;
+                cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
+                if (cells == NULL)
+                  return (1);
+                work->celmax = cmax;
+                work->cells  = (void *) cells;
+              }
+#ifdef SHOW_TPS
+            printf(" A %d: %d,%d,0,%d\n",avail,ha,k,na); fflush(stdout);
+#endif
+            pb = cells+avail;
+            pb->ptr  = ha;
+            pb->diag = k;
+            pb->diff = 0;
+            pb->mark = na;
+            ha  = avail++;
+            na -= tspace;
+          }
+
+        if (c < besta)
+          { besta  = trima = lasta = c;
+            bestx  = trimx = x;
+            trimha = ha;
+          }
+
+        V[k]  = c;
+        T[k]  = PATH_INT;
+        M[k]  = PATH_LEN;
+        HA[k] = ha;
+        NA[k] = na;
+
+        bs -= 1;
+      }
+  }
+
+  if (more == 0)
+    { more = (bseq[besta - bestx] != 4);
+      if (hgh >= bclip)
+        { hgh = bclip-1;
+          if (morem <= M[bclip])
+            { morem  = M[bclip];
+              morea  = V[bclip];
+              morex  = (morea + bclip)>>1;
+              moreha = HA[bclip];
+            }
+        }
+      bclip =  INT32_MAX;
+    }
+
+#ifdef DEBUG_WAVE
+  printf("\nREVERSE WAVE:\n");
+  print_wave(V,M,low,hgh,besta);
+#endif
+
+  while (more && lasta <= besta + TRIM_MLAG)
+    { int    k, n;
+      int    ua;
+      BVEC   t;
+      int    am, ac, ap;
+      char  *bs;
+
+      low -= 1;
+      hgh += 1;
+
+      if (low <= vmin || hgh >= vmax)
+        { int   span, wing;
+          int64 move, vd, md, had, nad, td;
+
+          span = (hgh-low)+1;
+          if (.8*vlen < span)
+            { if (enlarge_vector(work,vlen*VectorEl))
+                return (1);
+
+              move = ((void *) _V) - work->vector;
+              vlen = work->vecmax/VectorEl;
+
+              _V  = (int *) work->vector;
+              _M  = _V + vlen;
+              _HA = _M + vlen;
+              _NA = _HA + vlen;
+              _T  = ((BVEC *) (_NA + vlen));
+            }
+          else
+            move = 0;
+
+          wing = (vlen - span)>>1;
+
+          vd  = ((void *) ( _V+wing)) - (((void *) ( V+low)) - move);
+          md  = ((void *) ( _M+wing)) - (((void *) ( M+low)) - move);
+          had = ((void *) (_HA+wing)) - (((void *) (HA+low)) - move);
+          nad = ((void *) (_NA+wing)) - (((void *) (NA+low)) - move);
+          td  = ((void *) ( _T+wing)) - (((void *) ( T+low)) - move);
+
+          if (vd < 0)
+            memmove( _V+wing,  ((void *) ( V+low)) - move, span*sizeof(int));
+          if (md < 0)
+            memmove( _M+wing,  ((void *) ( M+low)) - move, span*sizeof(int));
+          if (had < 0)
+            memmove(_HA+wing,  ((void *) (HA+low)) - move, span*sizeof(int));
+          if (nad < 0)
+            memmove(_NA+wing,  ((void *) (NA+low)) - move, span*sizeof(int));
+          if (td < 0)
+            memmove( _T+wing,  ((void *) ( T+low)) - move, span*sizeof(BVEC));
+
+          if (td > 0)
+            memmove( _T+wing,  ((void *) ( T+low)) - move, span*sizeof(BVEC));
+          if (nad > 0)
+            memmove(_NA+wing,  ((void *) (NA+low)) - move, span*sizeof(int));
+          if (had > 0)
+            memmove(_HA+wing,  ((void *) (HA+low)) - move, span*sizeof(int));
+          if (md > 0)
+            memmove( _M+wing,  ((void *) ( M+low)) - move, span*sizeof(int));
+          if (vd > 0)
+            memmove( _V+wing,  ((void *) ( V+low)) - move, span*sizeof(int));
+
+          vmin = low-wing;
+          vmax = hgh+wing;
+
+          V  =  _V-vmin;
+          M  =  _M-vmin;
+          HA = _HA-vmin;
+          NA = _NA-vmin;
+          T  =  _T-vmin;
+        }
+
+      if (low >= minp)
+        { NA[low] = NA[low+1];
+          V[low]  = ap = INT32_MAX;
+        }
+      else
+        ap = V[++low];
+
+      if (hgh <= maxp)
+        { NA[hgh] = NA[hgh-1];
+          V[hgh] = INT32_MAX;
+        }
+      else
+        hgh -= 1;
+
+      dif += 1;
+
+      ac = V[hgh+1] = V[low-1] = INT32_MAX;
+      bs = bseq - low;
+      t  = PATH_INT;
+      n  = PATH_LEN;
+      ua = -1;
+      for (k = low; k <= hgh; k++)
+        { int     x, p, m;
+          int     ha;
+          int     c, d;
+          BVEC    b;
+          Pebble *pb;
+
+          am = ac;
+          ac = ap;
+          ap = V[d = k+1];
+
+          if (ac > ap)
+            if (ap > am)
+              { c = am-1;
+                m  = n;
+                b  = t;
+                ha = ua;
+              }
+            else
+              { c  = ap-1;
+                m  = M[d];
+                b  = T[d];
+                ha = HA[d];
+              }
+          else
+            if (ac > am)
+              { c  = am-1;
+                m  = n;
+                b  = t;
+                ha = ua;
+              }
+            else
+              { c  = ac-2;
+                m  = M[k];
+                b  = T[k];
+                ha = HA[k];
+              }
+
+          if ((b & PATH_TOP) != 0)
+            m -= 1;
+          b <<= 1;
+
+          x = (c+k)>>1;
+          p = x % tspace;
+          while (1)
+            { c = bs[x];
+              if (aseq[p] != c)
+                { if (c == 4) 
+                    { more  = 0;
+                      if (bclip > k)
+                        bclip = k;
+                    }
+                  break;
+                }
+              x -= 1;
+              if (p == 0)
+                p = tspace;
+              p -= 1;
+              if ((b & PATH_TOP) == 0)
+                m += 1;
+              b = (b << 1) | 1;
+            }
+          c = (x << 1) - k;
+
+          while (x <= NA[k])
+            { if (cells[ha].mark > NA[k])
+                { if (avail >= cmax)
+                    { cmax  = ((int) (avail*1.2)) + 10000;
+                      cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
+                                                       "Reallocating trace cells");
+                      if (cells == NULL)
+                        return (1);
+                      work->celmax = cmax;
+                      work->cells  = (void *) cells;
+                    }
+#ifdef SHOW_TPS
+                  printf(" A %d: %d,%d,%d,%d\n",avail,ha,k,dif,NA[k]); fflush(stdout);
+#endif
+                  pb = cells+avail;
+                  pb->ptr  = ha;
+                  pb->diag = k;
+                  pb->diff = dif;
+                  pb->mark = NA[k];
+                  ha = avail++;
+                }
+              NA[k] -= tspace;
+            }
+
+          if (c < besta)
+            { besta = c;
+              bestx = x;
+              if (m >= PATH_AVE)
+                { lasta = c;
+                  if (TABLE[b & TRIM_MASK] >= 0)
+                    if (TABLE[(b >> TRIM_LEN) & TRIM_MASK] + SCORE[b & TRIM_MASK] >= 0)
+                      { trima  = c;
+                        trimx  = x;
+                        trimd  = dif;
+                        trimha = ha;
+                      }
+                }
+            }
+
+          t  = T[k];
+          n  = M[k];
+          ua = HA[k];
+          V[k]  = c;
+          T[k]  = b;
+          M[k]  = m;
+          HA[k] = ha;
+
+          bs -= 1;
+        }
+
+      if (more == 0)
+        { more = (bseq[besta - bestx] != 4);
+          if (hgh >= bclip)
+            { hgh = bclip-1;
+              if (morem <= M[bclip])
+                { morem  = M[bclip];
+                  morea  = V[bclip];
+                  morex  = (morea + bclip)>>1;
+                  mored  = dif;
+                  moreha = HA[bclip];
+                }
+            }
+          bclip =  INT32_MAX;
+        }
+
+      n = besta + WAVE_LAG;
+      while (hgh >= low)
+        if (V[hgh] > n)
+          hgh -= 1;
+        else
+          { while (V[low] > n)
+              low += 1;
+            break;
+          }
+
+#ifdef WAVE_STATS
+      k = (hgh-low)+1;
+      if (k > MAX)
+        MAX = k;
+      TOT += k;
+      NWV += 1;
+#endif
+
+#ifdef DEBUG_WAVE
+      print_wave(V,M,low,hgh,besta);
+#endif
+    }
+
+  { uint16 *atrace = (uint16 *) apath->trace;
+    int     atlen;
+    int     trimy;
+    int     a, b, k, h;
+    int     d, e;
+
+    if (morem >= 0)
+      { trimx  = morex;
+        trimy  = morea - morex;
+        trimd  = mored;
+        trimha = moreha;
+      }
+    else
+      trimy = trima - trimx;
+
+    atlen = 0;
+
+    a = -1;
+    for (h = trimha; h >= 0; h = b)
+      { b = cells[h].ptr;
+        cells[h].ptr = a;
+        a = h;
+      }
+    h = a;
+
+    k = cells[h].diag;
+    b = cells[h].mark - k;
     e = 0;
 #ifdef SHOW_TRAIL
-    printf("  A path = (%5d,%5d)\n",(mida+k)/2,b); fflush(stdout);
+    printf("  A path = (%5d,%5d)\n",b+k,b); fflush(stdout);
+#endif
+    if ((b+k)%tspace != 0)
+      { h = cells[h].ptr;
+        if (h < 0)
+          { a = trimy;
+            d = trimd;
+          }
+        else
+          { k = cells[h].diag;
+            a = cells[h].mark - k;
+            d = cells[h].diff;
+          }
+#ifdef SHOW_TRAIL
+        printf("    +%4d: (%5d,%5d): %3d / %3d\n",h,a+k,a,d-e,b-a); fflush(stdout);
+#endif
+        if (apath->tlen == 0)
+          { atrace[--atlen] = (uint16) (b-a);
+            atrace[--atlen] = (uint16) (d-e);
+          }
+        else
+          { atrace[1] = (uint16) (atrace[1] + (b-a));
+            atrace[0] = (uint16) (atrace[0] + (d-e));
+          }
+        b = a;
+        e = d;
+      }
+    if (h >= 0)
+      { for (h = cells[h].ptr; h >= 0; h = cells[h].ptr)
+          { k = cells[h].diag;
+            a = cells[h].mark - k;
+            atrace[--atlen] = (uint16) (b-a);
+            d = cells[h].diff;
+            atrace[--atlen] = (uint16) (d-e);
+#ifdef SHOW_TRAIL
+            printf("     %4d: (%5d,%5d): %3d / %3d\n",h,a+k,a,d-e,b-a); fflush(stdout);
+#endif
+            b = a;
+            e = d;
+          }
+        if (b+k != trimx)
+          { atrace[--atlen] = (uint16) (b-trimy);
+            atrace[--atlen] = (uint16) (trimd-e);
+#ifdef SHOW_TRAIL
+            printf("           (%5d,%5d): %3d / %3d\n",trimx,trimy,trimd-e,b-trimy); fflush(stdout);
+#endif
+          }
+        else if (b != trimy)
+          { atrace[atlen+1] = (uint16) (atrace[atlen+1] + (b-trimy));
+            atrace[atlen]   = (uint16) (atrace[atlen]   + (trimd-e));
+#ifdef SHOW_TRAIL
+            printf("         @ (%5d,%5d): %3d / %3d\n",trimx,trimy,trimd-e,b-trimy); fflush(stdout);
+#endif
+          }
+      }
+
+    apath->abpos = trimx;
+    apath->bbpos = trimy;
+    apath->diffs = apath->diffs + trimd;
+    apath->tlen  = apath->tlen  - atlen;
+    apath->trace = atrace + atlen;
+  }
+
+  return (0);
+}
+
+// Find the longest local alignment between aseq* and bseq through anti-diagonal anti between
+// diagonals low and hgh.  See associated .h file for the precise definition of the interface.
+
+int Wrap_Around_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
+                          int low, int hgh, int anti, int lbord, int hbord)
+{ _Work_Data  *work = ( _Work_Data *) ework;
+  _Align_Spec *spec = (_Align_Spec *) espec;
+
+  Path *apath;
+  int   alen;
+  int   minp, maxp;
+  int   fshort, rshort;
+
+  { int maxtp, wsize;
+
+    alen = align->alen;
+
+    if (hgh-low >= 7500)
+      wsize = VectorEl*(hgh-low+1);
+    else
+      wsize = VectorEl*10000;
+    if (wsize >= work->vecmax)
+      if (enlarge_vector(work,wsize))
+        return (1);
+
+    maxtp = 2*(alen/spec->trace_space+2);
+    wsize = 2*maxtp*sizeof(uint16);
+    if (wsize > work->pntmax)
+      if (enlarge_points(work,wsize))
+        return (1);
+
+    apath = align->path;
+    apath->trace = ((uint16 *) work->points) + maxtp;
+  }
+
+#ifdef DEBUG_PASSES
+  printf("\n");
+#endif
+
+  while (((anti-hgh)>>1) < 0)
+    hgh -= 1;
+   
+  if (lbord < 0)
+    minp = -INT32_MAX;
+  else
+    minp = low-lbord;
+  if (hbord < 0)
+    maxp = INT32_MAX;
+  else
+    maxp = hgh+hbord;
+
+  if (forward_wrap(work,spec,align,&low,hgh,anti,minp,maxp,alen))
+    return (1);
+
+  fshort = ((apath->aepos + apath->bepos) - anti < DUB_TRIM);
+
+#ifdef DEBUG_PASSES
+  printf("F1 (%d,%d) ~ %d => (%d,%d) %d\n",
+         (2*anti+(low+hgh))/4,(2*anti-(low+hgh))/4,hgh-low,
+         apath->aepos,apath->bepos,apath->diffs);
+#endif
+
+  if (reverse_wrap(work,spec,align,low,low,anti,minp,maxp,alen))
+    return (1);
+
+#ifdef DEBUG_PASSES
+  printf("R1 (%d,%d) => (%d,%d) %d\n",
+         (anti+low)>>1,(anti-low)>>1,apath->abpos,apath->bbpos,apath->diffs);
+#endif
+
+  rshort = (anti - (apath->abpos + apath->bbpos) < DUB_TRIM);
+
+  if (fshort)
+    { if (rshort)
+        { apath->aepos = apath->abpos = (apath->abpos+apath->aepos)>>1;
+          apath->bepos = apath->bbpos = (apath->bbpos+apath->bepos)>>1;
+          apath->tlen  = 0;
+        }
+      else
+        { low  = apath->abpos - apath->bbpos;
+          anti = apath->abpos + apath->bbpos;
+          apath->tlen = 0;
+          if (forward_wrap(work,spec,align,&low,low,anti,minp,maxp,alen))
+            return (1);
+        }
+    }
+  else
+    { if (rshort)
+        { low  = apath->aepos - apath->bepos;
+          anti = apath->aepos + apath->bepos;
+          apath->tlen = 0;
+          apath->diffs = 0;
+          if (reverse_wrap(work,spec,align,low,low,anti,minp,maxp,alen))
+            return (1);
+        }
+    }
+
+#ifdef DEBUG_POINTS
+  { uint16 *trace = (uint16 *) apath->trace;
+    int     a, h;
+
+    printf("\nA-path (%d,%d)->(%d,%d)",apath->abpos,apath->bbpos,apath->aepos,apath->bepos);
+    printf(" %c\n",COMP(align->flags) ? 'c' : 'n');
+    a = apath->bbpos;
+    for (h = 1; h < apath->tlen; h += 2)
+      { int dif = trace[h-1];
+        int del = trace[h];
+        a += del;
+        printf("      %d / %d (%d)\n",dif,del,a);
+      }
+  }
+#endif
+
+  return (0);
+}
+
+
+/****************************************************************************************\
+*                                                                                        *
+*  EXTENSION VERSION OF LOCAL ALIGNMENT                                                  *
+*                                                                                        *
+\****************************************************************************************/
+
+static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
+                          int midd, int mida, int minp, int maxp)
+{ char *aseq  = align->aseq;
+  char *bseq  = align->bseq;
+  Path *apath = align->path;
+
+  int     hgh, low, dif;
+  int     vlen, vmin, vmax;
+  int    *V, *M;
+  int    *_V, *_M;
+  BVEC   *T;
+  BVEC   *_T;
+
+  int    *HA, *_HA;
+  int    *NA, *_NA;
+  Pebble *cells;
+  int     avail, cmax;
+
+  int     tspace      = spec->trace_space;
+  int     PATH_AVE    = spec->ave_path;
+  int16  *SCORE       = spec->score;
+  int16  *TABLE       = spec->table;
+
+  int     besta, bestx;
+  int     trima, trimx, trimd;
+  int     trimha;
+  int     morea, morex, mored;
+  int     moreha;
+  int     more, morem, lasta;
+  int     aclip, bclip;
+
+  hgh = midd;
+  low = midd;
+  dif = 0;
+
+  { int span, wing;
+
+    span = (hgh-low)+1;
+    vlen = work->vecmax/VectorEl;
+    wing = (vlen - span)>>1;
+    vmin = low - wing;
+    vmax = hgh + wing;
+
+    _V  = ((int *) work->vector);
+    _M  = _V + vlen;
+    _HA = _M + vlen;
+    _NA = _HA + vlen;
+    _T  = ((BVEC *) (_NA + vlen));
+
+    V  = _V-vmin;
+    M  = _M-vmin;
+    HA = _HA-vmin;
+    NA = _NA-vmin;
+    T  = _T-vmin;
+
+    cells = (Pebble *) (work->cells);
+    cmax  = work->celmax;
+    avail = 0;
+  }
+
+  /* Compute 0-wave starting from mid-line */
+
+  more  = 1;
+  aclip =  INT32_MAX;
+  bclip = -INT32_MAX;
+
+  besta  = trima  = morea = lasta = mida;
+  bestx  = trimx  = morex = (mida+hgh)>>1;
+  trimd  = mored  = 0;
+  trimha = moreha = 0;
+  morem  = -1;
+
+  { int   k;
+    char *bs;
+
+    bs = bseq - hgh;
+    for (k = hgh; k >= low; k--)
+      { int     x, c, d;
+        int     ha, na;
+        Pebble *pb;
+
+        x = (mida+k)>>1;
+
+        if (avail >= cmax-1)
+          { cmax  = ((int) (avail*1.2)) + 10000;
+            cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
+            if (cells == NULL)
+              return (1);
+            work->celmax = cmax;
+            work->cells  = (void *) cells;
+          }
+
+        na = (x/tspace)*tspace;
+#ifdef SHOW_TPS
+        printf(" A %d: %d,%d,0,%d\n",avail,-1,k,na); fflush(stdout);
+#endif
+        pb = cells+avail;
+        pb->ptr  = -1;
+        pb->diag = k;
+        pb->diff = 0;
+        pb->mark = na;
+        ha  = avail++;
+        na += tspace;
+
+        while (1)
+          { c = bs[x];
+            if (c == 4)
+              { more = 0;
+                if (bclip < k)
+                  bclip = k;
+                break;
+              }
+            d = aseq[x];
+            if (c != d)
+              { if (d == 4)
+                  { more  = 0;
+                    aclip = k;
+                  }
+                break;
+              }
+            x += 1;
+          }
+        c = (x << 1) - k;
+
+        while (x >= na)
+          { if (avail >= cmax)
+              { cmax  = ((int) (avail*1.2)) + 10000;
+                cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
+                if (cells == NULL)
+                  return (1);
+                work->celmax = cmax;
+                work->cells  = (void *) cells;
+              }
+#ifdef SHOW_TPS
+            printf(" A %d: %d,%d,0,%d\n",avail,ha,k,na); fflush(stdout);
+#endif
+            pb = cells+avail;
+            pb->ptr  = ha;
+            pb->diag = k;
+            pb->diff = 0;
+            pb->mark = na;
+            ha  = avail++;
+            na += tspace;
+          }
+
+        if (c > besta)
+          { besta  = trima = lasta = c;
+            bestx  = trimx = x;
+            trimha = ha;
+          }
+
+        V[k]  = c;
+        T[k]  = PATH_INT;
+        M[k]  = PATH_LEN;
+        HA[k] = ha;
+        NA[k] = na;
+
+        bs += 1;
+      }
+  }
+
+  if (more == 0)
+    { if (bseq[besta-bestx] != 4 && aseq[bestx] != 4)
+        more = 1;
+      if (hgh >= aclip)
+        { hgh = aclip-1;
+          if (morem <= M[aclip])
+            { morem  = M[aclip];
+              morea  = V[aclip];
+              morex  = (morea + aclip)>>1;
+              moreha = HA[aclip];
+            }
+        }
+      if (low <= bclip)
+        { low = bclip+1;
+          if (morem <= M[bclip])
+            { morem  = M[bclip];
+              morea  = V[bclip];
+              morex  = (morea + bclip)>>1;
+              moreha = HA[bclip];
+            }
+        }
+      aclip =  INT32_MAX;
+      bclip = -INT32_MAX;
+    }
+
+#ifdef DEBUG_WAVE
+  printf("\nFORWARD WAVE:\n");
+  print_wave(V,M,low,hgh,besta);
+#endif
+
+  /* Compute successive waves until no furthest reaching points remain */
+
+  while (more && lasta >= besta - TRIM_MLAG)
+    { int     k, n;
+      int     ua;
+      BVEC    t;
+      int     am, ac, ap;
+      char   *bs;
+
+      low -= 1;
+      hgh += 1;
+
+      if (low <= vmin || hgh >= vmax)
+        { int   span, wing;
+          int64 move;
+          int64 vd, md, had, nad, td;
+
+          span = (hgh-low)+1;
+          if (.8*vlen < span)
+            { if (enlarge_vector(work,vlen*VectorEl))
+                return (1);
+
+              move = ((void *) _V) - work->vector;
+              vlen = work->vecmax/VectorEl;
+
+              _V  = (int *) work->vector;
+              _M  = _V + vlen;
+              _HA = _M + vlen;
+              _NA = _HA + vlen;
+              _T  = ((BVEC *) (_NA + vlen));
+            }
+          else
+            move = 0;
+
+          wing = (vlen - span)>>1;
+
+          vd  = ((void *) ( _V+wing)) - (((void *) ( V+low)) - move);
+          md  = ((void *) ( _M+wing)) - (((void *) ( M+low)) - move);
+          had = ((void *) (_HA+wing)) - (((void *) (HA+low)) - move);
+          nad = ((void *) (_NA+wing)) - (((void *) (NA+low)) - move);
+          td  = ((void *) ( _T+wing)) - (((void *) ( T+low)) - move);
+
+          if (vd < 0)
+            memmove( _V+wing,  ((void *) ( V+low)) - move, span*sizeof(int));
+          if (md < 0)
+            memmove( _M+wing,  ((void *) ( M+low)) - move, span*sizeof(int));
+          if (had < 0)
+            memmove(_HA+wing,  ((void *) (HA+low)) - move, span*sizeof(int));
+          if (nad < 0)
+            memmove(_NA+wing,  ((void *) (NA+low)) - move, span*sizeof(int));
+          if (td < 0)
+            memmove( _T+wing,  ((void *) ( T+low)) - move, span*sizeof(BVEC));
+
+          if (td > 0)
+            memmove( _T+wing,  ((void *) ( T+low)) - move, span*sizeof(BVEC));
+          if (nad > 0)
+            memmove(_NA+wing,  ((void *) (NA+low)) - move, span*sizeof(int));
+          if (had > 0)
+            memmove(_HA+wing,  ((void *) (HA+low)) - move, span*sizeof(int));
+          if (md > 0)
+            memmove( _M+wing,  ((void *) ( M+low)) - move, span*sizeof(int));
+          if (vd > 0)
+            memmove( _V+wing,  ((void *) ( V+low)) - move, span*sizeof(int));
+
+          vmin = low-wing;
+          vmax = hgh+wing;
+
+          V  =  _V-vmin;
+          M  =  _M-vmin;
+          HA = _HA-vmin;
+          NA = _NA-vmin;
+          T  =  _T-vmin;
+        }
+
+      if (low >= minp)
+        { NA[low] = NA[low+1];
+          V[low]  = -1;
+        }
+      else
+        low += 1;
+
+      if (hgh <= maxp)
+        { NA[hgh] = NA[hgh-1];
+          V[hgh]  = am = -1;
+        }
+      else
+        am = V[--hgh];
+
+      dif += 1;
+
+      ac = V[hgh+1] = V[low-1] = -1;
+      bs = bseq - hgh;
+      t  = PATH_INT;
+      n  = PATH_LEN;
+      ua = -1;
+      for (k = hgh; k >= low; k--)
+        { int     x, m;
+          int     ha;
+          int     c, d;
+          BVEC    b;
+          Pebble *pb;
+
+          ap = ac;
+          ac = am;
+          am = V[d = k-1];
+
+          if (ac < am)
+            if (am < ap)
+              { c  = ap+1;
+                m  = n;
+                b  = t;
+                ha = ua;
+              }
+            else
+              { c  = am+1;
+                m  = M[d];
+                b  = T[d];
+                ha = HA[d];
+              }
+          else
+            if (ac < ap)
+              { c  = ap+1;
+                m  = n;
+                b  = t;
+                ha = ua;
+              }
+            else
+              { c  = ac+2;
+                m  = M[k];
+                b  = T[k];
+                ha = HA[k];
+              }
+
+          if ((b & PATH_TOP) != 0)
+            m -= 1;
+          b <<= 1;
+
+          x = (c+k)>>1;
+          while (1)
+            { c = bs[x];
+              if (c == 4)
+                { more = 0;
+                  if (bclip < k)
+                    bclip = k;
+                  break;
+                }
+              d = aseq[x];
+              if (c != d)
+                { if (d == 4)
+                    { more  = 0;
+                      aclip = k;
+                    }
+                  break;
+                }
+              x += 1;
+              if ((b & PATH_TOP) == 0)
+                m += 1;
+              b = (b << 1) | 1;
+            }
+          c = (x << 1) - k;
+
+          while (x >= NA[k])
+            { if (cells[ha].mark < NA[k])
+                { if (avail >= cmax)
+                    { cmax  = ((int) (avail*1.2)) + 10000;
+                      cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),
+                                                       "Reallocating trace cells");
+                      if (cells == NULL)
+                        return (1);
+                      work->celmax = cmax;
+                      work->cells  = (void *) cells;
+                    }
+#ifdef SHOW_TPS
+                  printf(" A %d: %d,%d,%d,%d\n",avail,ha,k,dif,NA[k]); fflush(stdout);
+#endif
+                  pb = cells+avail;
+                  pb->ptr  = ha;
+                  pb->diag = k;
+                  pb->diff = dif;
+                  pb->mark = NA[k];
+                  ha = avail++;
+                }
+              NA[k] += tspace;
+            }
+
+          if (c > besta)
+            { besta = c;
+              bestx = x;
+              if (m >= PATH_AVE)
+                { lasta = c;
+                  if (TABLE[b & TRIM_MASK] >= 0)
+                    if (TABLE[(b >> TRIM_LEN) & TRIM_MASK] + SCORE[b & TRIM_MASK] >= 0)
+                      { trima  = c;
+                        trimx  = x;
+                        trimd  = dif;
+                        trimha = ha;
+                      }
+                }
+            }
+
+          t  = T[k];
+          n  = M[k];
+          ua = HA[k];
+          V[k]  = c;
+          T[k]  = b;
+          M[k]  = m;
+          HA[k] = ha;
+
+          bs += 1;
+        }
+
+      if (more == 0)
+        { if (bseq[besta-bestx] != 4 && aseq[bestx] != 4)
+            more = 1;
+          if (hgh >= aclip)
+            { hgh = aclip-1;
+              if (morem <= M[aclip])
+                { morem  = M[aclip];
+                  morea  = V[aclip];
+                  morex  = (morea + aclip)>>1;
+                  mored  = dif;
+                  moreha = HA[aclip];
+                }
+            }
+          if (low <= bclip)
+            { low = bclip+1;
+              if (morem <= M[bclip])
+                { morem  = M[bclip];
+                  morea  = V[bclip];
+                  morex  = (morea + bclip)>>1;
+                  mored  = dif;
+                  moreha = HA[bclip];
+                }
+            }
+          aclip =  INT32_MAX;
+          bclip = -INT32_MAX;
+        }
+
+      n = besta - WAVE_LAG;
+      while (hgh >= low)
+        if (V[hgh] < n)
+          hgh -= 1;
+        else
+          { while (V[low] < n)
+              low += 1;
+            break;
+          }
+
+#ifdef WAVE_STATS
+      k = (hgh-low)+1;
+      if (k > MAX)
+        MAX = k;
+      TOT += k;
+      NWV += 1;
+#endif
+
+#ifdef DEBUG_WAVE
+      print_wave(V,M,low,hgh,besta);
+#endif
+    }
+
+  { uint16 *atrace = (uint16 *) apath->trace;
+    int     atlen;
+    int     trimy;
+    int     a, b, k, h;
+    int     d, e;
+
+    if (morem >= 0)
+      { trimx  = morex;
+        trimy  = morea - morex;
+        trimd  = mored;
+        trimha = moreha;
+      }
+    else
+      trimy = trima - trimx;
+
+    atlen = 0;
+
+    a = -1;
+    for (h = trimha; h >= 0; h = b)
+      { b = cells[h].ptr;
+        cells[h].ptr = a;
+        a = h;
+      }
+    h = a;
+
+    k = cells[h].diag;
+    b = (mida-k)>>1;
+    e = 0;
+
+#ifdef SHOW_TRAIL
+    printf("  A path = (%5d,%5d)\n",(mida+k)>>1,b); fflush(stdout);
 #endif
     for (h = cells[h].ptr; h >= 0; h = cells[h].ptr)
       { k = cells[h].diag;
@@ -2480,20 +3244,20 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
   BVEC   *T;
   BVEC   *_T;
 
-  int    *HA, *NA;
-  int    *_HA, *_NA;
+  int    *HA, *_HA;
+  int    *NA, *_NA;
   Pebble *cells;
   int     avail, cmax;
 
-  int     TRACE_SPACE = spec->trace_space;
+  int     tspace      = spec->trace_space;
   int     PATH_AVE    = spec->ave_path;
   int16  *SCORE       = spec->score;
   int16  *TABLE       = spec->table;
 
-  int     besta, besty;
-  int     trima, trimy, trimd;
+  int     besta, bestx;
+  int     trima, trimx, trimd;
   int     trimha;
-  int     morea, morey, mored;
+  int     morea, morex, mored;
   int     moreha;
   int     more, morem, lasta;
   int     aclip, bclip;
@@ -2505,8 +3269,8 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
   { int span, wing;
 
     span = (hgh-low)+1;
-    vlen = work->vecmax/VectorEn;
-    wing = (vlen - span)/2;
+    vlen = work->vecmax/VectorEl;
+    wing = (vlen - span)>>1;
     vmin = low - wing;
     vmax = hgh + wing;
 
@@ -2532,21 +3296,21 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
   bclip =  INT32_MAX;
 
   besta  = trima  = morea = lasta = mida;
-  besty  = trimy  = morey = (mida-hgh) >> 1;
+  bestx  = trimx  = morex = (mida+hgh)>>1;
   trimd  = mored  = 0;
   trimha = moreha = 0;
   morem  = -1;
 
   { int   k;
-    char *a;
+    char *bs;
 
-    a = aseq + low;
+    bs = bseq - low;
     for (k = low; k <= hgh; k++)
-      { int     y, c, d;
+      { int     x, c, d;
         int     ha, na;
         Pebble *pb;
 
-        y = (mida-k) >> 1;
+        x = (mida+k)>>1;
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
@@ -2557,38 +3321,38 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             work->cells  = (void *) cells;
           }
 
-        na = ((y+k+TRACE_SPACE-1)/TRACE_SPACE-1)*TRACE_SPACE;
+        na = ((x+tspace-1)/tspace-1)*tspace;
 #ifdef SHOW_TPS
-        printf(" A %d: -1,%d,0,%d\n",avail,k,na+TRACE_SPACE); fflush(stdout);
+        printf(" A %d: -1,%d,0,%d\n",avail,k,na+tspace); fflush(stdout);
 #endif
         pb = cells+avail;
         pb->ptr  = -1;
         pb->diag = k;
         pb->diff = 0;
-        pb->mark = y+k;
+        pb->mark = x;
         ha  = avail++;
 
         while (1)
-          { c = bseq[y];
+          { c = bs[x];
             if (c == 4)
               { more = 0;
                 if (bclip > k)
                   bclip = k;
                 break;
               }
-            d = a[y];
+            d = aseq[x];
             if (c != d)
-              { if (d == 4) 
+              { if (d == 4)
                   { more  = 0;
                     aclip = k;
                   }
                 break;
               }
-            y -= 1;
+            x -= 1;
           }
-        c = (y << 1) + k;
+        c = (x << 1) - k;
 
-        while (y+k <= na)
+        while (x <= na)
           { if (avail >= cmax)
               { cmax  = ((int) (avail*1.2)) + 10000;
                 cells = (Pebble *) Realloc(cells,cmax*sizeof(Pebble),"Reallocating trace cells");
@@ -2606,12 +3370,12 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             pb->diff = 0;
             pb->mark = na;
             ha  = avail++;
-            na -= TRACE_SPACE;
+            na -= tspace;
           }
 
         if (c < besta)
           { besta  = trima = lasta = c;
-            besty  = trimy = y;
+            bestx  = trimx = x;
             trimha = ha;
           }
 
@@ -2621,19 +3385,19 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         HA[k] = ha;
         NA[k] = na;
 
-        a += 1;
+        bs -= 1;
       }
   }
 
   if (more == 0)
-    { if (bseq[besty] != 4 && aseq[besta - besty] != 4)
+    { if (bseq[besta-bestx] != 4 && aseq[bestx] != 4)
         more = 1;
       if (low <= aclip)
         { low = aclip+1;
           if (morem <= M[aclip])
             { morem  = M[aclip];
               morea  = V[aclip];
-              morey  = (morea - aclip)/2;
+              morex  = (morea + aclip)>>1;
               moreha = HA[aclip];
             }
         }
@@ -2642,7 +3406,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           if (morem <= M[bclip])
             { morem  = M[bclip];
               morea  = V[bclip];
-              morey  = (morea - bclip)/2;
+              morex  = (morea + bclip)>>1;
               moreha = HA[bclip];
             }
         }
@@ -2660,7 +3424,10 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
       int    ua;
       BVEC   t;
       int    am, ac, ap;
-      char  *a;
+      char  *bs;
+
+      low -= 1;
+      hgh += 1;
 
       if (low <= vmin || hgh >= vmax)
         { int   span, wing;
@@ -2668,11 +3435,11 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
 
           span = (hgh-low)+1;
           if (.8*vlen < span)
-            { if (enlarge_vector(work,vlen*VectorEn))
+            { if (enlarge_vector(work,vlen*VectorEl))
                 return (1);
 
               move = ((void *) _V) - work->vector;
-              vlen = work->vecmax/VectorEn;
+              vlen = work->vecmax/VectorEl;
 
               _V  = (int *) work->vector;
               _M  = _V + vlen;
@@ -2683,7 +3450,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           else
             move = 0;
 
-          wing = (vlen - span)/2;
+          wing = (vlen - span)>>1;
 
           vd  = ((void *) ( _V+wing)) - (((void *) ( V+low)) - move);
           md  = ((void *) ( _M+wing)) - (((void *) ( M+low)) - move);
@@ -2723,27 +3490,29 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low > minp)
-        { low -= 1;
-          NA[low] = NA[low+1];
+      if (low >= minp)
+        { NA[low] = NA[low+1];
           V[low]  = ap = INT32_MAX;
         }
       else
-        ap = V[low]; 
-      if (hgh < maxp)
-        { hgh += 1;
-          NA[hgh] = NA[hgh-1];
+        ap = V[++low];
+
+      if (hgh <= maxp)
+        { NA[hgh] = NA[hgh-1];
           V[hgh] = INT32_MAX;
         }
+      else
+        hgh -= 1;
+
       dif += 1;
 
       ac = V[hgh+1] = V[low-1] = INT32_MAX;
-      a  = aseq + low;
+      bs = bseq - low;
       t  = PATH_INT;
       n  = PATH_LEN;
       ua = -1;
       for (k = low; k <= hgh; k++)
-        { int     y, m;
+        { int     x, m;
           int     ha;
           int     c, d;
           BVEC    b;
@@ -2784,31 +3553,31 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             m -= 1;
           b <<= 1;
 
-          y = (c-k) >> 1;
+          x = (c+k)>>1;
           while (1)
-            { c = bseq[y];
+            { c = bs[x];
               if (c == 4)
                 { more = 0;
                   if (bclip > k)
                     bclip = k;
                   break;
                 }
-              d = a[y];
+              d = aseq[x];
               if (c != d)
-                { if (d == 4) 
+                { if (d == 4)
                     { more  = 0;
                       aclip = k;
                     }
                   break;
                 }
-              y -= 1;
+              x -= 1;
               if ((b & PATH_TOP) == 0)
                 m += 1;
               b = (b << 1) | 1;
             }
-          c = (y << 1) + k;
+          c = (x << 1) - k;
 
-          while (y+k <= NA[k])
+          while (x <= NA[k])
             { if (cells[ha].mark > NA[k])
                 { if (avail >= cmax)
                     { cmax  = ((int) (avail*1.2)) + 10000;
@@ -2829,18 +3598,18 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                   pb->mark = NA[k];
                   ha = avail++;
                 }
-              NA[k] -= TRACE_SPACE;
+              NA[k] -= tspace;
             }
 
           if (c < besta)
             { besta = c;
-              besty = y;
+              bestx = x;
               if (m >= PATH_AVE)
                 { lasta = c;
                   if (TABLE[b & TRIM_MASK] >= 0)
                     if (TABLE[(b >> TRIM_LEN) & TRIM_MASK] + SCORE[b & TRIM_MASK] >= 0)
                       { trima  = c;
-                        trimy  = y;
+                        trimx  = x;
                         trimd  = dif;
                         trimha = ha;
                       }
@@ -2855,18 +3624,18 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           M[k]  = m;
           HA[k] = ha;
 
-          a += 1;
+          bs -= 1;
         }
 
       if (more == 0)
-        { if (bseq[besty] != 4 && aseq[besta - besty] != 4)
+        { if (bseq[besta-bestx] != 4 && aseq[bestx] != 4)
             more = 1;
           if (low <= aclip)
             { low = aclip+1;
               if (morem <= M[aclip])
                 { morem  = M[aclip];
                   morea  = V[aclip];
-                  morey  = (morea - aclip)/2;
+                  morex  = (morea + aclip)>>1;
                   mored  = dif;
                   moreha = HA[aclip];
                 }
@@ -2876,7 +3645,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
               if (morem <= M[bclip])
                 { morem  = M[bclip];
                   morea  = V[bclip];
-                  morey  = (morea - bclip)/2;
+                  morex  = (morea + bclip)>>1;
                   mored  = dif;
                   moreha = HA[bclip];
                 }
@@ -2888,7 +3657,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
       n = besta + WAVE_LAG;
       while (hgh >= low)
         if (V[hgh] > n)
-          hgh -= 1;                               
+          hgh -= 1;
         else
           { while (V[low] > n)
               low += 1;
@@ -2910,24 +3679,24 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
 
   { uint16 *atrace = (uint16 *) apath->trace;
     int     atlen;
-    int     trimx;
+    int     trimy;
     int     a, b, k, h;
     int     d, e;
 
     if (morem >= 0)
-      { trimx  = morea-morey;
-        trimy  = morey;
+      { trimx  = morex;
+        trimy  = morea - morex;
         trimd  = mored;
         trimha = moreha;
       }
     else
-      trimx = trima-trimy;
+      trimy = trima - trimx;
 
     atlen = 0;
 
     a = -1;
     for (h = trimha; h >= 0; h = b)
-      { b = cells[h].ptr; 
+      { b = cells[h].ptr;
         cells[h].ptr = a;
         a = h;
       }
@@ -2939,7 +3708,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
 #ifdef SHOW_TRAIL
     printf("  A path = (%5d,%5d)\n",b+k,b); fflush(stdout);
 #endif
-    if ((b+k)%TRACE_SPACE != 0)
+    if ((b+k)%tspace != 0)
       { h = cells[h].ptr;
         if (h < 0)
           { a = trimy;
@@ -3016,7 +3785,7 @@ int Find_Extension(Alignment *align, Work_Data *ework, Align_Spec *espec,
     alen = align->alen;
     blen = align->blen;
 
-    wsize = VectorEn*10000;
+    wsize = VectorEl*10000;
     if (wsize >= work->vecmax)
       if (enlarge_vector(work,wsize))
         return (1);
@@ -3050,21 +3819,21 @@ int Find_Extension(Alignment *align, Work_Data *ework, Align_Spec *espec,
   if (prefix)
     { if (reverse_extend(work,spec,align,diag,anti,minp,maxp))
         return (1);
-      apath->aepos = (anti+diag)/2;
-      apath->bepos = (anti-diag)/2;
+      apath->aepos = (anti+diag)>>1;
+      apath->bepos = (anti-diag)>>1;
 #ifdef DEBUG_PASSES
       printf("E1 (%d,%d) => (%d,%d) %d\n",
-             (anti+diag)/2,(anti-diag)/2,apath->abpos,apath->bbpos,apath->diffs);
+             (anti+diag)>>1,(anti-diag)>>1,apath->abpos,apath->bbpos,apath->diffs);
 #endif
     }
   else
     { if (forward_extend(work,spec,align,diag,anti,minp,maxp))
         return (1);
-      apath->abpos = (anti+diag)/2;
-      apath->bbpos = (anti-diag)/2;
+      apath->abpos = (anti+diag)>>1;
+      apath->bbpos = (anti-diag)>>1;
 #ifdef DEBUG_PASSES
       printf("F1 (%d,%d) => (%d,%d) %d\n",
-             (anti+diag)/2,(anti-diag)/2,apath->aepos,apath->bepos,apath->diffs);
+             (anti+diag)>>1,(anti-diag)>>1,apath->aepos,apath->bepos,apath->diffs);
 #endif
      }
 

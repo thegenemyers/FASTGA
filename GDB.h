@@ -26,16 +26,10 @@ OneSchema *make_Seq_Schema();  //  Make a .1seq schema
  ********************************************************************************************/
 
 typedef struct
-  { int64  beg;     //  [beg,end] soft mask of contig
-    int64  end;
-  } GDB_MASK;
-
-typedef struct
   { int64   clen;   //  Length of the contig's sequence
     int64   sbeg;   //  Left index of the contig's sequence in its' scaffold
     int64   boff;   //  Offset (in bytes) of the contig sequence either in memory
                     //     or in the .bps file (see seqstate of GB)
-    int64   moff;   //  Offset (in MASK items) of the contig's mask list in memory
     int     scaf;   //  Index/# of scaffold contig is in
   } GDB_CONTIG;
 
@@ -59,10 +53,6 @@ typedef struct
     int64         maxctg;     //  length of maximum contig
     GDB_CONTIG   *contigs;    //  array [0..ncontig) of contig records
 
-    int           iscaps;     //  display with caps, with soft masks in lower case
-    int           nmasks;     //  # of mask intervals
-    GDB_MASK     *masks;      //  array [0..nmasks) of mask records
-
     int           hdrtot;     //  total bytes in header block
     char         *headers;    //  memory block of all headers, '\0'-terminated.
 
@@ -77,6 +67,10 @@ typedef struct
 
     float         freq[4];    //  frequency of A, C, G, T, respectively
   } GDB; 
+
+  //  Forward declaration of ANO declared in ANO.h
+
+typedef struct _ANO ANO;
 
   //  Sequence format types:
 
@@ -111,9 +105,11 @@ typedef struct
   //     unlinked at when creating a temporary GDB).  If num_bps > 1 then it is the responsibility
   //     of the caller to free this array after closing all the units save for the first.
   //     The first FILE pointer is shared with the GDB and so will be closed when the GDB
-  //     is closed.
+  //     is closed.  If ano is not NULL, then if the GDB is created from a fasta and it has
+  //     case-sensitive masking, then upon return the ANO will be a proper ANO data structure
+  //     otherwise ano->nints = 0.
 
-FILE **Get_GDB(GDB *gdb, char *source, char *cpath, int num_bps);
+FILE **Get_GDB(GDB *gdb, char *source, char *cpath, int num_bps, ANO *ano);
 
   //  Interpret source & target arguments returning complete path + extension names of
   //    the source and target in spath & tpath.  Returns the type of source.
@@ -138,9 +134,12 @@ int Get_GDB_Paths(char *source, char *target, char **spath, char **tpath, int no
   // If num_bps > 1 then it is the responsibility of the caller to free this array after
   //   closing all the units save for the first.  The first FILE pointer is shared with
   //   the GDB and so will be closed when the GDB is closed.
+  // If ano == NULL then any implicit masking in the source is ignored.  Otherwise,
+  //   if the source is a fasta with masking indicated by case changes, then upon return
+  //   the ANO will be a proper ANO data structure, otherwise ano->nints = 0;
   // In interactive mode a NULL value is returned if there is an error.
 
-FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int num_bps, char *tpath, int nthresh);
+FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int num_bps, char *tpath, int nthr, ANO *ano);
 
   // Open the given database "path" into the supplied GDB record "gdb".
   //   Initially the sequence data, if any, stays in the .bps file with a FILE pointer to it.
@@ -169,7 +168,7 @@ void Close_GDB(GDB *gdb);
 
 /*******************************************************************************************
  *
- *  CONTIG READING ROUTINES
+ *  SEQUENCE ACCESS ROUTINES
  *
  ********************************************************************************************/
 
@@ -200,4 +199,34 @@ char *Get_Contig(GDB *gdb, int i, int stype, char *buffer);
 
 char *Get_Contig_Piece(GDB *gdb, int i, int beg, int end, int stype, char *buffer);
 
-#endif // _GDB_DEFS
+
+/*******************************************************************************************
+ *
+ *  GDB SKELETON ROUTINES
+ *
+ ********************************************************************************************/
+
+
+  // Read a GDB skeleton from the current OneFile, filling out the gdb record provided.
+  // The input must be on a 'g'-line and the schema of the OneFile is assumed to have
+  // the 'g', 'S', 'C', and 'G'-lines properly defined for a GDB skeleton which is a GDB
+  // sans the .bps file and associated machinery.
+
+int  Read_Skeleton(OneFile *of, char *source, GDB *gdb);
+
+  // If the OneFile is at a 'g' line then skip (advance over) the skeleton encoding that ensues.
+
+void Skip_Skeleton(OneFile *of);
+
+  // Write a GDB skeleton (including the intial 'g'-line) to the OneFile.
+
+void Write_Skeleton(OneFile *of, GDB *gdb);
+
+  // Return 1 iff the skeletons of T and A are the same, where the scaffolds of A can be a
+  //   permuation of the scaffolds of T.  Map should be an integer array of length equal to
+  //   the number of scaffolds in A and if 1 is returned, then map[s] is the scaffold in T
+  //   corresponding to the scaffold s in A.
+
+int Are_Skeletons_Equal(GDB *T, GDB *A, int *map);
+
+#endif   //  _GDB_DEFS

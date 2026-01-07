@@ -19,7 +19,6 @@ static char *Usage = "[-h[<int>,<int>]] [-hlog] <source:path>[.1gdb]";
 
 static GDB_CONTIG    *CONTIGS;
 static GDB_SCAFFOLD  *SCAFFS;
-static GDB_MASK      *MASKS;
 static int           *GAPS;
 
 static int CSORT(const void *l, const void *r)
@@ -68,8 +67,8 @@ static int nice_round(int num, int nbins, int *mod)
 int main(int argc, char *argv[])
 { GDB        _gdb, *gdb = &_gdb;
   int       *ctgsort, *scfsort, *gapsort;
-  int        nctg, nscaff, ngap, nmasks;
-  int64      totbps, totspan, totgap, msktot;
+  int        nctg, nscaff, ngap;
+  int64      totbps, totspan, totgap;
 
   int     HIST_LIN;
   int     HIST_LOG;
@@ -128,17 +127,15 @@ int main(int argc, char *argv[])
   }
 
   { int   s, c;
-    int64 spos, m;
+    int64 spos;
 
     Read_GDB(gdb,argv[1]);
 
     nctg   = gdb->ncontig;
     nscaff = gdb->nscaff;
-    nmasks = gdb->nmasks;
 
     CONTIGS  = gdb->contigs;
     SCAFFS   = gdb->scaffolds;
-    MASKS    = gdb->masks;
 
     GAPS = (int *) Malloc(sizeof(int)*(nctg+nscaff),"Allocating scaffold map");
 
@@ -175,10 +172,6 @@ int main(int argc, char *argv[])
     if (ngap > 0)
       qsort(gapsort,ngap,sizeof(int),GSORT);
     qsort(scfsort,nscaff,sizeof(int),SSORT);
-
-    msktot = 0;
-    for (m = 0; m < nmasks; m++)
-      msktot += MASKS[m].end - MASKS[m].beg;
   }
 
   //  Output overview
@@ -220,16 +213,6 @@ int main(int argc, char *argv[])
         printf("bp, ave. = ");
         Print_Number(totgap/ngap,awide,stdout);
         printf("bp\n");
-      }
-
-    if (nmasks == 0)
-      printf("\n No soft masks\n");
-    else
-      { printf("\n  ");
-        Print_Number(nmasks,cwide,stdout);
-        printf(" masks spanning ");
-        Print_Number(msktot,0,stdout);
-        printf("bp (%.1f%% of the bases)\n",(100.*msktot)/totbps);
       }
   }
 

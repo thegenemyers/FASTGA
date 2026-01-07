@@ -1375,7 +1375,7 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vsArg, const char *fileTy
 	  }
 	if (!f) return 0 ;
       }
-    
+
 #define OPEN_ERROR1(x) \
     { snprintf (errorString, 1024, "ONEcode file open error %s: %s\n", localPath, x) ; \
       fclose(f) ; if (localPath != path) free(localPath) ; return NULL; }
@@ -1671,7 +1671,7 @@ OneFile *oneFileOpenRead (const char *path, OneSchema *vsArg, const char *fileTy
 
   if (!isBareFile)
     oneSchemaDestroy (vs0) ;
-    
+
   if (localPath != path) free(localPath) ; 
   return vf;
 }
@@ -2806,7 +2806,7 @@ void oneFileClose (OneFile *vf)
 
   if (vf->isWrite)
     oneFinalize (vf) ;
-  
+
   oneFileDestroy (vf);
 }
 

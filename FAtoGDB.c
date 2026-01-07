@@ -21,6 +21,7 @@
 #include <dirent.h>
 
 #include "GDB.h"
+#include "ANO.h"
 
 static char *Usage = "[-v] [-L:<log:path>] [-n<int>] <source:path>[<fa_extn>|<1_extn>] [<target:path>[.1gdb]]";
 
@@ -30,6 +31,7 @@ int main(int argc, char *argv[])
   int   ftype;
   int   NCUT;
   GDB   gdb;
+  ANO   ano;
 
   int   VERBOSE;
   FILE *LOG_FILE;
@@ -98,23 +100,34 @@ int main(int argc, char *argv[])
   else
     ftype = Get_GDB_Paths(argv[1],argv[2],&spath,&tpath,1);
 
+  TPATH = PathTo(tpath);
+  TROOT = Root(tpath,NULL);
   if (VERBOSE)
-    { TPATH = PathTo(tpath);
-      TROOT = Root(tpath,NULL);
-      if (strcmp(TPATH,".") == 0)
+    { if (strcmp(TPATH,".") == 0)
         fprintf(stderr,"\n  Creating genome data base (GDB) %s.1gdb in the current directory\n",
                        TROOT);  
       else
         fprintf(stderr,"\n  Creating genome data base (GDB) %s.1gdb in directory %s\n",
                        TROOT,TPATH);  
       fflush(stderr);
-      free(TROOT);
-      free(TPATH);
     }
 
-  Create_GDB(&gdb,spath,ftype,1,tpath,NCUT);
+  Create_GDB(&gdb,spath,ftype,1,tpath,NCUT,&ano);
 
   Write_GDB(&gdb,tpath);
+  if (ano.nints > 0)
+    { if (VERBOSE)
+        { fprintf(stderr,"\n  Masked sequence detected, also creating .ano file %s.1ano\n",TROOT);
+          fflush(stderr);
+        }
+      Write_ANO(&ano,Catenate(TPATH,"/",TROOT,".1ano"),100);
+      Free_ANO(&ano);
+    }
+
+  Close_GDB(&gdb);
+
+  free(TROOT);
+  free(TPATH);
 
   free(tpath);
   free(spath);

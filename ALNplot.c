@@ -411,14 +411,14 @@ void read_1aln(char *oneAlnFile)
     ISTWO = (src2_name != NULL);
 
     if (input->lineType == 'g')
-      Read_Aln_Skeleton(input,src1_name,AGDB);
+      Read_Skeleton(input,src1_name,AGDB);
     else
-      Get_GDB(AGDB,src1_name,cpath,0);
+      Get_GDB(AGDB,src1_name,cpath,0,NULL);
     if (ISTWO)
       { if (input->lineType == 'g')
-          Read_Aln_Skeleton(input,src2_name,BGDB);
+          Read_Skeleton(input,src2_name,BGDB);
         else
-          Get_GDB(BGDB,src2_name,cpath,0);
+          Get_GDB(BGDB,src2_name,cpath,0,NULL);
       }
     else
       BGDB = AGDB;

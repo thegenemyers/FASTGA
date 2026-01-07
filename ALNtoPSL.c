@@ -472,13 +472,13 @@ int main(int argc, char *argv[])
     free(root);
     free(pwd);
 
-    Skip_Aln_Skeletons(input);
+    Skip_Skeleton(input);
 
     ISTWO = (src2_name != NULL);
 
-    units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS);
+    units1 = Get_GDB(gdb1,src1_name,cpath,NTHREADS,NULL);
     if (ISTWO)
-      units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS);
+      units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS,NULL);
     else
       { gdb2   = gdb1;
         units2 = units1;

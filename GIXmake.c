@@ -25,6 +25,7 @@
 
 #include "libfastk.h"
 #include "GDB.h"
+#include "ANO.h"
 
 #undef  DEBUG_THREADS
 #undef  DEBUG_MAP
@@ -39,22 +40,25 @@
 
 static char *Usage[] =
     { "[-v] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [-k<int(40)]",
-      "( <source:path>[.1gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )"
+      "<source:path>[.1gdb|<extn>]  (#[<mask>[.1ano]])*",
+      "[-v] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [-k<int(40)]",
+      "<source:path>[<extn>] <target:path>[.gix] (#[<mask>[.1ano]])*"
     };
 
-static int   VERBOSE;    //  -v
-static char *LOG_PATH;   //  -L path name for log file
-static FILE *LOG_FILE;   //     file handle for log
-static char *SORT_PATH;  //  -P
-static char *TPATH;
-static char *TROOT;
-static char *POST_NAME;
+static int    VERBOSE;    //  -v
+static char  *LOG_PATH;   //  -L path name for log file
+static FILE  *LOG_FILE;   //     file handle for log
+static char  *SORT_PATH;  //  -P
+static char  *TPATH;
+static char  *TROOT;
+static char  *POST_NAME;
+static ANO   *MASK_ANO;   //  -M: Union of all command line masks
 
 static int NTHREADS;   //  by default 8
 static int NPARTS;     //  # of parts for sorts (in [8,64], power of 2)
 static int KMER;       //  by default 40, must be >= 12 and divisible by 4
 static int KBYTES;     //  Bytes for 2-bit compress k-mer (KMER/4)
-static int MASK;       //  Set if gdb has masks
+static int MASK;       //  Set if GIX is to be masked
 static int MBYTES;     //  Bytes for masked k-mer (KBYTES+1)
 
 #define BUFF_MAX   1000000
@@ -1000,7 +1004,8 @@ static void *setup_thread_with_masks(void *args)
   uint8 *bend, *btop, *b;
 
   GDB_CONTIG *contigs = gdb->contigs;
-  GDB_MASK   *masks   = gdb->masks, tempm;
+  ANO_PAIR   *masks   = MASK_ANO->masks, tempm;
+  int64      *moff    = MASK_ANO->moff;
   int         nextm, lastm, pbg;
 
   flag = (0x1ll << (8*ContBytes-1));
@@ -1077,8 +1082,8 @@ static void *setup_thread_with_masks(void *args)
             }
           while (post >= nextpost);
 
-	  nextm = contigs[ncntg-1].moff;
-          lastm = contigs[ncntg].moff;
+	  nextm = moff[ncntg-1];
+          lastm = moff[ncntg];
           tempm = masks[lastm];
           masks[lastm].beg = masks[lastm].end = contigs[ncntg-1].clen+1;
 
@@ -1632,6 +1637,10 @@ int main(int argc, char *argv[])
   int     ftype;
   char   *spath, *tpath;
 
+  int     NUM_MASKS;
+  char   *MFILES[argc];
+  ANO    _MASK_ANO;
+
   //  Process options
 
   { int    i, j, k;
@@ -1640,13 +1649,14 @@ int main(int argc, char *argv[])
 
     ARG_INIT("GIXmake");
 
-    KMER = 40;
-    LOG_PATH = NULL;
-    LOG_FILE = NULL;
-    NTHREADS = 8;
+    KMER      = 40;
+    LOG_PATH  = NULL;
+    LOG_FILE  = NULL;
+    NTHREADS  = 8;
     SORT_PATH = getenv("TMPDIR");
     if (SORT_PATH == NULL)
       SORT_PATH = ".";
+    NUM_MASKS = 0;
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -1677,6 +1687,8 @@ int main(int argc, char *argv[])
             ARG_NON_NEGATIVE(NTHREADS,"number of threads to use");
             break;
         }
+      else if (argv[i][0] == '#')
+        MFILES[NUM_MASKS++] = argv[i]+1;
       else
         argv[j++] = argv[i];
     argc = j;
@@ -1687,15 +1699,19 @@ int main(int argc, char *argv[])
     if (argc < 2 || argc > 3)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
+        fprintf(stderr,"or\n");
+        fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[2]);
+        fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[3]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"           <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
-        fprintf(stderr,"           <1_extn>  = any valid 1-code sequence file type\n");
+        fprintf(stderr,"           <extn> = (.fa|.fna|.fasta)[.gz] or any");
+        fprintf(stderr," valid 1-code sequence file type\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"       #: Masks to apply, no name => implicit mask of .fasta or .1seq\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
         fprintf(stderr,"      -L: Output log to specified file.\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
-        fprintf(stderr,"\n");
         fprintf(stderr,"      -k: index k-mer size\n");
         exit (1);
       }
@@ -1803,7 +1819,29 @@ int main(int argc, char *argv[])
   Read_GDB(gdb,tpath);
   short_GDB_fix(gdb);
 
-  MASK   = (gdb->nmasks > 0);
+  MASK_ANO = &_MASK_ANO;
+  if (NUM_MASKS >= 1)
+    { int   i, j;
+      ANO   sanos[NUM_MASKS];
+      ANO  *panos[NUM_MASKS];
+
+      j = 0;
+      for (i = 0; i < NUM_MASKS; i++)
+        { if (MFILES[i][0] == '\0')
+            Read_ANO(sanos+j,Catenate(TPATH,"/",TROOT,".1ano"),gdb);
+          else
+            Read_ANO(sanos+j,MFILES[i],gdb);
+          panos[j] = sanos+j;
+          j += 1;
+        }
+      NUM_MASKS = j;
+
+      ANO_Union(MASK_ANO,NUM_MASKS,panos);   //  Unioning 1 gets rid of overlapping intervals!
+
+      for (i = 0; i < NUM_MASKS; i++)
+        Free_ANO(sanos+i);
+    }
+  MASK   = (NUM_MASKS > 0);
   MBYTES = KBYTES+1;
 
   { int i, l0, l1, l2, l3;   //  Compute byte complement table

@@ -136,18 +136,18 @@ AlnReader *alnOpenReader(char *name, int nthreads, bool see_seq)
 
   units1 = units2 = NULL;
   if (see_seq)
-    { Skip_Aln_Skeletons(input);
-      units1 = Get_GDB(gdb1,src1,cpath,nthreads);
+    { Skip_Skeleton(input);
+      units1 = Get_GDB(gdb1,src1,cpath,nthreads,NULL);
       if (units1 == NULL)
         goto closeout;
     }
   else
     { if (input->lineType == 'g')
-        { if (Read_Aln_Skeleton(input,src1,gdb1))
+        { if (Read_Skeleton(input,src1,gdb1))
             goto closeout;
         }
       else
-        { units1 = Get_GDB(gdb1,src1,cpath,0);
+        { units1 = Get_GDB(gdb1,src1,cpath,0,NULL);
           if (units1 == NULL)
             goto closeout;
         }
@@ -155,19 +155,25 @@ AlnReader *alnOpenReader(char *name, int nthreads, bool see_seq)
 
   if (src2 != NULL)
     { if (see_seq)
-        { units2 = Get_GDB(gdb2,src2,cpath,nthreads);
+        { units2 = Get_GDB(gdb2,src2,cpath,nthreads,NULL);
           if (units2 == NULL)
-            goto closeout;
+            { Close_GDB(gdb1);
+              goto closeout;
+            }
         }
       else
         { if (input->lineType == 'g')
-            { if (Read_Aln_Skeleton(input,src2,gdb2))
-                goto closeout;
+            { if (Read_Skeleton(input,src2,gdb2))
+                { Close_GDB(gdb1);
+                  goto closeout;
+                }
             }
           else
-            { units2 = Get_GDB(gdb2,src2,cpath,0);
+            { units2 = Get_GDB(gdb2,src2,cpath,0,NULL);
               if (units2 == NULL)
-                goto closeout;
+                { Close_GDB(gdb1);
+                  goto closeout;
+                }
             }
         }
     }
@@ -368,6 +374,9 @@ void alnCloseReader(AlnReader *reader)
         if (q->gdb2.seqs != NULL)
           fclose(q->gdb2.seqs);
     }
+  Close_GDB(r->gpt1);
+  if (r->gpt1 != r->gpt2)
+    Close_GDB(r->gpt2);
   oneFileClose(r->file);
   free(r->aseq);
   free(r->align.tpoints);

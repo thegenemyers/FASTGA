@@ -147,22 +147,24 @@ int main(int argc, char *argv[])
     free(pwd);
 
     if (ALIGN || REFERENCE)
-      { Skip_Aln_Skeletons(input);
-        Get_GDB(gdb1,src1_name,cpath,1);
+      { Skip_Skeleton(input);
+        Get_GDB(gdb1,src1_name,cpath,1,NULL);
       }
     else if (input->lineType == 'g')
-      Read_Aln_Skeleton(input,src1_name,gdb1);
+      Read_Skeleton(input,src1_name,gdb1);
     else
-      Get_GDB(gdb1,src1_name,cpath,0);
+      Get_GDB(gdb1,src1_name,cpath,0,NULL);
 
     ISTWO = 0;
     if (src2_name != NULL)
       { if (ALIGN || REFERENCE)
-          Get_GDB(gdb2,src2_name,cpath,1);
+          { Skip_Skeleton(input);
+            Get_GDB(gdb2,src2_name,cpath,1,NULL);
+          }
         else if (input->lineType == 'g')
-          Read_Aln_Skeleton(input,src2_name,gdb2);
+          Read_Skeleton(input,src2_name,gdb2);
         else
-          Get_GDB(gdb2,src2_name,cpath,0);
+          Get_GDB(gdb2,src2_name,cpath,0,NULL);
         ISTWO = 1;
       }
     else

@@ -213,13 +213,16 @@ void Complement_Seq(char *a, int n);
        (d) if hbord >= 0, then the alignment is always below or on diagonal hgh+hbord.
 
      The path record of 'align' has its 'trace' filled from the point of view of an overlap
-     between the aread and the bread.  In addition a Path record from the point of view of the
-     bread versus the aread is returned by the function, with this Path's 'trace' filled in
-     appropriately.  The space for the returned path and the two 'trace's are in the working
-     storage supplied by the Work_Data packet and this space is reused with each call, so if
+     between the aread and the bread.  The space for the trace are in the working storage
+     supplied by the Work_Data packet and this space is reused with each call, so if
      one wants to retain the bread-path and the two trace point sequences, then they must be
-     copied to user-allocated storage before calling the routine again.  NULL is returned in
-     the event of an error.
+     copied to user-allocated storage before calling the routine again.  1 is returned in
+     the event of an error, 0 otherwise.
+
+     Wrap_Around_Alignment has the same interface and return conventions as Local_Alignment.
+     The trace spacing is the length of the A sequence and the match is between A* (an infinite
+     number of copies of A) and the B-sequence.  It ignores the setting of the reach parameter
+     in the alignment spec, as it always tries to explain all of B against A*.
 
      Find_Extension is a variant of Local_Alignment that simply finds a local alignment that
      either ends (if prefix is non-zero) or begins (if prefix is zero) at the point
@@ -229,11 +232,14 @@ void Complement_Seq(char *a, int n);
      and may not persist in later versions of the code.
   */
 
-  Path *Local_Alignment(Alignment *align, Work_Data *work, Align_Spec *spec,
-                        int low, int hgh, int anti, int lbord, int hbord);
+  int Local_Alignment(Alignment *align, Work_Data *work, Align_Spec *spec,
+                      int low, int hgh, int anti, int lbord, int hbord);
 
-  int   Find_Extension(Alignment *align, Work_Data *work, Align_Spec *spec,    //  experimental !!
-                       int diag, int anti, int lbord, int hbord, int prefix);
+  int Find_Extension(Alignment *align, Work_Data *work, Align_Spec *spec,
+                     int diag, int anti, int lbord, int hbord, int prefix);
+
+  int Wrap_Around_Alignment(Alignment *align, Work_Data *work, Align_Spec *spec,
+                            int low, int hgh, int anti, int lbord, int hbord);
 
   /* Given a legitimate Alignment object and associated trace point vector in 'align->path.trace',
      Compute_Trace_X, computes an exact trace for the alignment and resets 'align->path.trace'

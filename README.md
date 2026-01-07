@@ -2,7 +2,7 @@
   
 <font size ="4">**_Authors:  Gene Myers & Chenxi Zhou_**<br>
 **_First:   May 10, 2023_**<br>
-**_Last:  November 1, 2025_**<br>
+**_Last:  December 30, 2025_**<br>
 
 - [FastGA](#FastGA) Compare two genomes or a genome against itself and output a .1aln, .paf, or .psl file of all alignments found.
 
@@ -15,19 +15,23 @@
 - [Viewing Utilities](#viewing)
   - [GDBshow](#GDBshow): Display select contigs or substrings thereof from a GDB
   - [GDBstat](#GDBstat): Display various statistics and histograms of the scaffolds & contigs in a GDB
+  - [ANOshow](#ANOshow): Display annotation intervals of select contigs or subranges thereof from an ANO file
+  - [ANOstat](#ANOstat): Display various statistics and histograms of about the intervals in an ANO file
   - [GIXshow](#GIXshow): Display range of a GIX
   - [ALNshow](#ALNshow): Display selected alignments in a .1aln file in a variety of forms
   - [ALNplot](#ALNplot): Display alignments in a .1aln or .paf file in a static collinear plot
 
 - [Additional Utilities](#addons)
   - [GDBtoFA](#GDBtoFA): Converts a GDB back to the FASTA or ONEcode sequence file it was derived from
+  - [BEDtoANO](#BEDtoANO): Convert a BED formatted file to a .1ano-file
+  - [ANOtoBED](#ANOtoBED): Convert an ANO file to a BED file
+  - [PAFtoALN](#PAFtoALN): Convert a PAF formatted file with X-CIGAR strings to a .1aln file
+  - [PAFtoPSL](#PAFtoPSL): Convert a PAF formatted file with X-CIGAR strings to a .psl file
   - [GIXrm](#GIXrm): Remove GDBs and GIXs including their hidden parts
   - [GIXcp](#GIXcp): Copy GDBs and GIXs including their hidden parts as an ensemble
   - [GIXmv](#GIXmv): Move GDBs and GIXs including their hidden parts as an ensemble
   - [ALNchain](#ALNchain): Alignment filtering by construction of local chains
   - [ALNreset](#ALNreset): Reset a .1aln file's internal references to the GDB(s) it was computed from
-  - [PAFtoALN](#PAFtoALN): Convert a PAF formatted file with X-CIGAR strings to a .1aln file
-  - [PAFtoPSL](#PAFtoPSL): Convert a PAF formatted file with X-CIGAR strings to a .psl file
 
 - [C-Library for Accessing .1aln Files](#ONEaln)  
   - [Error Handling](#ehandler)
@@ -36,16 +40,38 @@
   - [Alignment Records](#arecord)
   - [Error Messages](#emessage)
 
-## Version 1.4 (November 1, 2025) Notes
 
-**COMING SOON**: A C-library of routines that should make it easy to read and access the contents of a .1aln file
+## Version 1.5 (December 30, 2025) ONEcode ANO Files
+
+The addition of soft masking in V1.3 has lead to the development of a ONEcode version of a BED file,
+called an ANO- or .1ano-file,
+that records a collection of (oriented) intervals on a genome, along with a possible label and/or score for each annotation.
+There are new routines ANOshow, ANOstat, ANOtoBED, and BEDtoANO for showing the contents of a .1ano file,
+giving summary statistics about an .1ano file, and converting between BED files and .1ano files, respectively.
+
+This change augments the interface to **GIXmake**, **FastGA**, **GDBtoFA**, and **GDBshow**, and has changed
+the operation of
+**FAtoGDB**.  Previously, if FAtoGDB detected an "implicit" mask in the source FASTA file indicated by masked regions being
+lower case, and unmasked regions upper case, then this mask was recorded in the GDB.  Now it is recorded
+in a separate .1ano file that has the same location and root name as the target GDB.  Further, GIXmake has been upgraded
+so that you can specify multiple .1ano files on the command line, and the GIX will be masked with the
+union of these.  Note carefully that the only way to change the mask encoded in a GIX is to rebuild the
+GIX.  By default FastGA now softmasks with whatever masking is encoded in the GIX's of the genomes and
+a new flag -N instructs it to ignore these encoded masks.  You can also now follow each FastGA genome argument
+with a list of masks to apply (syntactically a primary argument beginning with #).  Doing so will entail
+rebuilding the GIX's even if they are already present at the time of the call to FastGA.  Lastly, GDBtoFA and GDBshow now take an optional
+\#-sign mask argument that if present masks the result accordingly.
+
+## Version 1.4 (November 1, 2025) ONEaln C-Library
+
+A C-library of routines designed to make it easy to read and access the contents of a .1aln file
 has been added.  The interface is described [here](#ONEaln). This library of routines is in ONEaln.c
 with the interface declared in ONEaln.h.
 **Caution:** several of the modules used by FastGA must also be compiled in, namely, GDB.[ch],
 ONElib.[ch], alncode.[ch], align.[ch], and gene_core.[ch].  See the make command for ONEalnTEST in
 the Makefile.
 
-## Version 1.3 (July 23, 2025) Notes
+## Version 1.3 (July 23, 2025) Soft Masking and Log Files
 Soft masking is now supported and taken advantage of by the FastGA suite.  Soft masking is assumed
 to be specified in the input FastA files by denoting masked sequence in lower-case and unmasked sequence in upper-case.  Such masks are recorded in our GDB's and in a suitable form within our
 GIX indices.  The later required a slight modification to the GIX data structure.  Old GIX's are
@@ -125,7 +151,7 @@ have typed out an entire FastGA command but forgot that you wanted PSL output in
 of the default PAF output.
 All you do is append -psl to what you've already typed and then hit return.  So for example,
 ```FastGA -v Asm1 -T16 Asm2 -psl``` is an acceptable command line.  Finally, if a -v option
-is specified for a command then it always means "verbose mode", i.e. output to the standard
+is specified for a command then it always means "verbose mode", i.e. output to standard
 error a running discourse of the command's progress, and if a -L option is available and
 specified with a file name, then a log file of the command's performance is appended to said
 file.
@@ -135,9 +161,10 @@ file.
 ## FastGA Reference
 
 ```
-FastGA [-vkMS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]
+FastGA [-vkNS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]
                [-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]
-               <source1:path>[<precursor>] [<source2:path>[<precursor>]]
+                 <source1:path>[<precursor>] (#[<mask>[.1ano]])*
+               [ <source2:path>[<precursor>] (#[<mask>[.1ano]])* ] 
 
          <format> = -paf[mxsS]* | -psl | -1:<align:path>[.1aln]
 
@@ -163,13 +190,6 @@ See the argument description for [ALNtoPAF](#ALNtoPAF) below for more details.
 You can also call FastGA on a single source, e.g. ```FastGA A```, in which case FastGA compares A against
 itself, carefully avoiding self matches.  This is useful for detecting repetititve regions of a
 genome (and their degree of repetitiveness), and for finding homologous regions between haplotypes in an unphased genome assembly, or one that is phased but not split into separate haplotype files.
-
-FastGA will use soft-mask information recorded in the inputs.  In a source FastA file, unmasked
-sequence should be in upper-case and an masked intervals in lower-case.  If FastGA detects this
-convention then the underlying machinery records the masks and uses them in determining which seeds
-to use in it's alignment search, i.e. any adaptive seed that is masked is not used.  By default,
-FastGA does not employ soft-masking, to do so you must specify the -M option (and of course, the
-inputs have masks).
 
 FastGA uses the adaptamer seed idea of Martin Frith which means that ```FastGA A B``` does not find
 the same set of alignments as ```FastGA B A``` as the adaptamers of A and B are not the same.
@@ -197,6 +217,14 @@ On the other hand, GIXs are large, occupying 14GB for every gigabase of a genome
 one should build these as a prelude to a series of FastGA invocations and then remove them (but not
 their GDBs) afterwards with [GIXrm](#GIXrm).
 
+Each source argument can be followed by a list of masks where each is a #-sign immediately followed by the
+name of a .1ano file specifying a collection of intervals, e.g. ```FastGA A #mask1.1ano #mask2 B #``` will
+soft mask ```A``` with the union of the intervals in ```mask1.1ano``` and ```mask2.1ano```, and ```B``` will be
+masked with the "implicit" mask ```B.1ano``` that was specified in its' FastA file using upper and lower-case 
+to denote unmasked versus masked sequence, respectively, or in the M-lines of its' ONEcode file, depending on the file type of its source.  Specifying masks requires that the GIX for the argument in question be recomputed
+even if the GIX already exists at the time of the call.  If no masks are given then by default FastGA soft
+masks with whatever masks are encoded in the GIX's, if prebuilt, or with no masking if created with the call.  Lastly, the flag -N requests that FastGA not mask regardless of the mask state of the GIX's ultimately used.
+
 All the other options control the alignment discovery process.  Generally the defaults are fine and you
 shouldn't bother touching these dials unless you are curious or confident.  For those willing to go further
 FastGA uses the indices to find adaptive seed hits, where an
@@ -221,10 +249,9 @@ thresholds for chaining and alignment just described.
 <a name="FAtoGDB"></a>
 
 ```
-1. FAtoGDB [-v] [-L:<log:path>] [-n<int>] <source:path>(.1seq|[<fa_extn>|<1_extn>]) [<target:path>[.1gdb]]
+1. FAtoGDB [-v] [-L:<log:path>] [-n<int>] <source:path>[<extn>] [<target:path>[.1gdb]]
 
-       <fa_extn> = (.fa|.fna|.fasta)[.gz]
-       <1_extn>  = any valid 1-code sequence file type
+       <extn> = (.fa|.fna|.fasta)[.gz] or any valid 1-code sequence filel type
 ```
 
 FAtoGDB takes as input a FASTA file with extension .fa, .fna, .fasta, .fa.gz, .fna.gz, or .fasta.gz,
@@ -246,17 +273,29 @@ The GDB actually consists of two files.  The first, *visible* file, is a ONEcode
 are kept in a separate hidden file in 2-bit compressed format.  If the visible file has name say,
 ```foo.1gdb``` then this hidden file has name ```.foo.bps```.  We split the GDB this way as many application do not actually need the sequence, but simply need the sizes of contigs, gaps, & scaffolds and their names which are kept in the "light-weight" .1gdb portion.
 
-For assemblies in FASTA files that contain n's as an undetermined base
+Normally, n's in the FASTA file are interpreted as gaps between contigs of a scaffold.  But some projects
+produce reconstructions that use n's as an undetermined base.  Typically these occur in isolation or pairs
+but not in long, say 200bp, runs of n's.  In this case, use the -n option to specify a threshold above which
+a run of n's is considered a gap, and below which the n's are considered unkown bases (and therefore treated
+arbitrarily as a's).
+
+If the input is a FASTA and the convention that upper-case bases are unmasked and lower-case bases are masked,
+then FAtoGDB will also produce a .1ano file of this "implicit" mask that has the same root name as the
+resulting GDB and is in the same directory.  This implicit mask can be referred to with the option/flag -#,
+*not followed by a name*, in the tools, e.g. GIXmake, that takes .1ano's as masking arguments.  An implicit
+mask is also produced if the source is a .1seq file and it contains M-lines (mask lines).
 
 
 <a name="GIXmake"></a>
 
 ```
 2. GIXmake [-v] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR>] [-k<int(40)>]
-            ( <source:path>[.1gdb]  |  <source:path>[<fa_extn>|<1_extn>] [<target:path>[.gix]] )
+           <source:path>[.1gdb|<extn>]  (#[<mask>[.1ano]])*
+or
+   GIXmake [-v] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR>] [-k<int(40)>]
+           <source:path>[<extn>] <target:path>[.gix] (#[<mask>[.1ano]])*
             
-       <fa_extn> = (.fa|.fna|.fasta)[.gz]
-       <1_extn>  = any valid 1-code sequence file type
+       <extn> = (.fa|.fna|.fasta)[.gz] or any valid 1-code sequence file type
 ```
 
 Given a source FASTA, ONEcode, or GDB file, GIXmake produces a **genome index** or GIX of the source with extension
@@ -275,8 +314,14 @@ When running on an
 HPC cluster node it is very important that this directory be on the disk local to the node
 running the command.
 
+A GIX can encode a softmasking of its underlying genome, and if this is desired then one or more arguments
+following the source that begin with a #-sign followed immediately be the name of a .1ano file
+can be supplied.  The masking is the union of the masks so supplied on the command line.  If # alone is
+given then this refers to the "implicit" masking that was encoded in the case of bases in its' FASTA
+file or the M-lines of its' 1SEQ file, depending on the type of its source.
+
 The genome index basically consists of a sorted table of all the k-mers (k=40 by default) and their complements that begin with a (12,8) syncmer in the underlying genome where each k-mer instance is paired with the
-position it came from.
+position it came from, and the longest prefix thereof that should/could be masked.
 The .gix file is actually just a proxy for an ensemble
 of -T hidden files with the extension .ktab.\<int\> that contain parts
 of the k-mer table.  Altogether these files occupy about 13-14GB
@@ -347,7 +392,7 @@ references to the new GDB locations with [ALNreset](#ALNreset).
 <a name="GDBshow"></a>
 
 ```
-1. GDBshow [-hU] [-w<int(80)>] <source:path[.1gdb] [ <selection> | <FILE> ]
+1. GDBshow [-hU] [-w<int(80)>] [#[<mask>[.1ano]]] <source:path[.1gdb] [ <selection> | <FILE> ]
 
         <selection> = <range>[+-] [ , <range>[+-] ]*
 
@@ -363,8 +408,11 @@ references to the new GDB locations with [ALNreset](#ALNreset).
 ```
 
 GDBshow allows one to view a given set of scaffolds/contigs or portions thereof for the source GDB.
-If the <nobr>-h</nobr> option is set then only the header lines are shown.  By default DNA sequence is lower-case,
-80bp per row.  You can request upper-case with -U, and set the line width with -w.  If no arguments
+If the <nobr>-h</nobr> option is set then only the header lines are shown.
+By default DNA sequence is lower-case, 80bp per row.  You can request upper-case with -U, and set the line width with -w.  If a #-sign mask argument is present, then the -U flag is ignored, and the output is
+upper case, except for masked regions which are in lower case.
+
+If no other arguments
 besides the source GDB are given, then all the contigs of the GDB are output (in order).  If a file name follows, then GDB interprets each line of the file as a \<range> selection.  Otherwise the argument is
 directly interpreted as a directive as to which scaffolds or contigs or parts thereof to display.
 We explain the syntax of a \<selection> above in a bottom up fashion coupled with examples:
@@ -384,7 +432,7 @@ the c'th contig of the s'th scaffold, and so on.
  
 * We support a more elaborate syntax for positions where the suffix symbols k, M, and G denote kilobases,
 megabases, and gigabases and a decimal fraction is permited.  So for example, 10.1k is short for
-positions 10,100, and 2.0324M is position 2,032,400.
+position 10,100, and 2.0324M is position 2,032,400.
 
 * A range can be a reference to a contig or scaffold in which case the entire contig or scaffold is
  being selected.  It can also be a pair of contigs or scaffolds separated by a hyphen (-) in which case all the objects from the first to the last are being selected.  For example, @3-@5 would cause GDBshow to display the 3'rd through 5'th scaffolds inclusive and .3-.5 would display the 3'rd through 5'th contigs
@@ -399,7 +447,7 @@ positions 10,100, and 2.0324M is position 2,032,400.
 if it is not given.  For example, the expression @1.3:10k-.5:20k is the same as @1.3:10k-@1.5:20k and
 @2:100-200 is the same as @2:100-@2:200.
 
-* A range can be followed by an optional sign, + or -.  This indicates the selection of either the 5' or 3' direction of the selected sequence interval and can affects the direction of display.  For example, :3-
+* A range can be followed by an optional sign, + or -.  This indicates the selection of either the 5' or 3' direction of the selected sequence interval and affects the direction of display.  For example, .3-
 asks GDBshow to display reverse complement of the 3'rd contig of the genome.
 
 * Lastly, on the command line, one can give a list of ranges separated by commas.  Generally this represents the union of the range intervals, but for GDBshow indicates that it should output each
@@ -411,6 +459,7 @@ range so that the file also specifies a list of ranges.
 ```
 2. GDBstat [-h[<ctg:int>,<scaf:int>]] [-hlog] <source:path[.1gdb]
 ```
+
 GDBstat gives you summary statistics about the genome in the source GDB.  It always outputs the number,
 cumulative base pairs, and average size of scaffolds, contigs, and gaps.  It also outputs the max, min,
 and N<x> sizes for scaffolds and contigs, for <x> a multiple of 10.
@@ -422,10 +471,29 @@ If two integers follow the -h then the first sets the histogram bucket size for 
 and the second for the scaffold histogram.  If nothing follows the -h then GDBstat picks a round
 numbered bucket size so that each histogram has about 20 buckets (defined constant NBINS in GDBstat.c if you'd like to change that).
 
+<a name="ANOshow"></a>
+
+```
+3. ANOshow <source:path[.1ano] [ <selection> | <FILE> ]
+```
+
+In analogy with GDBshow documented above, ANOshow gives you a listing of the intervals and labels (if present)
+in a given region or regions of the source genome for the ANO file.  So the ```<selection>``` argument if present has the same interpretation as for GDBshow, save that now it is the intervals in those regions that are displayed.
+
+<a name="ANOstat"></a>
+
+```
+4. ANOstat [-h[<itvls:int>,<covrd:int>]] [-hlog] <source:path[.1ano]
+```
+
+ANOstat gives you summary statistics about the anotation intervals in an ANO file in analogy with GDBstat
+documented above.  Options are the same, save that the -h integer pair set bucket size for a histogram
+of interval lengths and covered segment lengths, respectively.
+
 <a name="GIXshow"></a>
 
 ```
-3. GIXshow <source:path[.gix] [ <address>[-<address>] ]
+5. GIXshow <source:path[.gix] [ <address>[-<address>] ]
 
        <address> = <int> | <dna:string>
 ```
@@ -439,7 +507,7 @@ the string (or the last if it is the second argument of a range).
 <a name="ALNshow"></a>
 
 ```
-4. ALNshow [-arU] [-i<int(4).] [-w<int(100)>] [-b<int(10)>>
+6. ALNshow [-arU] [-i<int(4).] [-w<int(100)>] [-b<int(10)>>
               <alignments:path>[.1aln] [ <selection>|<FILE> [<selection>|<FILE>] ]
 
         <selection> = <range>[+-] [ , <range>[+-] ]*
@@ -537,7 +605,7 @@ of square brackets [].
 <a name="ALNplot"></a>
 
 ```
-5. ALNplot [-vSL] [-T<int(4)>] [-p[:<output:path>[.pdf]]]
+7. ALNplot [-vSL] [-T<int(4)>] [-p[:<output:path>[.pdf]]]
                [-a<int(100)>] [-e<float(0.7)>] [-n<int(100000)>]
                [-H<int(600)>] [-W<int>] [-f<int>] [-t<float>]
                <alignment:path>[.1aln|.paf[.gz]]> [<selection>|<FILE> [<selection>|<FILE>]]
@@ -590,15 +658,16 @@ parameters.
 <a name="GDBtoFA"></a>
 
 ```
-1. GDBtoFA [-vU] [-w<int(80)> <source:path>[.1gdb] [ @ | <target:path>[<fa_sten>|.1seq] ]
+1. GDBtoFA [-vU] [-w<int(80)>  [#[<mask>[.1ano]]]
+            <source:path>[.1gdb] [ @ | <target:path>[<fa_extn>|.1seq] ]
 
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
 
 ```
-GDBtoFA will produce exactly the FASTA file contents from which the source GDB was derived by
+GDBtoFA can produce exactly the FASTA file contents from which the source GDB was derived by
 a call to FAtoGDB, or if so directed a ONEcode .1seq file, i.e. it is an inverse operation for
-FAtoGDB.    When a GDB is built it records internally
-where the source FASTA or ONEcode sequence file is, it's name, and it's extension.  We call this the "origin" in what
+FAtoGDB.    When a GDB is built it records internally where the source FASTA or ONEcode sequence
+file is, it's name, and it's extension.  We call this the "origin" in what
 follows.  Where the FASTA file is placed by GDBtoFA and what it is named is as follows:
 
 * If there is no target, then the output is streamed to the standard output (uncompressed).
@@ -609,15 +678,70 @@ follows.  Where the FASTA file is placed by GDBtoFA and what it is named is as f
 
 * If the target is a file (that may not exist), then the FASTA file is built at the directory and named as given by the target.  If the target has an extension then that extension is used, otherwise the extension of the origin is used.
 
+The -U, -w, and # arguments have the same interpretation as for GDBshow.
+
+<a name="BEDtoANO"></a>
+
+```
+2. BEDtoANO [-T<int(8)>] <bed:path>[.bed] <genome:path>[.1gdb|<fa_extn>|<1_extn>]
+
+           <fa_extn> = (.fa|.fna|.fasta)[.gz]
+           <1_extn>  = any valid 1-code sequence file type
+
+      -T: Number of threads to use.
+```
+
+Convert a BED file into a ONEcode ANO file.  An ANO file can capture all the information in a BED file
+save for the fields denoting display information such a thickness and color and exon clustering.  You
+must supply the genome to which the BED information applies.
+
+<a name="ANOtoBED"></a>
+
+```
+3. ANOtoBED [-v] <source:path>[.1ano] [ <target:path>[.bed] ]
+```
+
+Convert a ONEcode ANO file into a BED file.  If no target is supplied then the output is streamed to
+standard output.
+
+<a name="PAFtoALN"></a>
+
+```
+4. PAFtoALN [-T<int(8)>] <alignments:path>[.paf]
+                         <source1:path>[.gdb|<fa_extn>|<1_extn>] [<source2:path>[.gdb|<fa_extn>|<1_extn>]]
+                                     
+       <fa_extn> = (.fa|.fna|.fasta)[.gz]
+       <1_extn>  = any valid 1-code sequence file type
+```
+
+PAFtoALN takes a PAF file as its first argument and the two sources that were compared to produce the
+alignment in the PAF file as the second and third arguments.
+The PAF file must have CIGAR strings that use X and = to describe the alignment of ungapped segments
+as opposed to just M.
+The number of threads used is 8 by default, but can be set with the -T option.
+A .1aln file with the name \<alignments\>.1aln is produced.  (*NB*: CIGAR strings with M could be
+accepted but would require the explicit reconstruction of each alignment, a possible to do if
+requested/required.)
+
+<a name="PAFtoPSL"></a>
+
+```
+5. PAFtoPSL [-T<int(8)>] [-C<str(cg:Z:)>] <alignments:path>[.paf]
+```
+
+PAFtoPSL takes an uncompressed PAF file as input. The input file must include CIGAR strings. Supported CIGAR operators include 'M', '=', 'X', 'I', and 'D'. By default, the CIGAR string tag is 'cg:Z:', but you can 
+specify a different tag using the '-C' option. The custom tag must be a five-character string where the third 
+and fifth characters are ':'. The number of threads used is 8 by default, but can be set with the -T option.
+Output is streamed directly to STDOUT.
 
 <a name="GIXrm"></a>
 <a name="GIXcp"></a>
 <a name="GIXmv"></a>
 
 ```
-2.a GIXrm [-vifg] <source:path>[.gix|.1gdb] ...
-2.b GIXmv [-vinf] <source:path>[.gix|.1gdb] <target:path>[.gix|.1gdb]
-2.c GIXcp [-vinf] <source:path>[.gix|.1gdb] <target:path>[.gix|.1gdb]
+6.a GIXrm [-vifg] <source:path>[.gix|.1gdb] ...
+6.b GIXmv [-vinf] <source:path>[.gix|.1gdb] <target:path>[.gix|.1gdb]
+6.c GIXcp [-vinf] <source:path>[.gix|.1gdb] <target:path>[.gix|.1gdb]
 ```
 
 A GDB consists of not only a "skeleton" file with a .1gdb extension but also a hidden file with extension .bps.
@@ -640,7 +764,7 @@ then deleting the GDB is tantamount to deleting your genome source!
 <a name="ALNchain"></a>
 
 ```
-3. ALNchain [-v] [-g<int(10000)>] [-l<int(10000)>] [-p<float(0.1)>] [-q<float(0.1)>]
+7. ALNchain [-v] [-g<int(10000)>] [-l<int(10000)>] [-p<float(0.1)>] [-q<float(0.1)>]
                 [-z<int(1000)>] [-s<int(10000)>] [-n<int(1)>] [-c<float(0.5)>] [-e<0.0>]
                 [-f<int(1000)>] [-o<output:path>[.1aln]] <alignments:path>[.1aln]
 ```
@@ -662,7 +786,7 @@ as the upper limit for closing gaps.
 <a name="ALNreset"></a>
 
 ```
-4. ALNreset [-T<int(8)>] <alignments:path>[.1aln]
+8. ALNreset [-T<int(8)>] <alignments:path>[.1aln]
                  <source1:path>[.1gdb|<fa_extn>|<1_extn>] [<source2:path>[.1gdb|<fa_extn>|<1_extn>]]
                                      
        <fa_extn> = (.fa|.fna|.fasta)[.gz]
@@ -672,37 +796,6 @@ as the upper limit for closing gaps.
 In the unfortunate event that the internal references of a 1-code alignment file (.1aln) to its genome source files have become
 "stale", ALNreset allows you to reset these paths within the given file.  Note carefully, that the references can be not only to a GDB but also the source 1-code or FASTA files from which a GDB can be
 built.
-
-<a name="PAFtoALN"></a>
-
-```
-5. PAFtoALN [-T<int(8)>] <alignments:path>[.paf]
-                         <source1:path>[.gdb|<fa_extn>|<1_extn>] [<source2:path>[.gdb|<fa_extn>|<1_extn>]]
-                                     
-       <fa_extn> = (.fa|.fna|.fasta)[.gz]
-       <1_extn>  = any valid 1-code sequence file type
-```
-
-PAFtoALN takes a PAF file as its first argument and the two sources that were compared to produce the
-alignment in the PAF file as the second and third arguments.
-The PAF file must have CIGAR strings that use X and = to describe the alignment of ungapped segments
-as opposed to just M.
-The number of threads used is 8 by default, but can be set with the -T option.
-A .1aln file with the name \<alignments\>.1aln is produced.  (*NB*: CIGAR strings with M could be
-accepted but would require the explicit reconstruction of each alignment, a possible to do if
-requested/required.)
-
-<a name="PAFtoPSL"></a>
-
-```
-6. PAFtoPSL [-T<int(8)>] [-C<str(cg:Z:)>] <alignments:path>[.paf]
-```
-
-PAFtoPSL takes an uncompressed PAF file as input. The input file must include CIGAR strings. Supported CIGAR operators include 'M', '=', 'X', 'I', and 'D'. By default, the CIGAR string tag is 'cg:Z:', but you can 
-specify a different tag using the '-C' option. The custom tag must be a five-character string where the third 
-and fifth characters are ':'. The number of threads used is 8 by default, but can be set with the -T option.
-Output is streamed directly to STDOUT.
-
 
 
 <a name="ONEaln"></a>
@@ -839,7 +932,7 @@ in the file, and (d) the trace point spacing, respectively.
 From the .1aln reader get the first and second genome data bases over which
 the alignments were found.  The two pointers are equal if there was only one genome,
 i.e. a self-comparison.  A genome data base gives one the structure of the genome
-as a collections of scaffolded contigs separated by gaps, as well as access to
+as a collection of scaffolded contigs separated by gaps, as well as access to
 the contig's sequence if 'see_seq' was true in the call that created the reader.
 
 ```
@@ -861,7 +954,7 @@ The Max... routines return the maximum # of contigs/gaps in any scaffold of a GD
 
 Scaffolds are numbered starting at 1, and the first contig of a scaffold is indexed by 1.
 In rare, somewhat abnormal cases there can be a run of N's at the start or end
-of a scaffold, the length of these are obtained by index 0 and ContigsInScaffold(g,s).
+of a scaffold, the length of these are obtained by gdbGapLen(g,s,0) and gdbGapLen(g,s,gdbScaffoldContigs(g,s)).
  The routines return -1 if an error occurs.
 
 
@@ -913,7 +1006,7 @@ char *gdbScaffoldSeq(AlnGDB *g, int s, int beg, int end, char *buffer)
          int  bpos2, epos2;   //
          int  diffs;          //
 
-         int  tlen;           //  tpoints[0..tlen) contains the trace point intervals in bseq
+         int  tlen;           //  tpoints[0..tlen) contains the inter trace point lengths in bseq
          int *tpoints;        //  tdiffs[0..tlen) is the # of diffs in each tp interval
          int *tdiffs;
        } AlnRecord;

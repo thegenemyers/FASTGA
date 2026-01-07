@@ -59,9 +59,10 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    PAFS         0x4
 #define    PAFL         0x8
 
-static char *Usage[] = { "[-vkMS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]",
+static char *Usage[] = { "[-vkNS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]",
                          "[-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]",
-                         "<source1:path>[<precursor>] [<source2:path>[<precursor>]]"
+                         "  <source1:path>[<precursor>] (#[<mask>[.1bed]])*",
+                         "[ <source2:path>[<precursor>] (#[<mask>[.1bed]])* ]"
                        };
 
 static int    NEW_GIX;     //  Is this a rev 2.0 style GIX?
@@ -78,7 +79,7 @@ static int    NTHREADS;    //  -T
 static char  *SORT_PATH;   //  -P
 static int    KEEP;        //  -k
 static int    SYMMETRIC;   //  -S
-static int    SOFT_MASK;   //  -M
+static int    SOFT_MASK;   //  Do softmask
 static int    SELF;        //  Comparing A to A, or A to B?
 static int    OUT_TYPE;    //  -paf = 0; -psl = 1; -one = 2
 static int    OUT_OPT;     //  -paf = 0, -m = PAFM; -x = PAFX; -s = PAFS; -S = PAFL
@@ -3244,19 +3245,19 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                             if (self)
                               { if (dgmin > 0)
                                   { if (Local_Alignment(align,work,spec,
-                                                        dgmin,dgmax,amid,dgmin-1,-1) == NULL)
+                                                        dgmin,dgmax,amid,dgmin-1,-1))
                                       Clean_Exit(1);
                                   }
                                 else if (dgmax < 0)
                                   { if (Local_Alignment(align,work,spec,
-                                                        dgmin,dgmax,amid,-1,-(dgmax+1)) == NULL)
+                                                        dgmin,dgmax,amid,-1,-(dgmax+1)))
                                       Clean_Exit(1);
                                   }
                                 else
                                   path->abpos = path->aepos = 0;
                               }
                             else
-                              { if (Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-1) == NULL)
+                              { if (Local_Alignment(align,work,spec,dgmin,dgmax,amid,-1,-1))
                                   Clean_Exit(1);
                               }
 
@@ -4067,9 +4068,9 @@ static int la_merge(TP *parm)
 
     of = open_Aln_Write(Catenate(ONE_PATH,"/",ONE_ROOT,".1aln"), 1,
                         Prog_Name, VERSION, Command_Line, TSPACE, db1_name, db2_name, cpath);
-    Write_Aln_Skeleton(of,&parm->gdb1);
+    Write_Skeleton(of,&parm->gdb1);
     if (!SELF)
-      Write_Aln_Skeleton(of,&parm->gdb2);
+      Write_Skeleton(of,&parm->gdb2);
 
     free(cpath);
     if (db2_name != NULL)
@@ -4435,6 +4436,8 @@ int main(int argc, char *argv[])
   Post_List   *P1, *P2;
   GDB _gdb1, *gdb1 = &_gdb1;
   GDB _gdb2, *gdb2 = &_gdb2;
+  char *MF1[argc], *MF2[argc];
+  int   NMASK1, NMASK2;
 
   //  Process options
 
@@ -4461,13 +4464,15 @@ int main(int argc, char *argv[])
     ONE_ROOT    = NULL;
     LOG_PATH    = NULL;
     LOG_FILE    = NULL;
+    NMASK1      = 0;
+    NMASK2      = 0;
 
     j = 1;
     for (i = 1; i < argc; i++)
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("vkMS")
+            ARG_FLAGS("vkNS")
             break;
           case '1':
             if (strncmp(argv[i]+1,"1:",2) == 0)
@@ -4560,19 +4565,26 @@ int main(int argc, char *argv[])
             ARG_NON_NEGATIVE(NTHREADS,"number of threads to use");
             break;
         }
+      else if (argv[i][0] == '#')
+        { if (j == 2)
+            MF2[NMASK2++] = argv[i]+1;
+          else
+            MF1[NMASK1++] = argv[i]+1;
+        }
       else
         argv[j++] = argv[i];
     argc = j;
 
     VERBOSE   = flags['v'];
     KEEP      = flags['k'];
-    SOFT_MASK = flags['M'];
+    SOFT_MASK = 1-flags['N'];
     SYMMETRIC = flags['S'];
 
     if (argc != 3 && argc != 2)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
+        fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[3]);
         fprintf(stderr,"\n");
         fprintf(stderr,"         <format> = -paf[mxsS]* | -psl | -1:<align:path>[.1aln]\n");
         fprintf(stderr,"\n");
@@ -4581,11 +4593,13 @@ int main(int argc, char *argv[])
         fprintf(stderr,"             <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
         fprintf(stderr,"             <1_extn>  = any valid 1-code sequence file type\n");
         fprintf(stderr,"\n");
+        fprintf(stderr,"      #: Soft mask the preceeding genome with this\n");
+        fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
-        fprintf(stderr,"      -k: Keep any generated .1gdb's and .gix's.\n");
-        fprintf(stderr,"      -M: Use soft mask information if available.\n");
-        fprintf(stderr,"      -S: Use symmetric seeding (not recommended).\n");
         fprintf(stderr,"      -L: Output log to specified file.\n");
+        fprintf(stderr,"      -k: Keep any generated .1gdb's and .gix's.\n");
+        fprintf(stderr,"      -N: Do not soft mask.\n");
+        fprintf(stderr,"      -S: Use symmetric seeding (not recommended).\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");
         fprintf(stderr,"\n");
@@ -4607,7 +4621,7 @@ int main(int argc, char *argv[])
         exit (1);
       }
 
-    if (FREQ > 255)
+    if (SOFT_MASK == 0 && NMASK1 + NMASK2 > 0)
       { fprintf(stderr,"%s: The maximum allowable frequency cutoff is 255\n",Prog_Name);
         exit (1);
       }
@@ -4723,11 +4737,15 @@ int main(int argc, char *argv[])
           }
       }
 
-    if (TYPE1 <= IS_GDB)
+    if (TYPE1 <= IS_GDB || NMASK1 > 0)
       { char *command;
+        int   nchar, k;
 
+        nchar = 0;
+        for (k = 0; k < NMASK1; k++)
+          nchar += 2 + strlen(MF1[k]);
         command = Malloc(strlen(SPATH1)+strlen(tpath1)+strlen(SORT_PATH)+
-                         (LOG_PATH?strlen(LOG_PATH):0)+100,"Allocating command string");
+                         (LOG_PATH?strlen(LOG_PATH):0)+nchar+100,"Allocating command string");
         if (command == NULL)
           exit (1);
         if (LOG_FILE)
@@ -4745,11 +4763,13 @@ int main(int argc, char *argv[])
           }
 
         if (LOG_FILE)
-          sprintf(command,"GIXmake%s -L:%s -T%d -P%s %s",
-                  VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,tpath1);
+          nchar = sprintf(command,"GIXmake%s -L:%s -T%d -P%s %s",
+                          VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,tpath1);
         else
-          sprintf(command,"GIXmake%s -T%d -P%s %s",
+          nchar = sprintf(command,"GIXmake%s -T%d -P%s %s",
                           VERBOSE?" -v":"",NTHREADS,SORT_PATH,tpath1);
+        for (k = 0; k < NMASK1; k++)
+          nchar += sprintf(command+nchar," @%s",MF1[k]);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
@@ -4761,11 +4781,15 @@ int main(int argc, char *argv[])
         free(tpath1);
       }
 
-    if (TYPE2 <= IS_GDB)
+    if (TYPE2 <= IS_GDB || NMASK2 > 0)
       { char *command;
+        int   nchar, k;
 
+        nchar = 0;
+        for (k = 0; k < NMASK2; k++)
+          nchar += 2 + strlen(MF2[k]);
         command = Malloc(strlen(SPATH2)+strlen(tpath2)+strlen(SORT_PATH)+
-                         (LOG_PATH?strlen(LOG_PATH):0)+100,"Allocating command string");
+                         (LOG_PATH?strlen(LOG_PATH):0)+nchar+100,"Allocating command string");
         if (command == NULL)
           exit (1);
         if (LOG_FILE)
@@ -4783,11 +4807,13 @@ int main(int argc, char *argv[])
           }
 
         if (LOG_FILE)
-          sprintf(command,"GIXmake%s -L:%s -T%d -P%s %s",
-                  VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,tpath2);
+          nchar = sprintf(command,"GIXmake%s -L:%s -T%d -P%s %s",
+                          VERBOSE?" -v":"",LOG_PATH,NTHREADS,SORT_PATH,tpath2);
         else
-          sprintf(command,"GIXmake%s -T%d -P%s %s",
+          nchar = sprintf(command,"GIXmake%s -T%d -P%s %s",
                           VERBOSE?" -v":"",NTHREADS,SORT_PATH,tpath2);
+        for (k = 0; k < NMASK2; k++)
+          nchar += sprintf(command+nchar," @%s",MF2[k]);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
@@ -4932,7 +4958,11 @@ int main(int argc, char *argv[])
     Clean_Exit(1);
 
   if (!NEW_GIX)
-    { if (P1->freq < FREQ)
+    { if (FREQ > 255)
+        { fprintf(stderr,"%s: The maximum allowable frequency cutoff is 255\n",Prog_Name);
+          exit (1);
+        }
+      if (P1->freq < FREQ)
         { fprintf(stderr,"%s: Genome index %s/%s.gix cutoff of %d < requested cutoff\n",
                          Prog_Name,PATH1,ROOT1,P1->freq);
           Clean_Exit(1);

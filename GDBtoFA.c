@@ -16,15 +16,22 @@
 #include <zlib.h>
 
 #include "GDB.h"
+#include "ANO.h"
 #include "ONElib.h"
+
+#define MBUF_LEN 100
 
 extern bool addProvenance(OneFile *of, OneProvenance *from, int n) ; // backdoor - clean up some day
 
-static char *Usage =
-         "[-v] [-w<int(80)>] <source:path>[.1gdb] [ @ | <target:path>[<fa_extn>|.1seq] ]";
+static char *Usage[] = { "[-v] [-w<int(80)>] [#<mask>[.1ano]]",
+                         " <source:path>[.1gdb] [ @ | <target:path>[<fa_extn>|.1seq] ]"
+                       };
 
 int main(int argc, char *argv[])
 { GDB        _gdb, *gdb = &_gdb;
+  ANO        _ano, *ano = &_ano;
+  int         has_mask;
+  char       *SROOT;
   char       *TPATH, *TROOT;
   int         TEXTN;
   int         is_one;
@@ -33,9 +40,10 @@ int main(int argc, char *argv[])
   int         gzip;
   void       *output;
 
-  int UPPER;
-  int WIDTH;   // -w
-  int VERBOSE; // -v
+  int   UPPER;
+  int   WIDTH;   // -w
+  int   VERBOSE; // -v
+  char *MFILE;
 
   char *suffix[7] = { ".1seq", ".fa", ".fna", ".fasta", ".fa.gz", ".fna.gz", ".fasta.gz" };
   int   suflen[7] = { 5, 3, 4, 6, 6, 7, 9 };
@@ -49,6 +57,7 @@ int main(int argc, char *argv[])
     ARG_INIT("GDBtoFA")
 
     WIDTH = 80;
+    MFILE = NULL;
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -61,6 +70,8 @@ int main(int argc, char *argv[])
             ARG_NON_NEGATIVE(WIDTH,"Line width")
             break;
         }
+      else if (argv[i][0] == '#')
+        MFILE = argv[i]+1;
       else
         argv[j++] = argv[i];
     argc = j;
@@ -68,10 +79,14 @@ int main(int argc, char *argv[])
     VERBOSE = flags['v'];
 
     if (argc < 2 || argc > 3)
-      { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
+      { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
+        fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"\n");
         fprintf(stderr,"           <fa_extn> = (.fa|.fna|.fasta)[.gz]\n");
         fprintf(stderr,"\n");
+        fprintf(stderr,"       #: Apply .1ano as an implicit mask.\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -v: Verbose output\n");
         fprintf(stderr,"      -w: Print -w bp per line (default is 80).\n");
         exit (1);
       }
@@ -80,16 +95,23 @@ int main(int argc, char *argv[])
   //  Open db & determine source and target parts
 
   { struct stat tdesc;
-    char       *p, *e, *root;
+    char       *p, *e;
     int         i;
 
     Read_GDB(gdb,argv[1]);
 
+    if (MFILE != NULL)
+      { has_mask = 1;
+        Read_ANO(ano,MFILE,gdb);
+      }
+    else
+      has_mask = 0;
+
     e = argv[1] + strlen(argv[1]);
     if (strcmp(e-5,".1gdb") == 0)
-      root = Root(argv[1],".1gdb");
+      SROOT = Root(argv[1],".1gdb");
     else
-      root = Root(argv[1],".gdb");
+      SROOT = Root(argv[1],".gdb");
 
     is_one = 0;
     if (argc == 2)
@@ -110,8 +132,8 @@ int main(int argc, char *argv[])
           }
         else
           { TPATH = argv[2];
-            if (stat(TPATH,&tdesc) >= 0 && (tdesc.st_mode & S_IFMT) != S_IFDIR)
-              TROOT = root;
+            if (stat(TPATH,&tdesc) >= 0 && (tdesc.st_mode & S_IFMT) == S_IFDIR)
+              TROOT = SROOT;
             else
               { p = rindex(TPATH,'/');
                 if (p == NULL)
@@ -145,8 +167,6 @@ int main(int argc, char *argv[])
         gzip   = (TEXTN >= 4);
       }
 
-    free(root);
-
     if (VERBOSE && argc > 2)
       { if (is_one)
           { if (strcmp(TPATH,".") == 0)
@@ -171,20 +191,23 @@ int main(int argc, char *argv[])
 
   { GDB_CONTIG   *ctg;
     GDB_SCAFFOLD *scf;
-    GDB_MASK     *msk;
+    ANO_PAIR     *mask;
+    int64        *moff;
     char         *hdr;
-    int           nctg, nscf;
+    int           nscf;
     char         *contig, *header;
 
     scf    = gdb->scaffolds;
     ctg    = gdb->contigs;
-    msk    = gdb->masks;
     hdr    = gdb->headers;
-    nctg   = gdb->ncontig;
     nscf   = gdb->nscaff;
     contig = New_Contig_Buffer(gdb);
-    if (gdb->iscaps)
-      UPPER = UPPER_CASE;
+
+    if (has_mask)
+      { mask = ano->masks;
+        moff = ano->moff;
+        UPPER = UPPER_CASE;
+      }
     else
       UPPER = LOWER_CASE;
 
@@ -193,6 +216,7 @@ int main(int argc, char *argv[])
       { int64 spos;
         int   len;
         int   i, k;
+        int64 mbuffer[2*MBUF_LEN];
 
         schema = make_Seq_Schema();
         if (schema == NULL)
@@ -264,14 +288,13 @@ int main(int argc, char *argv[])
                     scnt += 1;
                     spos += len;
 
-                    if (k == nctg-1)
-                      len = gdb->nmasks - ctg[k].moff;
-                    else
-                      len = ctg[k+1].moff - ctg[k].moff;
-                    if (len > mskmax)
-                      mskmax = len;
-                    mtot += len;
-                    mcnt += 1;
+                    if (has_mask)
+                      { len = moff[k+1] - moff[k];
+                        if (len > mskmax)
+                          mskmax = len;
+                        mtot += len;
+                        mcnt += 1;
+                      }
                   }
                 if (spos < scf[i].slen)
                   { len = scf[i].slen-spos;
@@ -327,9 +350,6 @@ int main(int argc, char *argv[])
                     s->maxTotal = mskgrptot;
                   }
               }
-            outone->info['u']->given.count = gdb->iscaps;
-            outone->info['u']->given.max   = 0;
-            outone->info['u']->given.total = 0;
             outone->info['f']->given.count = 1;
             outone->info['f']->given.max   = 0;
             outone->info['f']->given.total = 0;
@@ -340,9 +360,6 @@ int main(int argc, char *argv[])
         oneReal(outone,2) = gdb->freq[2];
         oneReal(outone,3) = gdb->freq[3];
         oneWriteLine(outone,'f',0,0);
-
-        if (gdb->iscaps)
-          oneWriteLine(outone,'u',0,0);
 
         for (i = 0; i < nscf; i++)
           { header = hdr + scf[i].hoff;
@@ -364,12 +381,27 @@ int main(int argc, char *argv[])
                 oneWriteLine(outone,'S',ctg[k].clen,contig);
                 spos += ctg[k].clen;
 
-                if (k == nctg-1)
-                  len = gdb->nmasks - ctg[k].moff;
-                else
-                  len = ctg[k+1].moff - ctg[k].moff;
-                if (len > 0)
-                  oneWriteLine(outone,'M',2*len,(int64 *) (msk + ctg[k].moff));
+                if (has_mask)
+                  { len = moff[k+1] - moff[k];
+                    if (len > 0)
+                      { ANO_PAIR *m;
+                        int       p, q, x, y;
+
+                        m = mask+moff[k];
+                        for (p = 0; p < len; p += MBUF_LEN)
+                          { if (p+MBUF_LEN > len)
+                              q = len;
+                            else
+                              q = MBUF_LEN;
+                            y = 0;
+                            for (x = p; x < q; x++)
+                              { mbuffer[y++] = m[x].beg;
+                                mbuffer[y++] = m[x].end;
+                              }
+                            oneWriteLine(outone,'M',y,mbuffer);
+                          }
+                      }
+                  }
               }
             if (spos < scf[i].slen)
               { oneChar(outone,0) = 'n';
@@ -382,7 +414,7 @@ int main(int argc, char *argv[])
         oneSchemaDestroy(schema);
       }
 
-    else
+    else  //  Output is fasta
 
       { char       *nstring;
         int         i;
@@ -459,6 +491,22 @@ int main(int argc, char *argv[])
                 spos = ctg[k].sbeg;
     
                 Get_Contig(gdb,k,UPPER,contig);
+
+                if (has_mask)
+                  { int m, t, p, b, e;
+
+                    t = moff[k+1];
+                    b = 0;
+                    for (m = moff[k]; m < t; m++)
+                      { e = mask[m].end;
+                        if (b < mask[m].beg)
+                          b = mask[m].beg;
+                        for (p = b; p < e; p++)
+                          contig[p] += 32;
+                        if (e > b)
+                          b = e;
+                      }
+                  }
  
                 len = ctg[k].clen;
                 WIDTH_WRITE(contig+j)
@@ -486,6 +534,8 @@ int main(int argc, char *argv[])
         free(nstring);
       }
   }
+
+  free(SROOT);
 
   Close_GDB(gdb);
 

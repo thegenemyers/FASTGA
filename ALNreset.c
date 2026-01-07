@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
 
     type = Get_GDB_Paths(argv[2],NULL,&SPATH1,&tpath,0);
     if (type != IS_GDB)
-      Create_GDB(gdb1,SPATH1,type,0,NULL,0);
+      Create_GDB(gdb1,SPATH1,type,0,NULL,0,NULL);
     else
       Read_GDB(gdb1,tpath);
     free(tpath);
@@ -118,7 +118,7 @@ int main(int argc, char *argv[])
     if (argc == 4)
       { type = Get_GDB_Paths(argv[3],NULL,&SPATH2,&tpath,0);
         if (type != IS_GDB)
-          Create_GDB(gdb2,SPATH2,type,0,NULL,0);
+          Create_GDB(gdb2,SPATH2,type,0,NULL,0,NULL);
         else
           Read_GDB(gdb2,tpath);
         free(tpath);
@@ -174,11 +174,11 @@ int main(int argc, char *argv[])
         oneWriteLine(ofOut,ofIn->lineType,oneLen(ofIn),oneString(ofIn));
       }
 
-    Skip_Aln_Skeletons(ofIn);
+    Skip_Skeleton(ofIn);
 
-    Write_Aln_Skeleton(ofOut,gdb1);
+    Write_Skeleton(ofOut,gdb1);
     if (argc == 4)
-      Write_Aln_Skeleton(ofOut,gdb2);
+      Write_Skeleton(ofOut,gdb2);
 
     if (ofIn->info['A'])  //  file not empty
       { int64      novl = ofIn->info['A']->given.count;

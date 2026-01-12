@@ -22,13 +22,12 @@ OneFile *open_Aln_Read (char *filename, int nThreads,
 			int64 *nOverlaps, int *tspace,
 			char **db1_name, char **db2_name, char **cpath) ;
 
-void Skip_Aln_Skeletons(OneFile *of);
-
-// next two routines read the records from the file
+// next three routines read the records from the file
 
 int  Read_Aln_Overlap(OneFile *of, Overlap *ovl);
 int  Read_Aln_Trace  (OneFile *of, uint8 *trace, int *period);
 int  Skip_Aln_Trace  (OneFile *of);
+int  Copy_Aln_Trace  (OneFile *in, OneFile *out);
 
 // and equivalents for writing
 

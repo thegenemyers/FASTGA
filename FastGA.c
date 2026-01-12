@@ -59,7 +59,7 @@ static int EXO_SIZE = sizeof(Overlap) - sizeof(void *);
 #define    PAFS         0x4
 #define    PAFL         0x8
 
-static char *Usage[] = { "[-vkNS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]",
+static char *Usage[] = { "[-vkMS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]",
                          "[-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]",
                          "  <source1:path>[<precursor>] (#[<mask>[.1bed]])*",
                          "[ <source2:path>[<precursor>] (#[<mask>[.1bed]])* ]"
@@ -4472,7 +4472,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("vkNS")
+            ARG_FLAGS("vkMS")
             break;
           case '1':
             if (strncmp(argv[i]+1,"1:",2) == 0)
@@ -4577,7 +4577,7 @@ int main(int argc, char *argv[])
 
     VERBOSE   = flags['v'];
     KEEP      = flags['k'];
-    SOFT_MASK = 1-flags['N'];
+    SOFT_MASK = flags['M'] || (NMASK1 > 0) || (NMASK2 > 0);
     SYMMETRIC = flags['S'];
 
     if (argc != 3 && argc != 2)
@@ -4598,7 +4598,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
         fprintf(stderr,"      -L: Output log to specified file.\n");
         fprintf(stderr,"      -k: Keep any generated .1gdb's and .gix's.\n");
-        fprintf(stderr,"      -N: Do not soft mask.\n");
+        fprintf(stderr,"      -M: Use GIX soft masks (if no # arguments).\n");
         fprintf(stderr,"      -S: Use symmetric seeding (not recommended).\n");
         fprintf(stderr,"      -T: Number of threads to use.\n");
         fprintf(stderr,"      -P: Directory to use for temporary files.\n");

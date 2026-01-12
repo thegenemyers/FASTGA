@@ -741,7 +741,9 @@ int main(int argc, char *argv[])
 
     if (ISTWO)
       { if (CIGAR || DIFFS)
-          units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS,NULL);
+          { Skip_Skeleton(input);
+            units2 = Get_GDB(gdb2,src2_name,cpath,NTHREADS,NULL);
+          }
         else
           { if (input->lineType == 'g')
               Read_Skeleton(input,src1_name,gdb2);

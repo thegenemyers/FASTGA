@@ -155,7 +155,8 @@ AlnReader *alnOpenReader(char *name, int nthreads, bool see_seq)
 
   if (src2 != NULL)
     { if (see_seq)
-        { units2 = Get_GDB(gdb2,src2,cpath,nthreads,NULL);
+        { Skip_Skeleton(input);
+          units2 = Get_GDB(gdb2,src2,cpath,nthreads,NULL);
           if (units2 == NULL)
             { Close_GDB(gdb1);
               goto closeout;

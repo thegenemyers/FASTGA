@@ -175,10 +175,11 @@ int main(int argc, char *argv[])
       }
 
     Skip_Skeleton(ofIn);
-
     Write_Skeleton(ofOut,gdb1);
     if (argc == 4)
-      Write_Skeleton(ofOut,gdb2);
+      { Skip_Skeleton(ofIn);
+        Write_Skeleton(ofOut,gdb2);
+      }
 
     if (ofIn->info['A'])  //  file not empty
       { int64      novl = ofIn->info['A']->given.count;

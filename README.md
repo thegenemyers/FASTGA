@@ -56,10 +56,10 @@ lower case, and unmasked regions upper case, then this mask was recorded in the 
 in a separate .1ano file that has the same location and root name as the target GDB.  Further, GIXmake has been upgraded
 so that you can specify multiple .1ano files on the command line, and the GIX will be masked with the
 union of these.  Note carefully that the only way to change the mask encoded in a GIX is to rebuild the
-GIX.  By default FastGA now softmasks with whatever masking is encoded in the GIX's of the genomes and
-a new flag -N instructs it to ignore these encoded masks.  You can also now follow each FastGA genome argument
-with a list of masks to apply (syntactically a primary argument beginning with #).  Doing so will entail
-rebuilding the GIX's even if they are already present at the time of the call to FastGA.  Lastly, GDBtoFA and GDBshow now take an optional
+GIX.  By default FastGA now does not use the soft mask in the GIX's of the genomes, but the -M flag
+instructs it to so so.  You can also now follow each FastGA genome argument
+with a list of masks to apply (syntactically a primary argument beginning with #) in which case the
+GIX's will be rebuilt with the specified mask(s) and FastGA will soft mask accordingly.  Lastly, GDBtoFA and GDBshow now take an optional
 \#-sign mask argument that if present masks the result accordingly.
 
 ## Version 1.4 (November 1, 2025) ONEaln C-Library
@@ -161,7 +161,7 @@ file.
 ## FastGA Reference
 
 ```
-FastGA [-vkNS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]
+FastGA [-vkMS] [-L:<log:path>] [-T<int(8)>] [-P<dir($TMPDIR)>] [<format(-paf)>]
                [-f<int(10)>] [-c<int(85)> [-s<int(1000)>] [-l<int(100)>] [-i<float(.7)]
                  <source1:path>[<precursor>] (#[<mask>[.1ano]])*
                [ <source2:path>[<precursor>] (#[<mask>[.1ano]])* ] 
@@ -210,7 +210,7 @@ upon completion of the execution of FastGA unless the -k option is set in which 
 Note carefully, any object already in the file system is not affected.  We recommend that one *replace*,
 using [FAtoGDB](#FAtoGDB), every FASTA file with its GDB, as the GDB occupies less disk space and its originating FASTA can be reproduced exactly with [GDBtoFA](#GDBtoFA) on demand.
 Similarly, if a group of genomes will be compared against each other, we recommend that one build a
-GIX for each beforehand with [GIXmake](#GIXmake).  It takes about 30seconds per gigabase to build a GIX,
+GIX for each beforehand with [GIXmake](#GIXmake).  It takes about 15-30 seconds per gigabase to build a GIX,
 so building
 them prospectively saves time as FastGA need not do so every time it is called on the same genome.
 On the other hand, GIXs are large, occupying 14GB for every gigabase of a genome, so we recommend that
@@ -221,9 +221,9 @@ Each source argument can be followed by a list of masks where each is a #-sign i
 name of a .1ano file specifying a collection of intervals, e.g. ```FastGA A #mask1.1ano #mask2 B #``` will
 soft mask ```A``` with the union of the intervals in ```mask1.1ano``` and ```mask2.1ano```, and ```B``` will be
 masked with the "implicit" mask ```B.1ano``` that was specified in its' FastA file using upper and lower-case 
-to denote unmasked versus masked sequence, respectively, or in the M-lines of its' ONEcode file, depending on the file type of its source.  Specifying masks requires that the GIX for the argument in question be recomputed
-even if the GIX already exists at the time of the call.  If no masks are given then by default FastGA soft
-masks with whatever masks are encoded in the GIX's, if prebuilt, or with no masking if created with the call.  Lastly, the flag -N requests that FastGA not mask regardless of the mask state of the GIX's ultimately used.
+to denote unmasked versus masked sequence, respectively, or in the M-lines of its' ONEcode file, depending on the file type of its source.  Specifying # masks arguments requires that the GIX for the argument in question be recomputed
+even if the GIX already exists at the time of the call.  If no explicit mask arguments are given then by default FastGA ignores the soft mask encoded in the GIX's, but if such mask arguments occur or the -M
+flag is set, then FastGA uses the soft masks in the GIX's.
 
 All the other options control the alignment discovery process.  Generally the defaults are fine and you
 shouldn't bother touching these dials unless you are curious or confident.  For those willing to go further

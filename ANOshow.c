@@ -58,9 +58,9 @@ static void reverse_print(int n, int fst, int lst, int64 off)
       else
         printf("<%10lld",lst + off);
       if (MASK[m].beg >= fst)
-        printf(" .. %10lld]",MASK[m].beg + off);
+        printf(" - %10lld]",MASK[m].beg + off);
       else
-        printf(" .. %10lld>",fst + off);
+        printf(" - %10lld>",fst + off);
       if (MASK[m].label != NULL)
         printf(" %s",MASK[m].label);
       if (MASK[m].score > 0)
@@ -84,9 +84,9 @@ static void forward_print(int n, int fst, int lst, int64 off)
       else
         printf("<%10lld",fst + off);
       if (MASK[m].end <= lst)
-        printf(" .. %10lld]",MASK[m].end + off);
+        printf(" - %10lld]",MASK[m].end + off);
       else
-        printf(" .. %10lld>",lst + off);
+        printf(" - %10lld>",lst + off);
       if (MASK[m].label != NULL)
         printf(" %s",MASK[m].label);
       if (MASK[m].score > 0)

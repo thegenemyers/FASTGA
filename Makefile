@@ -4,7 +4,7 @@ CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
 CC = gcc
 
-ALL = FAtoGDB GDBtoFA GDBstat GDBshow GIXmake GIXshow GIXrm GIXmv GIXcp FastGA ALNshow ALNtoPAF ALNtoPSL ALNreset ALNplot ALNchain PAFtoALN PAFtoPSL ONEview FastKS ONEalnTEST ANOstat ANOshow ANOtoBED BEDtoANO # FastGAN 
+ALL = FAtoGDB GDBtoFA GDBstat GDBshow GIXmake GIXshow GIXrm GIXmv GIXcp FastGA ALNshow ALNtoPAF ALNtoPSL ALNreset ALNplot ALNchain PAFtoALN PAFtoPSL ONEview FastKS ONEalnTEST ANOstat ANOshow ANOtoBED BEDtoANO # ALNfill FastGAN 
 
 all: $(ALL)
 
@@ -16,6 +16,9 @@ GDB.h: gene_core.h
 
 FastGAN: FastGA.new.c libfastk.c libfastk.h GDB.c GDB.h RSDsort.c align.c align.h alncode.c alncode.h ONElib.c ONElib.h
 	$(CC) $(CFLAGS) -o FastGAN FastGA.new.c RSDsort.c libfastk.c align.c GDB.c alncode.c gene_core.c ONElib.c -lpthread -lm -lz
+
+ALNfill: ALNfill.c align.h align.c GDB.c GDB.h alncode.c alncode.h ONElib.c ONElib.h
+	$(CC) $(CFLAGS) -o ALNfill ALNfill.c align.c GDB.c alncode.c gene_core.c ONElib.c -lpthread -lm -lz
 
 FAtoGDB: FAtoGDB.c GDB.c GDB.h ANO.c ANO.h ONElib.c ONElib.h
 	$(CC) $(CFLAGS) -o FAtoGDB FAtoGDB.c GDB.c ANO.c gene_core.c ONElib.c -lm -lz

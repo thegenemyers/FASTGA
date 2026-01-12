@@ -303,3 +303,36 @@ void Write_Aln_Trace (OneFile *of, uint8 *trace, int tlen, int64 *trace64, int p
       oneWriteLine(of,'U',0,NULL);
     }
 }
+
+int Copy_Aln_Trace(OneFile *in, OneFile *out)
+{ int    tlen;
+  
+  if (in->lineType != 'T')
+    { EPRINTF("Failed to be at start of trace in Read_Aln_Trace()");
+      EXIT(1);
+    }
+    
+  tlen = oneLen(in);
+  oneWriteLine(out,'T',tlen,oneIntList(in));
+
+  oneReadLine(in);
+  if (in->lineType != 'X')
+    { EPRINTF("No X-line following a T-line in 1aln file");
+      EXIT(1);
+    }
+  if (oneLen(in) != tlen)
+    { EPRINTF("X-line and T-lines should have the same length");
+      EXIT(1);
+    }
+  oneWriteLine(out,'X',tlen,oneIntList(in));
+
+  while (oneReadLine(in))       // move to start of next alignment
+    if (in->lineType == 'U')
+      { oneInt(out,0) = oneInt(in,0);
+        oneWriteLine(out,'U',0,NULL);
+      }
+    else if (in->lineType == 'A')
+      break;
+
+  return (0);
+}

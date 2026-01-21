@@ -1091,6 +1091,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
         { ano->nprov   = 0;
           ano->prov    = NULL;
           ano->gdb     = gdb;
+          ano->shared  = 1;
           ano->moff    = moff;
           masks        = realloc(masks,(nmasks+1)*sizeof(ANO_PAIR));
           ano->masks   = masks;

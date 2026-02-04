@@ -353,6 +353,8 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                         int *mind, int maxd, int mida, int minp, int maxp, int aoff)
 { char *aseq  = align->aseq;
   char *bseq  = align->bseq;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -432,7 +434,7 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
-        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
         if (x < 0 || x < k)
           { V[k]  = -2;  // Mark dead
             T[k]  = PATH_INT;
@@ -630,19 +632,27 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = -1;
-        }
-      else
-        low += 1;
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida + 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh]  = am = -1;
-        }
-      else
-        am = V[--hgh];
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = -1;
+          }
+        else
+          low += 1;
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh]  = am = -1;
+          }
+        else
+          am = V[--hgh];
+      }
 
       dif += 1;
 
@@ -694,7 +704,7 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           b <<= 1;
 
           x = (c+k)>>1;
-          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
           if (x < 0 || x < k)
             { t  = T[k];
               n  = M[k];
@@ -907,6 +917,8 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                         int mind, int maxd, int mida, int minp, int maxp, int aoff)
 { char *aseq  = align->aseq - 1;
   char *bseq  = align->bseq - 1;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -984,7 +996,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
-        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
         if (x < 0 || x < k)
           { V[k]  = -2;  // Mark dead
             T[k]  = PATH_INT;
@@ -1173,19 +1185,27 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = ap = INT32_MAX;
-        }
-      else
-        ap = V[++low];
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida - 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh] = INT32_MAX;
-        }
-      else
-        hgh -= 1;
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = ap = INT32_MAX;
+          }
+        else
+          ap = V[++low];
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh] = INT32_MAX;
+          }
+        else
+          hgh -= 1;
+      }
 
       dif += 1;
 
@@ -1237,7 +1257,7 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           b <<= 1;
 
           x = (c+k)>>1;
-          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
           if (x < 0 || x < k)
             { t  = T[k];
               n  = M[k];
@@ -1478,10 +1498,12 @@ int Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
   int   selfie;
   int   fshort, rshort;
 
-  { int alen;
+  { int alen, blen;
     int maxtp, wsize;
 
     alen = align->alen;
+    blen = align->blen;
+    (void) blen;  // Used by wave functions via align->blen
 
     if (hgh-low >= 7500)
       wsize = VectorEl*(hgh-low+1);
@@ -1647,6 +1669,8 @@ static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                         int *mind, int maxd, int mida, int minp, int maxp, int tspace)
 { char *aseq  = align->aseq;
   char *bseq  = align->bseq;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -1723,7 +1747,7 @@ static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
-        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
         if (x < 0 || x < k)
           { V[k]  = -2;  // Mark dead
             T[k]  = PATH_INT;
@@ -1903,19 +1927,27 @@ static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = -1;
-        }
-      else
-        low += 1;
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida + 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh]  = am = -1;
-        }
-      else
-        am = V[--hgh];
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = -1;
+          }
+        else
+          low += 1;
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh]  = am = -1;
+          }
+        else
+          am = V[--hgh];
+      }
 
       dif += 1;
 
@@ -2151,10 +2183,12 @@ static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
   return (0);
 }
 
-static int reverse_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align, 
+static int reverse_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                         int mind, int maxd, int mida, int minp, int maxp, int tspace)
 { char *aseq  = align->aseq - 1;
   char *bseq  = align->bseq - 1;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -2229,7 +2263,7 @@ static int reverse_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
-        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
         if (x < 0 || x < k)
           { V[k]  = -2;  // Mark dead
             T[k]  = PATH_INT;
@@ -2405,19 +2439,27 @@ static int reverse_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = ap = INT32_MAX;
-        }
-      else
-        ap = V[++low];
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida - 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh] = INT32_MAX;
-        }
-      else
-        hgh -= 1;
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = ap = INT32_MAX;
+          }
+        else
+          ap = V[++low];
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh] = INT32_MAX;
+          }
+        else
+          hgh -= 1;
+      }
 
       dif += 1;
 
@@ -2814,6 +2856,8 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                           int midd, int mida, int minp, int maxp)
 { char *aseq  = align->aseq;
   char *bseq  = align->bseq;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -2892,7 +2936,7 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
-        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
         if (x < 0 || x < k)
           { V[k]  = -2;  // Mark dead
             T[k]  = PATH_INT;
@@ -3090,19 +3134,27 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = -1;
-        }
-      else
-        low += 1;
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida + 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh]  = am = -1;
-        }
-      else
-        am = V[--hgh];
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = -1;
+          }
+        else
+          low += 1;
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh]  = am = -1;
+          }
+        else
+          am = V[--hgh];
+      }
 
       dif += 1;
 
@@ -3154,7 +3206,7 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           b <<= 1;
 
           x = (c+k)>>1;
-          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
           if (x < 0 || x < k)
             { t  = T[k];
               n  = M[k];
@@ -3362,6 +3414,8 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                           int midd, int mida, int minp, int maxp)
 { char *aseq  = align->aseq - 1;
   char *bseq  = align->bseq - 1;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -3438,7 +3492,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
-        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
         if (x < 0 || x < k)
           { V[k]  = -2;  // Mark dead
             T[k]  = PATH_INT;
@@ -3627,19 +3681,27 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = ap = INT32_MAX;
-        }
-      else
-        ap = V[++low];
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida - 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh] = INT32_MAX;
-        }
-      else
-        hgh -= 1;
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = ap = INT32_MAX;
+          }
+        else
+          ap = V[++low];
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh] = INT32_MAX;
+          }
+        else
+          hgh -= 1;
+      }
 
       dif += 1;
 
@@ -3691,7 +3753,7 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           b <<= 1;
 
           x = (c+k)>>1;
-          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x])
+          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
           if (x < 0 || x < k)
             { t  = T[k];
               n  = M[k];

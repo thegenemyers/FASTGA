@@ -185,8 +185,8 @@ void *gen_paf(void *args)
       // Skip alignments with invalid coordinates (can occur from edge cases in wave algorithm)
       if (path->abpos < 0 || path->aepos > aln->alen || path->abpos >= path->aepos ||
           path->bbpos < 0 || path->bepos > aln->blen || path->bbpos >= path->bepos)
-        { alast = acontig;
-          continue;  // Skip this invalid alignment
+        { continue;  // Skip this invalid alignment (do NOT set alast, so sequence gets
+                      //   reloaded for next valid alignment on this contig)
         }
 
       aoff = contigs1[acontig].sbeg;

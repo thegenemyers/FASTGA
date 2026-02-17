@@ -3263,7 +3263,17 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
 
                             rlen = path->aepos - path->abpos;
                             if (rlen >= alnMin && alnRate*rlen >= path->diffs)
-                              { Compress_TraceTo8(ovl,0);
+                              { uint16 *t16 = (uint16 *) ovl->path.trace;
+                                int     ti, trace_overflow = 0;
+                                for (ti = 0; ti < ovl->path.tlen; ti++)
+                                  if (t16[ti] > 255)
+                                    { trace_overflow = 1;
+                                      break;
+                                    }
+                                if (trace_overflow)
+                                  goto next_alignment;
+
+                                Compress_TraceTo8(ovl,0);
                                 if (fwrite(ovl,OVL_SIZE,1,tfile) != 1)
                                   { fprintf(stderr,
                                            "%s: Cannot write overlap gather file %s/%s.%d.las\n",
@@ -3279,6 +3289,8 @@ static void align_contigs(uint8 *beg, uint8 *end, int swide, int ctg1, int ctg2,
                                 nlas += 1;
                                 nmem += path->tlen + OVL_SIZE;
                               }
+
+                          next_alignment:
 
 #ifdef DEBUG_ALIGN
                             if (rlen >= ALIGN_MIN && ALIGN_RATE*rlen >= path->diffs)
@@ -4933,7 +4945,7 @@ int main(int argc, char *argv[])
       gdb2 = gdb1;
     else
       { GEXTN2 = ".gdb";
-        fname = Catenate(PATH1,"/",ROOT1,GEXTN2);
+        fname = Catenate(PATH2,"/",ROOT2,GEXTN2);
         if ((file = fopen(fname,"r")) == NULL)
           GEXTN2 = ".1gdb";
         else

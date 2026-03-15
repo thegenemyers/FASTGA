@@ -353,6 +353,8 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                         int *mind, int maxd, int mida, int minp, int maxp, int aoff)
 { char *aseq  = align->aseq;
   char *bseq  = align->bseq;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -432,6 +434,16 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+        if (x < 0 || x < k)
+          { V[k]  = -2;  // Mark dead
+            T[k]  = PATH_INT;
+            M[k]  = PATH_LEN;
+            HA[k] = -1;
+            NA[k] = 0;
+            bs += 1;
+            continue;
+          }
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
@@ -536,6 +548,11 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
       bclip = -INT32_MAX;
     }
 
+  // Safety check: if no valid diagonals were processed in 0-wave, the alignment is invalid
+  // This can happen when all diagonals fail bounds checking (x < 0 || x < k)
+  if (avail == 0)
+    return (2);  // Return error code 2 = no valid alignment found
+
 #ifdef DEBUG_WAVE
   printf("\nFORWARD WAVE:\n");
   print_wave(V,M,low,hgh,besta);
@@ -615,19 +632,27 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = -1;
-        }
-      else
-        low += 1;
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida + 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh]  = am = -1;
-        }
-      else
-        am = V[--hgh];
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = -1;
+          }
+        else
+          low += 1;
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh]  = am = -1;
+          }
+        else
+          am = V[--hgh];
+      }
 
       dif += 1;
 
@@ -679,6 +704,15 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           b <<= 1;
 
           x = (c+k)>>1;
+          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+          if (x < 0 || x < k)
+            { t  = T[k];
+              n  = M[k];
+              ua = HA[k];
+              V[k] = -2;  // Mark dead, will be trimmed
+              bs += 1;
+              continue;
+            }
           while (1)
             { c = bs[x];
               if (c == 4)
@@ -789,6 +823,10 @@ static int forward_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             break;
           }
 
+      // If all diagonals were trimmed (hgh < low), terminate the wave
+      if (hgh < low)
+        break;
+
 #ifdef WAVE_STATS
       k = (hgh-low)+1;
       if (k > MAX)
@@ -879,6 +917,8 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                         int mind, int maxd, int mida, int minp, int maxp, int aoff)
 { char *aseq  = align->aseq - 1;
   char *bseq  = align->bseq - 1;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -956,6 +996,16 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+        if (x < 0 || x < k)
+          { V[k]  = -2;  // Mark dead
+            T[k]  = PATH_INT;
+            M[k]  = PATH_LEN;
+            HA[k] = -1;
+            NA[k] = 0;
+            bs -= 1;
+            continue;
+          }
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
@@ -1135,19 +1185,27 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = ap = INT32_MAX;
-        }
-      else
-        ap = V[++low];
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida - 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh] = INT32_MAX;
-        }
-      else
-        hgh -= 1;
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = ap = INT32_MAX;
+          }
+        else
+          ap = V[++low];
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh] = INT32_MAX;
+          }
+        else
+          hgh -= 1;
+      }
 
       dif += 1;
 
@@ -1199,6 +1257,15 @@ static int reverse_wave(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           b <<= 1;
 
           x = (c+k)>>1;
+          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+          if (x < 0 || x < k)
+            { t  = T[k];
+              n  = M[k];
+              ua = HA[k];
+              V[k] = -2;  // Mark dead, will be trimmed
+              bs += 1;
+              continue;
+            }
           while (1)
             { c = bs[x];
               if (c == 4)
@@ -1431,10 +1498,12 @@ int Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
   int   selfie;
   int   fshort, rshort;
 
-  { int alen;
+  { int alen, blen;
     int maxtp, wsize;
 
     alen = align->alen;
+    blen = align->blen;
+    (void) blen;  // Used by wave functions via align->blen
 
     if (hgh-low >= 7500)
       wsize = VectorEl*(hgh-low+1);
@@ -1460,14 +1529,27 @@ int Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
 
   selfie = (align->aseq == align->bseq);
 
+  // Ensure valid diagonal range: k must be in [-anti, anti]
+  // For k outside this range, x = (anti+k)/2 or y = (anti-k)/2 becomes negative
+
+  // Ensure hgh <= anti (guarantees y >= 0 at k = hgh)
   while (((anti-hgh)>>1) < 0)
     hgh -= 1;
-   
+
+  // Ensure low >= -anti (guarantees x >= 0 at k = low)
+  while (((anti+low)>>1) < 0)
+    low += 1;
+
+  // If no valid diagonals remain, return error
+  if (low > hgh)
+    return (1);
+
   if (lbord < 0)
     { if (selfie && low >= 0)
         minp = 1;
       else
-        minp = -INT32_MAX;
+        // Constrain minp to -anti to prevent wave expansion into invalid x < 0 region
+        minp = -anti;
     }
   else
     minp = low-lbord;
@@ -1475,7 +1557,8 @@ int Local_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
     { if (selfie && hgh <= 0)
         maxp = -1;
       else
-        maxp = INT32_MAX;
+        // Constrain maxp to anti to prevent wave expansion into invalid y < 0 region
+        maxp = anti;
     }
   else
     maxp = hgh+hbord;
@@ -1586,6 +1669,8 @@ static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                         int *mind, int maxd, int mida, int minp, int maxp, int tspace)
 { char *aseq  = align->aseq;
   char *bseq  = align->bseq;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -1662,6 +1747,16 @@ static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+        if (x < 0 || x < k)
+          { V[k]  = -2;  // Mark dead
+            T[k]  = PATH_INT;
+            M[k]  = PATH_LEN;
+            HA[k] = -1;
+            NA[k] = 0;
+            bs += 1;
+            continue;
+          }
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
@@ -1832,19 +1927,27 @@ static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = -1;
-        }
-      else
-        low += 1;
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida + 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh]  = am = -1;
-        }
-      else
-        am = V[--hgh];
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = -1;
+          }
+        else
+          low += 1;
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh]  = am = -1;
+          }
+        else
+          am = V[--hgh];
+      }
 
       dif += 1;
 
@@ -1992,6 +2095,10 @@ static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             break;
           }
 
+      // If all diagonals were trimmed (hgh < low), terminate the wave
+      if (hgh < low)
+        break;
+
 #ifdef WAVE_STATS
       k = (hgh-low)+1;
       if (k > MAX)
@@ -2076,10 +2183,12 @@ static int forward_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
   return (0);
 }
 
-static int reverse_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align, 
+static int reverse_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                         int mind, int maxd, int mida, int minp, int maxp, int tspace)
 { char *aseq  = align->aseq - 1;
   char *bseq  = align->bseq - 1;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -2154,6 +2263,16 @@ static int reverse_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+        if (x < 0 || x < k)
+          { V[k]  = -2;  // Mark dead
+            T[k]  = PATH_INT;
+            M[k]  = PATH_LEN;
+            HA[k] = -1;
+            NA[k] = 0;
+            bs -= 1;
+            continue;
+          }
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
@@ -2320,19 +2439,27 @@ static int reverse_wrap(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = ap = INT32_MAX;
-        }
-      else
-        ap = V[++low];
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida - 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh] = INT32_MAX;
-        }
-      else
-        hgh -= 1;
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = ap = INT32_MAX;
+          }
+        else
+          ap = V[++low];
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh] = INT32_MAX;
+          }
+        else
+          hgh -= 1;
+      }
 
       dif += 1;
 
@@ -2627,15 +2754,29 @@ int Wrap_Around_Alignment(Alignment *align, Work_Data *ework, Align_Spec *espec,
   printf("\n");
 #endif
 
+  // Ensure valid diagonal range: k must be in [-anti, anti]
+  // For k outside this range, x = (anti+k)/2 or y = (anti-k)/2 becomes negative
+
+  // Ensure hgh <= anti (guarantees y >= 0 at k = hgh)
   while (((anti-hgh)>>1) < 0)
     hgh -= 1;
-   
+
+  // Ensure low >= -anti (guarantees x >= 0 at k = low)
+  while (((anti+low)>>1) < 0)
+    low += 1;
+
+  // If no valid diagonals remain, return error
+  if (low > hgh)
+    return (1);
+
   if (lbord < 0)
-    minp = -INT32_MAX;
+    // Constrain minp to -anti to prevent wave expansion into invalid x < 0 region
+    minp = -anti;
   else
     minp = low-lbord;
   if (hbord < 0)
-    maxp = INT32_MAX;
+    // Constrain maxp to anti to prevent wave expansion into invalid y < 0 region
+    maxp = anti;
   else
     maxp = hgh+hbord;
 
@@ -2715,6 +2856,8 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                           int midd, int mida, int minp, int maxp)
 { char *aseq  = align->aseq;
   char *bseq  = align->bseq;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -2793,6 +2936,16 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+        if (x < 0 || x < k)
+          { V[k]  = -2;  // Mark dead
+            T[k]  = PATH_INT;
+            M[k]  = PATH_LEN;
+            HA[k] = -1;
+            NA[k] = 0;
+            bs += 1;
+            continue;
+          }
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
@@ -2897,6 +3050,11 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
       bclip = -INT32_MAX;
     }
 
+  // Safety check: if no valid diagonals were processed in 0-wave, the alignment is invalid
+  // This can happen when all diagonals fail bounds checking (x < 0 || x < k)
+  if (avail == 0)
+    return (2);  // Return error code 2 = no valid alignment found
+
 #ifdef DEBUG_WAVE
   printf("\nFORWARD WAVE:\n");
   print_wave(V,M,low,hgh,besta);
@@ -2976,19 +3134,27 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = -1;
-        }
-      else
-        low += 1;
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida + 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh]  = am = -1;
-        }
-      else
-        am = V[--hgh];
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = -1;
+          }
+        else
+          low += 1;
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh]  = am = -1;
+          }
+        else
+          am = V[--hgh];
+      }
 
       dif += 1;
 
@@ -3040,6 +3206,15 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           b <<= 1;
 
           x = (c+k)>>1;
+          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+          if (x < 0 || x < k)
+            { t  = T[k];
+              n  = M[k];
+              ua = HA[k];
+              V[k] = -2;  // Mark dead, will be trimmed
+              bs += 1;
+              continue;
+            }
           while (1)
             { c = bs[x];
               if (c == 4)
@@ -3150,6 +3325,10 @@ static int forward_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
             break;
           }
 
+      // If all diagonals were trimmed (hgh < low), terminate the wave
+      if (hgh < low)
+        break;
+
 #ifdef WAVE_STATS
       k = (hgh-low)+1;
       if (k > MAX)
@@ -3235,6 +3414,8 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
                           int midd, int mida, int minp, int maxp)
 { char *aseq  = align->aseq - 1;
   char *bseq  = align->bseq - 1;
+  int   alen  = align->alen;
+  int   blen  = align->blen;
   Path *apath = align->path;
 
   int     hgh, low, dif;
@@ -3311,6 +3492,16 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
         Pebble *pb;
 
         x = (mida+k)>>1;
+        // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+        if (x < 0 || x < k)
+          { V[k]  = -2;  // Mark dead
+            T[k]  = PATH_INT;
+            M[k]  = PATH_LEN;
+            HA[k] = -1;
+            NA[k] = 0;
+            bs -= 1;
+            continue;
+          }
 
         if (avail >= cmax-1)
           { cmax  = ((int) (avail*1.2)) + 10000;
@@ -3490,19 +3681,27 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           T  =  _T-vmin;
         }
 
-      if (low >= minp)
-        { NA[low] = NA[low+1];
-          V[low]  = ap = INT32_MAX;
-        }
-      else
-        ap = V[++low];
+      // Dynamic sequence length constraint for wave expansion
+      { int curr_anti = mida - 2*(dif+1);
+        int seq_minp = curr_anti - 2*blen;
+        int seq_maxp = 2*alen - curr_anti;
+        int eff_minp = (minp > seq_minp) ? minp : seq_minp;
+        int eff_maxp = (maxp < seq_maxp) ? maxp : seq_maxp;
 
-      if (hgh <= maxp)
-        { NA[hgh] = NA[hgh-1];
-          V[hgh] = INT32_MAX;
-        }
-      else
-        hgh -= 1;
+        if (low >= eff_minp)
+          { NA[low] = NA[low+1];
+            V[low]  = ap = INT32_MAX;
+          }
+        else
+          ap = V[++low];
+
+        if (hgh <= eff_maxp)
+          { NA[hgh] = NA[hgh-1];
+            V[hgh] = INT32_MAX;
+          }
+        else
+          hgh -= 1;
+      }
 
       dif += 1;
 
@@ -3554,6 +3753,15 @@ static int reverse_extend(_Work_Data *work, _Align_Spec *spec, Alignment *align,
           b <<= 1;
 
           x = (c+k)>>1;
+          // Bounds check: x must be >= 0 (for aseq[x]) and >= k (for bs[x]=bseq[y])
+          if (x < 0 || x < k)
+            { t  = T[k];
+              n  = M[k];
+              ua = HA[k];
+              V[k] = -2;  // Mark dead, will be trimmed
+              bs += 1;
+              continue;
+            }
           while (1)
             { c = bs[x];
               if (c == 4)
@@ -3807,12 +4015,19 @@ int Find_Extension(Alignment *align, Work_Data *ework, Align_Spec *espec,
   printf("\n");
 #endif
 
+  // Validate diagonal is within valid range [-anti, anti]
+  // For diag outside this range, x = (anti+diag)/2 or y = (anti-diag)/2 becomes negative
+  if (((anti+diag)>>1) < 0 || ((anti-diag)>>1) < 0)
+    return (1);  // Invalid diagonal for given anti-diagonal
+
   if (lbord < 0)
-    minp = -INT32_MAX;
+    // Constrain minp to -anti to prevent wave expansion into invalid x < 0 region
+    minp = -anti;
   else
     minp = diag-lbord;
   if (hbord < 0)
-    maxp = INT32_MAX;
+    // Constrain maxp to anti to prevent wave expansion into invalid y < 0 region
+    maxp = anti;
   else
     maxp = diag+hbord;
 

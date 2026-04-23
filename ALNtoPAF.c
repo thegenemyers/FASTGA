@@ -604,7 +604,7 @@ void *gen_paf(void *args)
           fputc('\t',out);
           itoa(iid,buf,out);
           fputc('\t',out);
-          itoa(blocksum,buf,out);
+          itoa(blocksum/2,buf,out);
           stoa("\t255",out);
 
           { int x;

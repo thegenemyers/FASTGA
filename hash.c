@@ -136,7 +136,7 @@ Hash_Table *New_Hash_Table(int size, int keep)
   int    i;
 
   if (size <= 0)
-    { fprintf(stderr,"%s: Table must have > 0 entries (New_Hash_Table)\n",Prog_Name);
+    { EPRINTF("Table must have > 0 entries (New_Hash_Table)");
       EXIT (NULL);
     }
 

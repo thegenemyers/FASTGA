@@ -40,11 +40,12 @@ static Hash_Table   *HASH;      // Hash table of all scaffold names
 #define SPOS '['    //  Start/ending pposition (but not of element)
 #define EPOS ']'
 
-static int64    *MOFF;
+static int      *MOFF;
+static int      *POINTS;
 static ANO_PAIR *MASK;
 
 static void reverse_print(int n, int fst, int lst, int64 off)
-{ int m;
+{ int m, k;
 
   m = MOFF[n+1]-1;
   while (m >= MOFF[n] && MASK[m].beg >= lst)
@@ -66,11 +67,18 @@ static void reverse_print(int n, int fst, int lst, int64 off)
       if (MASK[m].score > 0)
         printf(" score = %d",MASK[m].score);
       printf("\n");
+      if (MASK[m].parse < MASK[m+1].parse)
+        { printf("  Parse: ");
+          for (k = MASK[m+1].parse-1; k >= MASK[m].parse; k--)
+            if (POINTS[k] > fst || POINTS[k] < lst)
+              printf(" %d",POINTS[k]);
+          printf("\n");
+        }
     }
 }
 
 static void forward_print(int n, int fst, int lst, int64 off)
-{ int m;
+{ int m, k;
 
   m = MOFF[n];
   while (m < MOFF[n+1] && MASK[m].end <= fst)
@@ -92,6 +100,13 @@ static void forward_print(int n, int fst, int lst, int64 off)
       if (MASK[m].score > 0)
         printf(" score = %d",MASK[m].score);
       printf("\n");
+      if (MASK[m].parse < MASK[m+1].parse)
+        { printf("  Parse: ");
+          for (k = MASK[m].parse; k < MASK[m+1].parse; k++)
+            if (POINTS[k] > fst || POINTS[k] < lst)
+              printf(" %d",POINTS[k]);
+          printf("\n");
+        }
     }
 }
 
@@ -152,6 +167,7 @@ int main(int argc, char *argv[])
     HEADERS = gdb->headers;
 
     MOFF    = ano->moff;
+    POINTS  = ano->points;
     MASK    = ano->masks;
 
     HASH  = New_Hash_Table(NSCAFF,1);

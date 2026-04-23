@@ -445,7 +445,7 @@ static int complete_address(int64 *v, GDB *gdb, int first)
     { if (s == -1)
         s = gdb->nscaff-1;
       else
-        { if (s >= nscaff)
+        { if (s > nscaff)
             { EPRINTF("Scaffold %lld does not exist, only %d scaffolds",s,nscaff);
               EXIT(1);
             }

@@ -120,7 +120,7 @@ int main(int argc, char *argv[])
         { fprintf(stderr,"\n  Masked sequence detected, also creating .ano file %s.1ano\n",TROOT);
           fflush(stderr);
         }
-      Write_ANO(&ano,Catenate(TPATH,"/",TROOT,".1ano"),100);
+      Write_ANO(&ano,Catenate(TPATH,"/",TROOT,".1ano"));
       Free_ANO(&ano);
     }
 

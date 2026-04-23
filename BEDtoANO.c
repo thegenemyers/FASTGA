@@ -123,7 +123,7 @@ void *gen_1ano(void *args)
   int    nfields, linelen;
   char  *fptrs[100], *eptr;
 
-  int64  beg, end, mbuffer[2], score;
+  int64  beg, end, score;
   int    idx;
 
   input = fopen(iname,"r");
@@ -203,15 +203,17 @@ void *gen_1ano(void *args)
         }
 
       oneInt(of,0) = idx;
-      mbuffer[0] = beg;
-      mbuffer[1] = end;
-      oneWriteLine(of,'M',2,mbuffer);
+      oneInt(of,1) = beg;
+      oneInt(of,2) = end;
+      oneWriteLine(of,'M',0,NULL);
 
       if (nfields >= 4)
         oneWriteLine(of,'L',strlen(fptrs[3]),fptrs[3]);
 
       if (score > 0)
-        oneWriteLine(of,'X',1,&score);
+        { oneInt(of,0) = score;
+          oneWriteLine(of,'X',0,NULL);
+        }
     }
 
   fclose(input);

@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
   int        *covered, ncov;
   int        *uncovered, nunc;
   int64       totreg, totcov, totunc, totgap;
-  int64       numori, numlab, numscr;
+  int64       numori, numlab, numscr, numpar;
   int64       nints;
 
   int     HIST_LIN;
@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
     uncovered = covered + nints;
 
     totreg = totcov = totunc = totgap = 0;
-    numori = numlab = numscr = 0;
+    numori = numlab = numscr = numpar = 0;
     nreg = ncov = nunc = 0;
 
     for (c = 0; c < gdb->ncontig; c++)
@@ -173,6 +173,7 @@ int main(int argc, char *argv[])
             numori += m->orient;
             numlab += (m->label != NULL);
             numscr += (m->score > 0);
+            numpar += (m[1].parse > m->parse);
           }
         covered[ncov++] = e-b;
         totcov += e-b;
@@ -209,11 +210,23 @@ int main(int argc, char *argv[])
       printf(", scored");
     else
       printf(", unscored");
+    if (numpar != 0)
+      printf(", parsed");
     printf(" intervals");
     if (numlab != nints && numlab != 0)
       { printf(" of which ");
         Print_Number(numlab,0,stdout);
         printf(" are labelled");
+        if (numpar != nints && numpar != 0)
+          { printf(" and ");
+            Print_Number(numpar,0,stdout);
+            printf(" have parses");
+          }
+      }
+    if (numpar != nints && numpar != 0)
+      { printf(" of which ");
+        Print_Number(numpar,0,stdout);
+        printf(" have parses");
       }
     printf("\n");
 

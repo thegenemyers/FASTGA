@@ -56,7 +56,7 @@ lower case, and unmasked regions upper case, then this mask was recorded in the 
 in a separate .1ano file that has the same location and root name as the target GDB.  Further, GIXmake has been upgraded
 so that you can specify multiple .1ano files on the command line, and the GIX will be masked with the
 union of these.  Note carefully that the only way to change the mask encoded in a GIX is to rebuild the
-GIX.  By default FastGA now does not use the soft mask in the GIX's of the genomes, but the -M flag
+GIX.  By default FastGA now does not use the soft mask (if present) in the GIX's of the genomes, but the -M flag
 instructs it to so so.  You can also now follow each FastGA genome argument
 with a list of masks to apply (syntactically a primary argument beginning with #) in which case the
 GIX's will be rebuilt with the specified mask(s) and FastGA will soft mask accordingly.  Lastly, GDBtoFA and GDBshow now take an optional

@@ -4616,7 +4616,6 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -s: threshold for starting a new seed chain\n");
         fprintf(stderr,"      -l: minimum alignment length\n");
         fprintf(stderr,"      -i: minimum alignment identity\n");
-        fprintf(stderr,"      -S: seed adaptamers from both genomes\n");
         fprintf(stderr,"\n");
         exit (1);
       }
@@ -4769,7 +4768,7 @@ int main(int argc, char *argv[])
           nchar = sprintf(command,"GIXmake%s -T%d -P%s %s",
                           VERBOSE?" -v":"",NTHREADS,SORT_PATH,tpath1);
         for (k = 0; k < NMASK1; k++)
-          nchar += sprintf(command+nchar," @%s",MF1[k]);
+          nchar += sprintf(command+nchar," #%s",MF1[k]);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);
@@ -4813,7 +4812,7 @@ int main(int argc, char *argv[])
           nchar = sprintf(command,"GIXmake%s -T%d -P%s %s",
                           VERBOSE?" -v":"",NTHREADS,SORT_PATH,tpath2);
         for (k = 0; k < NMASK2; k++)
-          nchar += sprintf(command+nchar," @%s",MF2[k]);
+          nchar += sprintf(command+nchar," #%s",MF2[k]);
         if (system(command) != 0)
           { fprintf(stderr,"\n%s: Call to GIXmake failed\n",Prog_Name);
             Clean_Exit(1);

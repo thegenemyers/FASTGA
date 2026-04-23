@@ -41,9 +41,10 @@ static char *anoSchemaText =
   "D G 1 3 INT                 gap of given length\n"
   "D C 1 3 INT                 contig of given length\n"
   ".\n"
-  "O M 2 3 INT 8 INT_LIST      scaffold index, beg,end pair list\n"
-  "D L 1 6 STRING              optional tab-separated labels for preceeding M\n"
-  "D X 1 8 INT_LIST            optional list of scores for the preceeding M\n"
+  "O M 3 3 INT 3 INT 3 INT     scaffold index, beg,end pair\n"
+  "D L 1 6 STRING              optional label for preceeding M\n"
+  "D X 1 3 INT                 optional score for the preceeding M\n"
+  "D P 1 8 INT_LIST            optional partitioning of the preceeding M\n"
 ;
 
 OneSchema *make_ANO_Schema()
@@ -109,11 +110,13 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
   int        shared;
 
   int64          nints, nprov, nscaff;
-  int64          labtot, psize, nlines;
-  int            maxlab;
-  int64         *moff;
+  int64          labtot, partot, psize, nlines;
+  int           *moff;
   ANO_PAIR      *mask;
+  int            maxlab;
   char          *labs;
+  int            maxpar;
+  int           *points;
   char          *source;
   OneProvenance *prov;
 
@@ -203,9 +206,9 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
   //  Get sizes of things and allocate memory for ANO object
 
   nprov = of1->info['!']->accum.count;  //  Sigh, "given" counts don't work for provenance
-  oneStats(of1,'M',NULL,NULL,&nints);
+  oneStats(of1,'M',&nints,NULL,NULL);
   oneStats(of1,'L',&nlines,NULL,&labtot);
-  nints  /= 2;
+  oneStats(of1,'P',NULL,NULL,&partot);
   labtot += nlines;
   nscaff  = mydb->nscaff;
 
@@ -223,8 +226,12 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
     { mydb  = malloc(sizeof(GDB));
       *mydb = *skel;
     }
-  moff = malloc(sizeof(int64)*(mydb->ncontig+1));
+  moff = malloc(sizeof(int)*(mydb->ncontig+1));
   mask = malloc(sizeof(ANO_PAIR)*(nints+1));
+  if (partot > 0)
+    points = malloc(sizeof(int)*partot);
+  else
+    points = NULL;
   if (labtot > 0)
     labs = malloc(labtot);
   else
@@ -233,8 +240,8 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
     prov = malloc(psize);
   else
     prov = NULL;
-  if (mydb == NULL || moff == NULL || mask == NULL || (labtot > 0 && labs == NULL)
-                                                   || (psize  > 0 && prov == NULL)  )
+  if (mydb == NULL || moff == NULL || mask == NULL  || (labtot > 0 && labs == NULL)
+                   || (partot > 0 && points == NULL) || (psize  > 0 && prov == NULL)  )
     { EPRINTF("Could not allocate memory for ANO (Read_ANO)");
       goto error;
     }
@@ -285,9 +292,8 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
           map[s] = s;
       }
 
-    { int   nextL, nextX, len;
+    { int   nextL, nextX, nextP;
       int   scf;
-      char *lab;
 
       for (s = 0; s < nscaff; s++)
         count[s] = 0;
@@ -303,33 +309,33 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
                 free(map);
                 goto error;
               }
-            len = oneLen(of1) >> 1;
-            count[map[scf]] += len;
-            nextL = len;
-            nextX = len;
+            count[map[scf]] += 1;
+            nextL = 1;
+            nextX = 1;
             break;
           case 'L':
-            len = 1;
-            lab = oneString(of1);
-            for (lab = index(lab,'\t'); lab != NULL; lab = index(lab,'\t'))
-              { lab += 1;
-                len += 1;
-              }
-            if (nextL != len)
-              { EPRINTF("L-line must immediately follow an M-line and have same list length");
+            if (nextL != 1)
+              { EPRINTF("L-line must immediately follow an M-line");
                 free(map);
                 goto error;
               }
 	    nextL = 0;
             break;
           case 'X':
-            len = oneLen(of1);
-            if (nextX != len)
-              { EPRINTF("X-line must immediately follow an M-line and have same list length");
+            if (nextX != 1)
+              { EPRINTF("X-line must immediately follow an M-line");
                 free(map);
                 goto error;
               }
 	    nextX = 0;
+            break;
+          case 'P':
+            if (nextP != 1)
+              { EPRINTF("P-line must immediately follow an M-line");
+                free(map);
+                goto error;
+              }
+	    nextP = 0;
             break;
           default:
             EPRINTF("Do not recognize line of type %c(%d)",of1->lineType,of1->lineType);
@@ -354,64 +360,70 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
 
     //  2nd pass this time loading data
 
-    { int64  ltop, *list;
+    { int64  ltop, ptop;
       char  *str;
-      int    len, ldx, idx, scf;
-      int    n;
+      int    beg, end;
+      int    len, idx, scf;
+      int64 *list;
+      int    j;
 
       oneReadLine(of2);
       Skip_Skeleton(of2);
 
       maxlab = 0;
+      maxpar = 0;
       ltop   = 0;
+      ptop   = 0;
       do
         switch (of2->lineType)
         { case 'M':
             scf  = map[oneInt(of2,0)];
-            idx  = ldx = count[scf];
-            len  = oneLen(of2);
-            list = oneIntList(of2);
-            for (n = 0; n < len; n += 2)
-              { if (list[n] < list[n+1])
-                  { mask[idx].beg    = list[n];
-                    mask[idx].end    = list[n+1];
-                    mask[idx].orient = 0;
-                  }
-                else
-                  { mask[idx].beg    = list[n+1];
-                    mask[idx].end    = list[n];
-                    mask[idx].orient = 1;
-                  }
-                mask[idx].label = NULL;
-                mask[idx].score = 0;
-                idx += 1;
+            idx  = count[scf];
+            beg  = oneInt(of2,1);
+            end  = oneInt(of2,2);
+            if (beg < end)
+              { mask[idx].beg    = beg;
+                mask[idx].end    = end;
+                mask[idx].orient = 0;
               }
+            else
+              { mask[idx].beg    = end;
+                mask[idx].end    = beg;
+                mask[idx].orient = 1;
+              }
+            mask[idx].label = NULL;
+            mask[idx].score = 0;
+            mask[idx].parse = ptop;
+            idx += 1;
             count[scf] = idx;
             break;
           case 'L':
-            idx = ldx;
             str = labs+ltop;
+            len = oneLen(of2);
             strcpy(str,oneString(of2));
-            ltop += oneLen(of2);
+            ltop += len;
+            if (len > maxlab)
+              maxlab = len;
             labs[ltop++] = '\0';
-            mask[idx++].label = str; 
-            for (str = index(str,'\t'); str != NULL; str = index(str,'\t'))
-              { *str++ = '\0';
-                mask[idx++].label = str;
-              }
+            mask[idx-1].label = str; 
             break;
           case 'X':
-            idx  = ldx;
-            len  = oneLen(of2);
+            mask[idx-1].score = oneInt(of2,0);
+            break;
+          case 'P':
             list = oneIntList(of2);
-            for (n = 0; n < len; n++)
-              mask[idx++].score = list[n];
+            len = oneLen(of2);
+            for (j = 0; j < len; j++)
+              points[ptop++] = list[j];
+            if (len > maxpar)
+              maxpar = len;
             break;
           default:
             printf("Should not happen %c(%d)\n",of2->lineType,of2->lineType);
             break;
         }
       while (oneReadLine(of2));
+      mask[idx].parse = ptop;
     }
 
     //  sort ANO intervals for each scaffold if not already sorted
@@ -490,8 +502,10 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
   ano->nints   = nints;
   ano->moff    = moff;
   ano->masks   = mask;
-  ano->labels  = labs;
   ano->maxlab  = maxlab;
+  ano->labels  = labs;
+  ano->maxpar  = maxpar;
+  ano->points  = points;
 
   (void) Show_ANO;
 
@@ -502,6 +516,7 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
 error:
   free(prov);
   free(labs);
+  free(points);
   free(mask);
   free(moff);
   if (!shared)
@@ -517,7 +532,7 @@ error:
   
 extern bool addProvenance(OneFile *of, OneProvenance *from, int n) ; // backdoor - clean up some day
   
-int Write_ANO(ANO *ano, char *tpath, int width)   
+int Write_ANO(ANO *ano, char *tpath)
 { OneSchema *schema;                   
   OneFile   *of;                       
   bool       binary;                   
@@ -560,14 +575,12 @@ int Write_ANO(ANO *ano, char *tpath, int width)
 
   Write_Skeleton(of,gdb);
 
-  { int        idx, scf, nobj, scored;
+  { int        idx, scf, nobj;
     ANO_PAIR  *mask;
-    int64     *moff;
-    char      *s;
-    int64      base;
-    int        j, p, k, end, len;
-    int64      mbuffer[2*width];
-    char       mstring[width*(ano->maxlab+1)];
+    int       *moff;
+    int64      base, plist[ano->maxpar];
+    int        j, end;
+    int        k, len, *point;
 
     nobj = gdb->ncontig;
     mask = ano->masks;
@@ -576,49 +589,33 @@ int Write_ANO(ANO *ano, char *tpath, int width)
       { base = gdb->contigs[idx].sbeg;
         scf  = gdb->contigs[idx].scaf;
         end  = moff[idx+1];
-        for (j = moff[idx]; j < end; j += width)
+        for (j = moff[idx]; j < end; j++)
           { oneInt(of,0) = scf;
-            if (j + width > end)
-              len = 2*(end-j);
+            if (mask[j].orient)
+              { oneInt(of,1) = mask[j].end + base;
+                oneInt(of,2) = mask[j].beg + base;
+              }
             else
-              len = 2*width;
-
-            p = j;
-            for (k = 0; k < len; k += 2)
-              if (mask[p].orient)
-                { mbuffer[k]   = mask[p].end + base;
-                  mbuffer[k+1] = mask[p++].beg + base;
-                }
-              else
-                { mbuffer[k]   = mask[p].beg + base;
-                  mbuffer[k+1] = mask[p++].end + base;
-                }
-            oneWriteLine(of,'M',len,mbuffer);
-
-            len /= 2;
-            s = mstring;
-            p = j;
-            for (k = 0; k < len; k++)
-              { if (mask[p].label == NULL)
-                  p += 1;
-                else
-                  s = stpcpy(s,mask[p++].label);
-                *s++ = '\t';
+              { oneInt(of,1) = mask[j].beg + base;
+                oneInt(of,2) = mask[j].end + base;
               }
-            s[-1] = '\0';
-            if (s - mstring > len)
-              oneWriteLine(of,'L',s-mstring,mstring);
-
-            p = j;
-            scored = 0;
-            for (k = 0; k < len; k++)
-              { mbuffer[k] = mask[p].score;
-                if (mask[p].score > 0)
-                  scored = 1;
-                p += 1;
+            oneWriteLine(of,'M',0,NULL);
+    
+            if (mask[j].label != NULL)
+              oneWriteLine(of,'L',strlen(mask[j].label),mask[j].label);
+    
+            if (mask[j].score > 0)
+              { oneInt(of,0) = mask[j].score;
+                oneWriteLine(of,'X',0,NULL);
               }
-            if (scored)
-              oneWriteLine(of,'X',len,mbuffer);
+
+            len = mask[j+1].parse - mask[j].parse;
+            if (len > 0)
+              { point = ano->points+mask[j].parse;
+                for (k = 0; k < len; k++)
+                  plist[k] = point[k];
+                oneWriteLine(of,'P',len,plist);
+              }
           }
       }
   }
@@ -628,7 +625,8 @@ int Write_ANO(ANO *ano, char *tpath, int width)
 }
 
 void Free_ANO(ANO *ano)
-{ free(ano->labels);
+{ free(ano->points);
+  free(ano->labels);
   free(ano->masks);
   free(ano->moff);
   free(ano->prov);
@@ -678,7 +676,7 @@ static void heapify(int s, ANO_PAIR **heap, int hsize)
 int ANO_Union(ANO *tano,int nway, ANO **sanos)
 { int            nints, nscaff, nprov, mlen;
   GDB           *gdb;
-  int64         *moff;
+  int           *moff;
   ANO_PAIR      *masks;
   OneProvenance *prov;
 
@@ -722,14 +720,14 @@ int ANO_Union(ANO *tano,int nway, ANO **sanos)
     int64     end;
     int       i, j;
 
-    nints = 0;
+    nints   = 0;
     for (i = 0; i < nway; i++)
       beg[i] = sanos[i]->masks[0].beg;
     for (j = 0; j < mlen; j++)
       { hsize = 0;
         for (i = 0; i < nway; i++)
           { ANO_PAIR *mk;
-            int64    *mo;
+            int      *mo;
 
             mk = sanos[i]->masks;
             mo = sanos[i]->moff;
@@ -785,7 +783,7 @@ int ANO_Union(ANO *tano,int nway, ANO **sanos)
         }
     psize += nprov * sizeof(OneProvenance);
 
-    moff    = malloc(sizeof(int64)*(mlen+1));
+    moff    = malloc(sizeof(int)*(mlen+1));
     masks   = malloc(sizeof(ANO_PAIR)*(nints+1));
     if (psize > 0)
       prov  = malloc(psize);
@@ -834,7 +832,7 @@ int ANO_Union(ANO *tano,int nway, ANO **sanos)
         hsize = 0;
         for (i = 0; i < nway; i++)
           { ANO_PAIR *mk;
-            int64    *mo;
+            int      *mo;
 
             mk = sanos[i]->masks;
             mo = sanos[i]->moff;
@@ -864,6 +862,7 @@ int ANO_Union(ANO *tano,int nway, ANO **sanos)
                 mcur += 1;
                 masks[mcur].beg    = pair->beg;
                 masks[mcur].label  = NULL;
+                masks[mcur].parse  = 0;
                 masks[mcur].orient = 0;
                 masks[mcur].score  = 0;
                 end = pair->end;
@@ -896,6 +895,7 @@ int ANO_Union(ANO *tano,int nway, ANO **sanos)
   tano->moff    = moff;
   tano->masks   = masks;
   tano->labels  = NULL;
+  tano->points  = NULL;
 
   return (0);
 

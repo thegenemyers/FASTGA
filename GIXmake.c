@@ -1005,7 +1005,7 @@ static void *setup_thread_with_masks(void *args)
 
   GDB_CONTIG *contigs = gdb->contigs;
   ANO_PAIR   *masks   = MASK_ANO->masks, tempm;
-  int64      *moff    = MASK_ANO->moff;
+  int        *moff    = MASK_ANO->moff;
   int         nextm, lastm, pbg;
 
   flag = (0x1ll << (8*ContBytes-1));

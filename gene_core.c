@@ -50,6 +50,19 @@ int WPRINTF(char *format, ...)
   return (rval);
 }
 
+char *SafeTemp(char *template)
+{ close(mkstemp(template));
+  unlink(template);
+  return (template);
+}
+
+void SystemX(char *command)
+{ if (system(command) != 0)
+    { fprintf(stderr,"%s: Command '%s' failed\n",Prog_Name,command);
+      exit (1);
+    }
+}
+
 void *Malloc(int64 size, char *mesg)
 { void *p;
 
@@ -356,26 +369,31 @@ void Compress_Read(int len, char *s)
 
 //  Uncompress read form 2-bits per base into [0-3] per byte representation
 
-void Uncompress_Read(int len, char *s)
+void Uncompress_Read(int len, char *s, int beg)
 { int   i, tlen, byte;
   char *s0, *s1, *s2, *s3;
   char *t;
 
-  s0 = s;
+  beg &= 0x3;
+
+  s0 = s-beg;
   s1 = s0+1;
   s2 = s1+1;
   s3 = s2+1;
 
-  tlen = (len-1)/4;
+  tlen = ((len+beg)-1)/4;
 
   t = s+tlen;
-  for (i = tlen*4; i >= 0; i -= 4)
+  for (i = tlen*4; i >= 4; i -= 4)
     { byte = *t--;
       s3[i] = (char) ((byte >> 6) & 0x3);
       s2[i] = (char) ((byte >> 4) & 0x3);
       s1[i] = (char) ((byte >> 2) & 0x3);
       s0[i] = (char) (byte & 0x3);
     }
+  byte = *t;
+  for (i = 3; i >= beg; i--)
+    s0[i] = ((byte >> (2*i)) & 0x3);
   s[len] = 4;
 }
 

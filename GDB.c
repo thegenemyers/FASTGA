@@ -443,7 +443,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
 { GDB_SCAFFOLD  *scaffs;
   GDB_CONTIG    *contigs;
   ANO_PAIR      *masks;
-  int64         *moff;
+  int           *moff;
   OneProvenance *prov;
   char          *headers, *seqpath;
   int            ctgtop, scftop;
@@ -528,7 +528,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
   scaffs  = malloc(scftop*sizeof(GDB_CONTIG));
   headers = malloc(hdrtop);
   masks   = malloc((msktop+1)*sizeof(ANO_PAIR));
-  moff    = malloc((ctgtop+1)*sizeof(int64));
+  moff    = malloc((ctgtop+1)*sizeof(int));
   if (*spath != '/')
     gdb->srcpath = strdup(MyCatenate(getcwd(NULL,0),"/",spath,""));
   else
@@ -662,7 +662,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
             if (ncontig >= ctgtop)
               { ctgtop = 1.2*ncontig + 1000;
                 contigs = realloc(contigs,(ctgtop+1)*sizeof(GDB_CONTIG));
-                moff    = realloc(moff,(ctgtop+1)*sizeof(int64));
+                moff    = realloc(moff,(ctgtop+1)*sizeof(int));
                 if (contigs == NULL || moff == NULL)
                   { EPRINTF("Out of memory creating GDB for %s",spath);
                     goto error;
@@ -775,7 +775,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
       char         *line;
       int64         bpos, mpos, mask;
       int           nin, lastn;
-      int           boc, eoc;
+      int           boc, eoc, allow;
       int           s, x, m;
       uint8         byte;
 
@@ -794,6 +794,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
 
       nprov = 0;
       prov  = NULL;
+      allow = 1;
     
       //  Get the header of the first line.  If the file is empty skip.
     
@@ -928,7 +929,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
                           if (ncontig >= ctgtop)
                             { ctgtop = 1.2*ncontig + 1000;
                               contigs = realloc(contigs,(ctgtop+1)*sizeof(GDB_CONTIG));
-                              moff    = realloc(moff,(ctgtop+1)*sizeof(int64));
+                              moff    = realloc(moff,(ctgtop+1)*sizeof(int));
                               if (contigs == NULL || moff == NULL)
                                 { EPRINTF("Out of memory creating GDB for %s",spath);
                                   goto error;
@@ -1002,6 +1003,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
                               nmasks += 1;
                               mask = -1;
                             }
+                          allow = 0;
                         }
                       else
                         { if (mask < 0)
@@ -1055,6 +1057,8 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
         gzclose(input);
       else
         fclose(input);
+      if (allow)
+        nmasks = 0;
     }
 
   if (bps > 0)
@@ -1497,7 +1501,7 @@ int Load_Sequences(GDB *gdb, int stype)
               EXIT(1);
             }
         }
-      Uncompress_Read(len,seq+off);
+      Uncompress_Read(len,seq+off,0);
       if (stype > NUMERIC)
         translate(seq+off);
       c[i].boff = off;
@@ -1761,7 +1765,7 @@ char *Get_Contig(GDB *gdb, int i, int stype, char *buffer)
     { if (gdb->seqstate == COMPRESSED)
         { memcpy(buffer,m + off,COMPRESSED_LEN(len));
           if (stype >= NUMERIC)
-            Uncompress_Read(len,buffer);
+            Uncompress_Read(len,buffer,0);
           if (stype == LOWER_CASE)
             Lower_Read(buffer);
           else if (stype == UPPER_CASE)
@@ -1811,7 +1815,7 @@ char *Get_Contig(GDB *gdb, int i, int stype, char *buffer)
   if (stype == COMPRESSED)
     return (buffer);
 
-  Uncompress_Read(len,buffer);
+  Uncompress_Read(len,buffer,0);
   if (stype == NUMERIC)
     buffer[-1] = 4;
   else if (stype == LOWER_CASE)
@@ -1867,16 +1871,14 @@ char *Get_Contig_Piece(GDB *gdb, int i, int beg, int end, int stype, char *buffe
   if (gdb->seqstate != EXTERNAL)
     { if (gdb->seqstate == COMPRESSED)
         { memcpy(buffer,m + off,clen);
-          Uncompress_Read(len,buffer);
-          buffer += beg%4;
-          buffer[len] = 4;
+          Uncompress_Read(len,buffer,beg);
           if (stype == LOWER_CASE)
             Lower_Read(buffer);
           else if (stype == UPPER_CASE)
             Upper_Read(buffer);
         }
       else
-        { memcpy(buffer,m + off + (beg%4),len+1);
+        { memcpy(buffer,m + off + beg,len);
           buffer[len] = '\0';
           if (stype != gdb->seqstate)
             { if (stype == NUMERIC)
@@ -1911,9 +1913,7 @@ char *Get_Contig_Piece(GDB *gdb, int i, int beg, int end, int stype, char *buffe
           EXIT(NULL);
         }
     }
-  Uncompress_Read(4*clen,buffer);
-  buffer += beg%4;
-  buffer[len] = 4;
+  Uncompress_Read(len,buffer,beg);
   if (stype == NUMERIC)
     buffer[-1] = 4;
   else if (stype == LOWER_CASE)

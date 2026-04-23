@@ -125,6 +125,10 @@ int WPRINTF(char *format, ...);
 
 //  The following general utilities return NULL if any of their input pointers are NULL, or if they
 //    could not perform their function (in which case they also print an error to stderr).
+    
+char *SafeTemp(char *name_core);                         //  mkstemp used for safe temporary
+    
+void SystemX(char *command);                             //  Guarded version of system
 
 void *Malloc(int64 size, char *mesg);                    //  Guarded versions of malloc, realloc
 void *Realloc(void *object, int64 size, char *mesg);     //  and strdup, that output "mesg" to
@@ -153,8 +157,8 @@ int  Number_Digits(int64 num);                            //  Return # of digits
 
 #define COMPRESSED_LEN(len)  (((len)+3) >> 2)
 
-void   Compress_Read(int len, char *s);   //  Compress read in-place into 2-bit form
-void Uncompress_Read(int len, char *s);   //  Uncompress read in-place into numeric form
+void   Compress_Read(int len, char *s);            //  Compress read in-place into 2-bit form
+void Uncompress_Read(int len, char *s, int beg);   //  Uncompress read in-place into numeric form
 void      Print_Read(char *s, int width);
 
 void Lower_Read(char *s);     //  Convert read from numbers to lowercase letters (0-3 to acgt)

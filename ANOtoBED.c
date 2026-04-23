@@ -107,11 +107,12 @@ int main(int argc, char *argv[])
   { GDB_CONTIG   *ctg;
     GDB_SCAFFOLD *scf;
     ANO_PAIR     *mask;
+    int          *points;
     int           nctg;
-    int64        *moff;
+    int          *moff;
     char         *hdr, *h;
     char          date[20];
-    int           c, m, t;
+    int           c, m, t, k;
     time_t        now;
 
     scf  = ano->gdb->scaffolds;
@@ -119,8 +120,9 @@ int main(int argc, char *argv[])
     hdr  = ano->gdb->headers;
     nctg = ano->gdb->ncontig;
 
-    mask = ano->masks;
-    moff = ano->moff;
+    mask   = ano->masks;
+    moff   = ano->moff;
+    points = ano->points;
 
     printf("# Provenance:\n");
     for (c = 0; c < ano->nprov; c++)
@@ -140,6 +142,12 @@ int main(int argc, char *argv[])
               fprintf(output,"\t%d\t+\n",mask[m].score);
             else
               fprintf(output,"\t%d\t-\n",mask[m].score);
+            if (mask[m].parse < mask[m+1].parse)
+              { fprintf(output,"# Parse:");
+                for (k = mask[m].parse; k < mask[m+1].parse; k++)
+                  fprintf(output," %d",points[k]);
+                fprintf(output,"\n");
+              }
           }
       }
   }

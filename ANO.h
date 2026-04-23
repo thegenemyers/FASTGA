@@ -25,9 +25,10 @@
 typedef struct
   { int64  beg;     //  [beg,end] interval, in contig coords (externally coords are for scaffolds)
     int64  end;
-    int    score;   //  score of anotation
     int    orient;  //  orientation of interval: + = 0, - = 1
+    int    score;   //  score of anotation, 0 => none
     char  *label;   //  NULL if none
+    int    parse;   //  points[masks[m].parse,masks[m+1].parse) are the parse points for anno. m
   } ANO_PAIR;
 
 typedef struct _ANO
@@ -36,15 +37,17 @@ typedef struct _ANO
 
     int            shared;     //  the gdb is not owned by this bed
     GDB           *gdb;        //  the GDB to which this ANO applies
+    char          *headers;    //  pointer to memory block of all headers
 
     int           nints;      //  # of bed intervals
     ANO_PAIR     *masks;      //  array [0..nints) of mask records
 
-    int64        *moff;       //  [moff[i],moff[i+1]) are the ANO intervals for contig i
+    int          *moff;       //  masks[moff[i],moff[i+1]) are the ANO intervals for sequence i
 
     int           maxlab;     //  length of longest label
     char         *labels;     //  pointer to memory block of all labels
-    char         *headers;    //  pointer to memory block of all headers
+    int           maxpar;     //  length of longest parse array
+    int          *points;     //  pointer to memory block of all parse points (NULL if none)
   } ANO;
 
 
@@ -63,10 +66,9 @@ OneSchema *make_ANO_Schema();    //  Make a .1bed schema
 
 int Read_ANO(ANO *bed, char *spath, GDB *gdb);
 
-  //  Create and write a .1bed file tpath for the ANO data structure bed.  Each M-line
-  //    will contain at most width pairs
+  //  Create and write a .1bed file tpath for the ANO data structure bed.
 
-int Write_ANO(ANO *bed, char *tpath, int width);
+int Write_ANO(ANO *bed, char *tpath);
 
   //  Create an unlabelled bed that is the union of the beds sbeds[i] for i = 0 to nway-1.
   //    The input beds are checked for equality where they must all have the same

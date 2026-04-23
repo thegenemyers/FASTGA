@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
   { GDB_CONTIG   *ctg;
     GDB_SCAFFOLD *scf;
     ANO_PAIR     *mask;
-    int64        *moff;
+    int          *moff;
     char         *hdr;
     int           nscf;
     char         *contig, *header;

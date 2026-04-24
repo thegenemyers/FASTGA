@@ -61,7 +61,7 @@
   //  Command line syntax and global parameter variables
 
 static char *Usage[] =
-  { "[-vSL] [-T<int(4)>] [-p[:<output:path>[.pdf]]]",
+  { "[-vGSL] [-T<int(4)>] [-p[:<output:path>[.pdf]]]",
     "[-l<int(100)>] [-i<float(.7)>] [-n<int(100000)>]",
     "[-H<int(600)>] [-W<int>] [-f<int>] [-t<float>]",
     "<alignment:path>[.1aln|.paf[.gz]]> [<selection>|<FILE> [<selection>|<FILE>]]",
@@ -84,6 +84,8 @@ static int    IMGHEIGH = 0;       // -H
 static int    IMGWIDTH = 0;       // -W
 static int    FONTSIZE = 0;       // -f
 static double LINESIZE = 0;       // -t
+
+static int    NOGRID = 0;         // -G
 
   //  Array of segments to plot
 
@@ -1490,15 +1492,16 @@ void make_plot(FILE *fo)
     }
 
   // write grid lines
-  eps_gray(fo, .6);
-  eps_linewidth(fo, gsize);
-  for (i = 0; i < nyseq-1; i++)
-    eps_linex(fo, xmargin, xmargin+bsize*2+width,  ymargin+bsize+syoff[i]*sy-gsize/2);
-  for (i = 0; i < nxseq-1; i++)
-    eps_liney(fo, ymargin, ymargin+bsize*2+height, xmargin+bsize+sxoff[i]*sx-gsize/2);
-  eps_stroke(fo);
-  eps_gray(fo, 0);
-
+  if (!NOGRID) 
+    { eps_gray(fo, .6);
+      eps_linewidth(fo, gsize);
+      for (i = 0; i < nyseq-1; i++)
+        eps_linex(fo, xmargin, xmargin+bsize*2+width,  ymargin+bsize+syoff[i]*sy-gsize/2);
+      for (i = 0; i < nxseq-1; i++)
+        eps_liney(fo, ymargin, ymargin+bsize*2+height, xmargin+bsize+sxoff[i]*sx-gsize/2);
+      eps_stroke(fo);
+      eps_gray(fo, 0);
+    }
   // write border lines
   eps_linewidth(fo, bsize);
   eps_linex(fo, xmargin, xmargin+bsize*2+width,  ymargin+bsize/2);
@@ -1573,7 +1576,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
           { default:
-              ARG_FLAGS("vSL")
+              ARG_FLAGS("vGSL")
               // ARG_FLAGS("vhdSL")
               break;
             case 'f':
@@ -1615,6 +1618,7 @@ int main(int argc, char *argv[])
     // HIGHLIGHT = flags['h'];
     // TRYADIAG  = flags['d'];
     PRINTSID  = flags['S'];
+    NOGRID    = flags['G'];
     LABELS    = 1-flags['L'];
   
     if (argc < 2 || argc > 4)
@@ -1649,6 +1653,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -W: image width\n");
         fprintf(stderr,"      -f: label font size\n");
         fprintf(stderr,"      -t: line thickness\n");
+        fprintf(stderr,"      -G: do not draw grid\n");
         // fprintf(stderr,"      -h: highlight sequences in groups\n");
         exit (1);
       }

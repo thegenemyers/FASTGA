@@ -300,6 +300,7 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
 
       nextL = 0;
       nextX = 0;
+      nextP = 0;
       do
         switch (of1->lineType)
         { case 'M':
@@ -312,6 +313,7 @@ int Read_ANO(ANO *ano, char *path, GDB *gdb)
             count[map[scf]] += 1;
             nextL = 1;
             nextX = 1;
+            nextP = 1;
             break;
           case 'L':
             if (nextL != 1)

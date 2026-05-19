@@ -1092,13 +1092,19 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
   if (ano != NULL)
     { ano->nints = nmasks;
       if (nmasks > 0)
-        { ano->nprov   = 0;
+        { int i, maxpar = 0;
+          for (i = 1; i < ncontig; i++)
+            if (moff[i] - moff[i-1] > maxpar)
+              maxpar = moff[i] - moff[i-1];
+
+          ano->nprov   = 0;
           ano->prov    = NULL;
           ano->gdb     = gdb;
           ano->shared  = 1;
           ano->moff    = moff;
           masks        = realloc(masks,(nmasks+1)*sizeof(ANO_PAIR));
           ano->masks   = masks;
+          ano->maxpar  = maxpar;
           ano->labels  = NULL;
           ano->maxlab  = 0;
         }

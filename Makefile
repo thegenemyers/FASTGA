@@ -87,7 +87,7 @@ ANOtoBED: ANOtoBED.c GDB.c GDB.h ANO.c ANO.h ONElib.c ONElib.h
 	$(CC) $(CFLAGS) -o ANOtoBED ANOtoBED.c GDB.c ANO.c gene_core.c ONElib.c -lm -lz
 
 BEDtoANO: BEDtoANO.c hash.c hash.h GDB.c GDB.h ANO.c ANO.h ONElib.c ONElib.h
-	$(CC) $(CFLAGS) -o BEDtoANO BEDtoANO.c hash.c GDB.c ANO.c gene_core.c ONElib.c -lm -lz
+	$(CC) $(CFLAGS) -o BEDtoANO BEDtoANO.c hash.c GDB.c ANO.c gene_core.c ONElib.c -lpthread -lm -lz
 
 clean:
 	rm -f $(ALL)

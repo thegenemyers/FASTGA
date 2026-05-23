@@ -181,6 +181,14 @@ void *gen_paf(void *args)
       ascaff = contigs1[acontig].scaf;
       bscaff = contigs2[bcontig].scaf;
 
+      // Validate alignment coordinates are within bounds
+      // Skip alignments with invalid coordinates (can occur from edge cases in wave algorithm)
+      if (path->abpos < 0 || path->aepos > aln->alen || path->abpos >= path->aepos ||
+          path->bbpos < 0 || path->bepos > aln->blen || path->bbpos >= path->bepos)
+        { continue;  // Skip this invalid alignment (do NOT set alast, so sequence gets
+                      //   reloaded for next valid alignment on this contig)
+        }
+
       aoff = contigs1[acontig].sbeg;
 
       if (SWAP_G)

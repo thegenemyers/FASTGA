@@ -1111,6 +1111,7 @@ FILE **Create_GDB(GDB *gdb, char *spath, int ftype, int bps, char *tpath, int nt
           ano->maxpar  = maxpar;
           ano->labels  = NULL;
           ano->maxlab  = 0;
+          ano->points  = NULL;
         }
        else
          { free(moff);

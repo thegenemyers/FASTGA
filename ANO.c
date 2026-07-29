@@ -580,9 +580,11 @@ int Write_ANO(ANO *ano, char *tpath)
   { int        idx, scf, nobj;
     ANO_PAIR  *mask;
     int       *moff;
-    int64      base, plist[ano->maxpar];
+    int64      base, *plist;
     int        j, end;
     int        k, len, *point;
+
+    plist = malloc(sizeof(int64)*ano->maxpar);
 
     nobj = gdb->ncontig;
     mask = ano->masks;
@@ -620,6 +622,7 @@ int Write_ANO(ANO *ano, char *tpath)
               }
           }
       }
+    free(plist);
   }
 
   oneFileClose(of);
